@@ -574,6 +574,19 @@ struct Checks {
             if missed.observe(view.cells, image: view.image, atTop: position % 220 == 0) != expected, !view.cells.isEmpty { missedHeld = false }
         }
         check(missedHeld && resets.isEmpty, "A reading that misses the panel's labels mid-scroll does not restart the row count")
+        // Scrolled down, the browser closed (the tiles gone), then reopened at the top a moment later:
+        // the count starts again at R1, it is not left lost.
+        let reopening = Desktop.StyleRowTracker()
+        // With a scrollbar, so the counter has learned where it sits at the top...
+        for position in stride(from: 0, through: 460, by: 23) {
+            _ = reopening.observe(smoothView(scroll: position, thumb: true).cells, image: smoothView(scroll: position, thumb: true).image, atTop: position == 0)
+        }
+        let gone = CGContext(data: nil, width: 900, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
+        _ = reopening.observe([], image: gone, panelOpen: false); _ = reopening.observe([], image: gone, panelOpen: false)
+        // ...but on reopening it does not read the same (here: not at all), which must not leave it lost.
+        check(reopening.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true) == 0,
+              "Closed and reopened within a moment, the browser counts from R1 again")
         let barred = Desktop.StyleRowTracker()
         for position in stride(from: 0, through: 300, by: 25) {
             let view = smoothView(scroll: position, thumb: true)

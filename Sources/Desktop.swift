@@ -1178,6 +1178,8 @@ final class Desktop {
         private var thumbFit: [(thumb: Double, scroll: Double)] = []
         /// Where the thumb sits with the list at its top, and whether the browser was seen closed since.
         private var topThumb: Double?
+        /// Looks in a row where neither the text nor the pixels showed the list.
+        private var goneFrames = 0
         /// Told each time the count restarts at R1, with why, so a wrong restart shows in the log.
         var onReset: ((String) -> Void)?
         private var sawClosed = false
@@ -1196,10 +1198,19 @@ final class Desktop {
                 // "Not open" comes from the text reading, which can miss the panel's labels for a moment.
                 // The pixels decide: while the list being followed is still on screen, moving as expected,
                 // the browser is open whatever the reading says, and nothing is armed to reset the count.
-                if strip != nil, imageSize == (image.width, image.height), follow(image) {
-                    closedSince = nil
-                    return offset
+                // Only a trial: if the list is not there, nothing about the count is changed by looking.
+                if strip != nil, imageSize == (image.width, image.height), scroll != nil, sampleKind == image.bitmapInfo.rawValue {
+                    let current = sample(image)
+                    if let moved = displacement(previous, current) {
+                        scroll = scroll.map { $0 + moved }; previous = current; velocity = moved
+                        closedSince = nil; goneFrames = 0
+                        return offset
+                    }
                 }
+                // Text and pixels agree the list is gone. Twice in a row, that is the browser closed: it
+                // reopens at the top, so the next look counts from R1 at once, however soon it comes.
+                goneFrames += 1
+                if goneFrames >= 2 { fresh = true }
                 // Gone for a while: the browser was closed, and reopens at the top. Measured in time, not
                 // looks, so one reading that misses the labels cannot reset a count being followed.
                 let since = closedSince ?? Date()
@@ -1209,7 +1220,7 @@ final class Desktop {
                 sawClosed = true
                 return offset
             }
-            closedSince = nil
+            closedSince = nil; goneFrames = 0
             // Another window size moves everything the strip was measured on.
             // The scrollbar's measures belong to one window size; they survive the browser closing.
             if imageSize != (image.width, image.height) { scroll = nil; offset = nil; strip = nil; thumbFit = []; topThumb = nil }
