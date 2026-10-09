@@ -50,7 +50,10 @@ final class Store: ObservableObject {
     @Published var proposal: Decision?
     @Published var busy = false { didSet { if busy != oldValue { updateLiveFeed() } } }
     @Published var running = false { didSet { if !running { activeFunction = nil; runStarted = nil } } }
-    @Published var runPaused = false
+    @Published var runPaused = false {
+        // The overlay's circle continues a paused run; it takes no clicks otherwise.
+        didSet { overlay.setContinue(running && runPaused) { [weak self] in if self?.runPaused == true { self?.toggleRunPause() } } }
+    }
     /// The page showing, and the job running (at most one).
     @Published var function: EditFunction = .highlight
     @Published var activeFunction: EditFunction?
@@ -163,7 +166,7 @@ final class Store: ObservableObject {
         desktop.armed = false
         status = "Paused · Keep the editor selection in place, then Continue"
         overlay.update(step: project.completed.count, limit: targets.count, headline: "Paused",
-                       detail: "Continue resumes this pass; Stop ends it", confidence: nil, paused: true)
+                       detail: "Click ▶ here or Continue in Edit Assist to resume; Stop ends it", confidence: nil, paused: true)
         while runPaused {
             try Task.checkCancellation()
             try await Task.sleep(for: .milliseconds(100))

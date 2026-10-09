@@ -17,7 +17,7 @@ final class RunOverlay {
 
     func show(on frame: CGRect) {
         if panel == nil {
-            let hosting = NSHostingView(rootView: OverlayView(model: model))
+            let hosting = FirstClickHostingView(rootView: OverlayView(model: model))
             let created = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                   backing: .buffered, defer: false)
             created.contentView = hosting
@@ -50,6 +50,14 @@ final class RunOverlay {
         model.detail = detail
         model.confidence = confidence
         model.paused = paused
+    }
+
+    /// Turns the circle into a Continue button while the run is paused. Only then does the overlay take
+    /// clicks at all; the rest of the time they pass straight through to the editor beneath it.
+    func setContinue(_ available: Bool, action: (() -> Void)?) {
+        model.canContinue = available
+        model.onContinue = available ? action : nil
+        panel?.ignoresMouseEvents = !available
     }
 
     /// Shows the style you picked beside the progress, or clears it with nil.
@@ -161,6 +169,9 @@ private final class OverlayModel: ObservableObject {
     @Published var confidence: Double?
     @Published var paused = false
     @Published var reference: NSImage?
+    /// The run is paused and the circle continues it when clicked.
+    @Published var canContinue = false
+    var onContinue: (() -> Void)?
     @Published var referenceLabel = ""
 }
 
@@ -170,12 +181,18 @@ private struct OverlayView: View {
 
     var body: some View {
         HStack(spacing: 13) {
-            ZStack {
-                Circle().fill((model.paused ? Color.orange : accent).opacity(0.18)).frame(width: 34, height: 34)
-                Image(systemName: model.paused ? "pause.fill" : "cursorarrow.motionlines")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(model.paused ? .orange : accent)
+            // While the run is paused this is the Continue button; otherwise it only shows the state.
+            Button { model.onContinue?() } label: {
+                ZStack {
+                    Circle().fill((model.canContinue ? accent : model.paused ? Color.orange : accent).opacity(model.canContinue ? 0.28 : 0.18))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: model.canContinue ? "play.fill" : model.paused ? "pause.fill" : "cursorarrow.motionlines")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(model.canContinue ? accent : model.paused ? .orange : accent)
+                }
             }
+            .buttonStyle(.plain).disabled(!model.canContinue)
+            .help(model.canContinue ? "Continue this pass" : "")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     Text(model.headline).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
@@ -293,4 +310,10 @@ private struct InspectionView: View {
         }
         .allowsHitTesting(false)
     }
+}
+
+/// Takes the first click even though Edit Assist is not the active app, so the overlay's Continue
+/// button works with one click while you are in the editor.
+private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
