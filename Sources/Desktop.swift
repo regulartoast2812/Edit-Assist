@@ -44,6 +44,8 @@ struct Observation {
     var timestamp = Date()
     /// When the text was read. A pixel-only look reuses an earlier reading of the layout.
     var textTimestamp = Date()
+    /// The Properties panel's Text section, read in the background together with the text.
+    var section: Desktop.TextSection?
     /// Encoded only when asked for: the model path and debug dumps need it, OCR mode does not, and
     /// encoding a 2400-pixel window with its coordinate grid took 67 ms on every capture.
     @MainActor var png: Data { Desktop.gridded(image) ?? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) ?? Data() }
@@ -53,6 +55,7 @@ struct Observation {
         var copy = self
         copy.text = earlier.text
         copy.textTimestamp = earlier.textTimestamp
+        copy.section = earlier.section
         return copy
     }
 }
@@ -307,6 +310,65 @@ final class Desktop {
         }
     }
 
+    /// Where two captures of the same window differ, as a few rectangles (normalized), and what share
+    /// of the window that is. Compared on a coarse grid, so a blinking caret or a moving playhead
+    /// marks a small area, not the whole window.
+    nonisolated static func changedAreas(from before: CGImage, to after: CGImage) -> (rects: [CGRect], coverage: Double) {
+        let columns = 96, rows = 64
+        let whole = CGRect(x: 0, y: 0, width: before.width, height: before.height)
+        let a = patch(of: before, rect: whole, width: columns, height: rows), b = patch(of: after, rect: whole, width: columns, height: rows)
+        var dirty = [Bool](repeating: false, count: columns * rows)
+        for i in 0 ..< columns * rows {
+            let k = i * 4
+            let difference = abs(Int(a[k]) - Int(b[k])) + abs(Int(a[k + 1]) - Int(b[k + 1])) + abs(Int(a[k + 2]) - Int(b[k + 2]))
+            dirty[i] = difference > 24
+        }
+        // Group touching dirty cells (one cell of slack) into rectangles.
+        var seen = [Bool](repeating: false, count: columns * rows)
+        var rects: [CGRect] = []
+        for start in 0 ..< columns * rows where dirty[start] && !seen[start] {
+            var stack = [start], minX = columns, maxX = 0, minY = rows, maxY = 0
+            seen[start] = true
+            while let cell = stack.popLast() {
+                let x = cell % columns, y = cell / columns
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                for dy in -2 ... 2 { for dx in -2 ... 2 {
+                    let nx = x + dx, ny = y + dy
+                    guard nx >= 0, nx < columns, ny >= 0, ny < rows else { continue }
+                    let next = ny * columns + nx
+                    if dirty[next] && !seen[next] { seen[next] = true; stack.append(next) }
+                } }
+            }
+            rects.append(CGRect(x: CGFloat(max(0, minX - 1)) / CGFloat(columns), y: CGFloat(max(0, minY - 1)) / CGFloat(rows),
+                                width: CGFloat(min(columns, maxX + 2) - max(0, minX - 1)) / CGFloat(columns),
+                                height: CGFloat(min(rows, maxY + 2) - max(0, minY - 1)) / CGFloat(rows)))
+        }
+        let coverage = rects.reduce(0.0) { $0 + Double($1.width * $1.height) }
+        return (rects, coverage)
+    }
+
+    /// The text of `image`, re-reading only `areas` and keeping the earlier reading elsewhere. An area
+    /// is widened to whole lines of the earlier reading it touches, so no line is read in part.
+    nonisolated static func reread(_ image: CGImage, areas: [CGRect], keeping earlier: [TextHit]) -> [TextHit] {
+        var widened: [CGRect] = []
+        for area in areas {
+            var rect = area
+            for hit in earlier where hit.rect.intersects(rect) { rect = rect.union(hit.rect.insetBy(dx: -0.004, dy: -0.004)) }
+            widened.append(rect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1)))
+        }
+        var hits = earlier.filter { hit in !widened.contains { $0.intersects(hit.rect) } }
+        for rect in widened {
+            let pixels = CGRect(x: rect.minX * CGFloat(image.width), y: rect.minY * CGFloat(image.height),
+                                width: rect.width * CGFloat(image.width), height: rect.height * CGFloat(image.height)).integral
+            guard pixels.width >= 8, pixels.height >= 8, let crop = image.cropping(to: pixels) else { continue }
+            let scaleX = pixels.width / CGFloat(image.width), scaleY = pixels.height / CGFloat(image.height)
+            let originX = pixels.minX / CGFloat(image.width), originY = pixels.minY / CGFloat(image.height)
+            func place(_ r: CGRect) -> CGRect { CGRect(x: originX + r.minX * scaleX, y: originY + r.minY * scaleY, width: r.width * scaleX, height: r.height * scaleY) }
+            hits += recognize(crop).map { TextHit(text: $0.text, rect: place($0.rect), words: $0.words.map { ($0.0, place($0.1)) }) }
+        }
+        return hits
+    }
+
     /// The exact drag a human would make to select `phrase`, derived from measured character boxes.
     struct Span {
         var start: CGPoint
@@ -318,7 +380,7 @@ final class Desktop {
 
     /// Words with punctuation stripped. Single characters are dropped because OCR routinely reads
     /// a capital I as a pipe, and a one-letter token is never what distinguishes a phrase.
-    static func normalized(_ text: String) -> [String] {
+    nonisolated static func normalized(_ text: String) -> [String] {
         text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 1 }
     }
 
@@ -524,7 +586,7 @@ final class Desktop {
     /// draws the font size as a small isolated number, which a whole-window pass can miss entirely;
     /// worse, a two-digit number has no unambiguous orientation — "60" upside down reads as "09" —
     /// and recognition picks differently at different scales, so one reading cannot be trusted.
-    static func numberField(labelled label: String, in hits: [TextHit], image: CGImage) -> (rect: CGRect, value: Int)? {
+    nonisolated static func numberField(labelled label: String, in hits: [TextHit], image: CGImage) -> (rect: CGRect, value: Int)? {
         if let direct = numberField(labelled: label, in: hits) { return direct }
         let key = normalized(label).joined(separator: " ")
         guard !key.isEmpty, let row = hits.first(where: { normalized($0.text).joined(separator: " ") == key }) else { return nil }
@@ -563,7 +625,7 @@ final class Desktop {
         return (box, winner)
     }
 
-    static func numberField(labelled label: String, in hits: [TextHit]) -> (rect: CGRect, value: Int)? {
+    nonisolated static func numberField(labelled label: String, in hits: [TextHit]) -> (rect: CGRect, value: Int)? {
         let key = normalized(label).joined(separator: " ")
         guard !key.isEmpty, let row = hits.first(where: { normalized($0.text).joined(separator: " ") == key }) else { return nil }
         let sameRow = hits.filter {
@@ -682,7 +744,7 @@ final class Desktop {
     }
 
     /// A region of `image` resampled to width x height, in RGBA. `rect` is in top-left pixels.
-    static func patch(of image: CGImage, rect: CGRect, width: Int, height: Int) -> [UInt8] {
+    nonisolated static func patch(of image: CGImage, rect: CGRect, width: Int, height: Int) -> [UInt8] {
         var buffer = [UInt8](repeating: 0, count: width * height * 4)
         buffer.withUnsafeMutableBytes { raw in
             guard let context = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,

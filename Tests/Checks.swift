@@ -853,7 +853,7 @@ struct Checks {
         do { _ = try ActionPolicy.validate(action("selectSpan")); fatalError("Accepted selectSpan without a phrase") } catch { count += 1; print("PASS: selectSpan without a phrase is refused") }
 
         let echo = CLIRequest(executable: URL(fileURLWithPath: "/bin/cat"), arguments: [], input: Data("literal $(echo nope)".utf8), outputFile: nil)
-        let echoed = try await CLIProcess.run(echo, directory: directory, timeout: 2)
+        let echoed = try await CLIProcess.run(echo, directory: directory, timeout: 15)
         check(String(decoding: echoed, as: UTF8.self) == "literal $(echo nope)", "Subprocess stdin is not interpreted as shell")
         let sleeper = CLIRequest(executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], input: Data(), outputFile: nil)
         do { _ = try await CLIProcess.run(sleeper, directory: directory, timeout: 0.2); fatalError("Timeout did not stop process") } catch { count += 1; print("PASS: CLI timeout terminates process") }

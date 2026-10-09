@@ -63,7 +63,7 @@ final class RunOverlay {
     }
 
     func inspect(_ shot: Observation) {
-        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image)
+        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section)
         // The legend shows when the text was read; the grid boxes are redrawn from every look's pixels.
         inspection.stamp = shot.textTimestamp.formatted(date: .omitted, time: .standard)
         if inspectionPanel == nil {
@@ -85,9 +85,7 @@ final class RunOverlay {
         if panel?.isVisible == true { panel?.orderFrontRegardless() }
     }
 
-    private static var sectionCache: (hits: [TextHit], size: (Int, Int), section: Desktop.TextSection?)?
-
-    static func ocrBoxes(_ hits: [TextHit], image: CGImage? = nil) -> [InspectionBox] {
+    static func ocrBoxes(_ hits: [TextHit], image: CGImage? = nil, section: Desktop.TextSection? = nil) -> [InspectionBox] {
         let eligible = Desktop.captionBlocks(in: hits).flatMap { $0 }
         // With the style browser open, show its grid as the pass counts it: one box per rounded tile,
         // each row in its own colour. OCR's "Ag" boxes merge neighbouring tiles, so they are left out.
@@ -122,13 +120,10 @@ final class RunOverlay {
         } else if let image {
             _ = Desktop.styleRows.observe([], image: image, panelOpen: false)
         }
-        // The Properties panel's Text section as named controls. Read once per text reading, not per
-        // frame: its small numbers are read magnified, which costs a few OCR passes.
+        // The Properties panel's Text section as named controls, read in the background with the text
+        // (its small numbers are read magnified, which costs a few OCR passes; never on the main thread).
         var controlBoxes: [InspectionBox] = []
-        if let image {
-            let section: Desktop.TextSection?
-            if let cached = sectionCache, cached.hits == hits, cached.size == (image.width, image.height) { section = cached.section }
-            else { section = Desktop.textSection(in: hits, image: image); sectionCache = (hits, (image.width, image.height), section) }
+        do {
             for control in section?.all ?? [] {
                 let name = control.name + (control.value.map { ": \($0)" } ?? "") + (control.on == true ? " · on" : "")
                 controlBoxes.append(InspectionBox(rect: control.rect.insetBy(dx: -0.002, dy: -0.002), label: name, kind: .control(on: control.on),

@@ -274,14 +274,39 @@ final class Store: ObservableObject {
                        Self.sameSize(bounds.size, look.window.frame.size) {
                         var moved = look; moved.window.frame = bounds; self.lastLook = moved; self.presentInspection(moved)
                     }
-                    let since = self.reading.map { Date().timeIntervalSince($0.textTimestamp) } ?? .infinity
-                    if self.textDirty, since > 0.6 {
+                    // Text follows the screen as closely as reading allows: one reading after another while
+                    // things change, each re-reading only what changed since the last (a caption, the
+                    // playhead, a panel), so most take tens of milliseconds instead of a third of a second.
+                    // At most five readings a second: quick to follow a change, without reading non-stop
+                    // while something keeps moving on screen, such as video playing in the Program Monitor.
+                    let sinceReading = self.reading.map { Date().timeIntervalSince($0.textTimestamp) } ?? .infinity
+                    if self.textDirty, sinceReading > 0.2 {
                         self.textDirty = false
                         let image = look.image
-                        let text = await Task.detached(priority: .userInitiated) { Desktop.recognize(image) }.value
+                        let earlier = self.reading.flatMap { $0.window.id == look.window.id ? $0 : nil }
+                        // A whole-window read now and then, so small errors from partial re-reads cannot build up.
+                        let wholeDue = Date().timeIntervalSince(self.lastWholeRead) > 5
+                        let result = await Task.detached(priority: .userInitiated) { () -> (text: [TextHit], section: Desktop.TextSection?, whole: Bool) in
+                            guard !wholeDue, let earlier, earlier.image.width == image.width, earlier.image.height == image.height else {
+                                let text = Desktop.recognize(image)
+                                return (text, Desktop.textSection(in: text, image: image), true)
+                            }
+                            let changed = Desktop.changedAreas(from: earlier.image, to: image)
+                            if changed.rects.isEmpty { return (earlier.text, earlier.section, false) }
+                            if changed.coverage >= 0.45 {
+                                let text = Desktop.recognize(image)
+                                return (text, Desktop.textSection(in: text, image: image), true)
+                            }
+                            let text = Desktop.reread(image, areas: changed.rects, keeping: earlier.text)
+                            // The panel section is read again only when something in the panel changed.
+                            let panel = earlier.section?.all.reduce(CGRect.null) { $0.union($1.rect) }.insetBy(dx: -0.02, dy: -0.04)
+                            let panelChanged = panel.map { area in changed.rects.contains { $0.intersects(area) } } ?? true
+                            return (text, panelChanged ? Desktop.textSection(in: text, image: image) : earlier.section, false)
+                        }.value
+                        if result.whole { self.lastWholeRead = Date() }
                         guard !Task.isCancelled, self.inspectionGeneration == token, self.liveActive,
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
-                        var read = look; read.text = text; read.textTimestamp = Date()
+                        var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
                         self.reading = read
                         let shown = latest.reusing(read)
                         self.lastLook = shown
@@ -306,6 +331,8 @@ final class Store: ObservableObject {
     private var reading: Observation?
     private var lastLook: Observation?
     private var textDirty = false
+    /// When the overlay last read the whole window rather than only what changed.
+    private var lastWholeRead = Date.distantPast
     private var activationObservers: [NSObjectProtocol] = []
     /// The newest frame that arrived while you were in another app, drawn the moment you return.
     private var hiddenFrame: CGImage?

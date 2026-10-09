@@ -38,12 +38,12 @@ extension Desktop {
         }
     }
 
-    static let typeButtonNames = ["Faux Bold", "Faux Italic", "All Caps", "Small Caps", "Superscript", "Subscript", "Underline"]
-    static let paragraphButtonNames = ["Align left", "Align centre", "Align right", "Justify",
+    nonisolated static let typeButtonNames = ["Faux Bold", "Faux Italic", "All Caps", "Small Caps", "Superscript", "Subscript", "Underline"]
+    nonisolated static let paragraphButtonNames = ["Align left", "Align centre", "Align right", "Justify",
                                        "Align top", "Align middle", "Align bottom", "Left to right", "Right to left"]
 
     /// The Text section of the Properties panel, or nil when its "Font Size" row is not on screen.
-    static func textSection(in hits: [TextHit], image: CGImage) -> TextSection? {
+    nonisolated static func textSection(in hits: [TextHit], image: CGImage) -> TextSection? {
         func words(_ hit: TextHit) -> String {
             normalized(hit.text).filter { $0 != "v" && $0 != ">" }.joined(separator: " ")
         }
@@ -120,7 +120,7 @@ extension Desktop {
 
     /// Horizontal bands below a point that carry ink, top to bottom. `wide` marks a band whose ink
     /// spans most of the width: a slider or divider rather than a row of controls.
-    private static func inkBands(in image: CGImage, top: CGFloat, bottom: CGFloat, from left: CGFloat, to right: CGFloat) -> [(rect: CGRect, wide: Bool)] {
+    nonisolated private static func inkBands(in image: CGImage, top: CGFloat, bottom: CGFloat, from left: CGFloat, to right: CGFloat) -> [(rect: CGRect, wide: Bool)] {
         let rect = CGRect(x: left * CGFloat(image.width), y: top * CGFloat(image.height),
                           width: (right - left) * CGFloat(image.width), height: (bottom - top) * CGFloat(image.height))
         guard rect.width > 8, rect.height > 8 else { return [] }
@@ -146,7 +146,7 @@ extension Desktop {
 
     /// Icons along a row, left to right: clusters of ink of about a line's size. `boxed` marks one
     /// drawn on a lighter box, Premiere's look for a toggle that is on.
-    private static func rowIcons(in image: CGImage, y: CGFloat, height: CGFloat, from left: CGFloat, to right: CGFloat, line: CGFloat) -> [(rect: CGRect, boxed: Bool)] {
+    nonisolated private static func rowIcons(in image: CGImage, y: CGFloat, height: CGFloat, from left: CGFloat, to right: CGFloat, line: CGFloat) -> [(rect: CGRect, boxed: Bool)] {
         let pixels = CGRect(x: left * CGFloat(image.width), y: (y - height / 2) * CGFloat(image.height),
                             width: (right - left) * CGFloat(image.width), height: height * CGFloat(image.height))
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
@@ -191,7 +191,7 @@ extension Desktop {
     }
 
     /// Runs of Premiere's blue (editable values) along a band, left to right, as rectangles.
-    private static func blueClusters(in image: CGImage, band: CGRect) -> [CGRect] {
+    nonisolated private static func blueClusters(in image: CGImage, band: CGRect) -> [CGRect] {
         let pixels = CGRect(x: band.minX * CGFloat(image.width), y: band.minY * CGFloat(image.height),
                             width: band.width * CGFloat(image.width), height: band.height * CGFloat(image.height))
             .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
@@ -224,7 +224,7 @@ extension Desktop {
     /// Reads a short number in a small area. Tiny isolated digits are lost at window scale, and a lone
     /// digit is often missed even magnified, so the area is enlarged, turned into dark digits on white
     /// with a margin, and read accurately first, then fast (which reads a lone 0 as the letter o).
-    private static func readNumber(in image: CGImage, rect: CGRect) -> String? {
+    nonisolated private static func readNumber(in image: CGImage, rect: CGRect) -> String? {
         let source = CGRect(x: rect.minX * CGFloat(image.width), y: rect.minY * CGFloat(image.height),
                             width: rect.width * CGFloat(image.width), height: rect.height * CGFloat(image.height))
             .insetBy(dx: -2, dy: -2).integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
@@ -265,7 +265,7 @@ extension Desktop {
     }
 
     /// The brightest small spot in a band: the slider's ring.
-    private static func brightestSpot(in image: CGImage, band: CGRect) -> CGPoint? {
+    nonisolated private static func brightestSpot(in image: CGImage, band: CGRect) -> CGPoint? {
         let pixels = CGRect(x: band.minX * CGFloat(image.width), y: band.minY * CGFloat(image.height),
                             width: band.width * CGFloat(image.width), height: max(2, band.height * CGFloat(image.height)))
         let columns = max(4, Int(pixels.width)), rows = max(2, Int(pixels.height))
