@@ -140,7 +140,7 @@ final class RunOverlay {
         }
         // Premiere's panels, by their tab names.
         for tab in Desktop.panelTabs(in: hits) {
-            controlBoxes.append(InspectionBox(rect: tab.rect.insetBy(dx: -0.002, dy: -0.002), label: "Panel: \(tab.panel)", kind: .control(on: nil),
+            controlBoxes.append(InspectionBox(rect: tab.rect.insetBy(dx: -0.002, dy: -0.002), label: "Panel: \(tab.panel)", kind: .panelTab,
                                               text: "Panel: \(tab.panel)", detail: "Panel tab \(tab.label)"))
         }
         let controlled = controlBoxes.map(\.rect)
@@ -238,7 +238,7 @@ private struct OverlayView: View {
 }
 
 struct InspectionBox: Identifiable {
-    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?) }
+    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab }
     let id = UUID()
     let rect: CGRect
     let label: String
@@ -263,6 +263,7 @@ struct InspectionBox: Identifiable {
         case .selected: return .green
         case .style: return .cyan
         case let .control(on): return on == true ? .green : .teal
+        case .panelTab: return .blue
         case let .styleRow(row):
             guard row != 99 else { return .gray }
             let palette: [Color] = [.orange, .pink, .purple, .mint, .indigo, .brown]
@@ -309,7 +310,7 @@ private struct InspectionView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · other colours: style browser rows")
+            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · other colours: style browser rows")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white).padding(7).background(.black.opacity(0.85)).padding(8) }
         }
