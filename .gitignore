@@ -1,0 +1,15 @@
+.build/
+dist/
+.test-data/
+.DS_Store
+*.log
+
+# Kept on this Mac only: screens and notes from client projects, and scratch probes tied to them.
+# The replay still checks the local fixtures on every build here; a fresh clone replays none.
+Tests/Fixtures/*.png
+Tests/Fixtures/*.json
+Tests/*Probe.swift
+Tests/AccuracyAudit.swift
+ACCURACY_FINDINGS.md
+Tools/*.png
+Tests/MakeFixtures.swift
