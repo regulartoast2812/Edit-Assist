@@ -1178,6 +1178,8 @@ final class Desktop {
         private var thumbFit: [(thumb: Double, scroll: Double)] = []
         /// Where the thumb sits with the list at its top, and whether the browser was seen closed since.
         private var topThumb: Double?
+        /// Told each time the count restarts at R1, with why, so a wrong restart shows in the log.
+        var onReset: ((String) -> Void)?
         private var sawClosed = false
         private var closedSince: Date?
         /// How long the browser must be gone before it counts as closed.
@@ -1191,9 +1193,15 @@ final class Desktop {
         /// still followed from its pixels, and the count is kept.
         func observe(_ cells: [[CGRect]], image: CGImage, atTop: Bool? = nil, panelOpen: Bool = true) -> Int? {
             guard panelOpen else {
+                // "Not open" comes from the text reading, which can miss the panel's labels for a moment.
+                // The pixels decide: while the list being followed is still on screen, moving as expected,
+                // the browser is open whatever the reading says, and nothing is armed to reset the count.
+                if strip != nil, imageSize == (image.width, image.height), follow(image) {
+                    closedSince = nil
+                    return offset
+                }
                 // Gone for a while: the browser was closed, and reopens at the top. Measured in time, not
-                // looks: one text reading that misses the panel's labels is reused for many live frames,
-                // and must not reset a count that is being followed.
+                // looks, so one reading that misses the labels cannot reset a count being followed.
                 let since = closedSince ?? Date()
                 closedSince = since
                 if Date().timeIntervalSince(since) >= closedAfter { fresh = true; strip = nil; scroll = nil; velocity = 0; offset = nil }
@@ -1224,9 +1232,18 @@ final class Desktop {
             let thumb = Desktop.scrollThumb(in: image, cells: cells)
             let thumbAtTop = thumb.flatMap { now in topThumb.map { abs(now - $0) <= 2 } } ?? false
             let reopenedAtTop = sawClosed && atTop == true && topThumb == nil
-            if forceTop || (fresh && atTop != false) || (thumbAtTop && (scroll == nil || offset != 0)) || (scroll == nil && reopenedAtTop) {
+            let reason = forceTop ? "the list was scrolled to its top" : fresh && atTop != false ? "the browser has just opened"
+                : thumbAtTop && (scroll == nil || offset != 0) ? "the scrollbar is back at its top position"
+                : scroll == nil && reopenedAtTop ? "the browser was reopened at the top" : nil
+            if let reason {
+                // Only resets known to be right may teach the scrollbar where the top is: a wrong one would
+                // otherwise teach a wrong top and make the next wrong reset likelier.
+                let trusted = forceTop || fresh
                 forceTop = false; sawClosed = false
-                if let thumb { topThumb = thumb }
+                if trusted, let thumb { topThumb = thumb }
+                // Report restarts that replace a count or recover a lost one; a browser opening is normal.
+                if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1))") }
+                else if offset == nil, !fresh { onReset?("counting from R1: \(reason) (the count was lost)") }
                 // At the top: the first full row is row 1. Sample within the visible rows, which sit
                 // inside the scrolling viewport, so nothing that stays still is compared.
                 let gap = pitch - Double(firstCell.height) * height
@@ -1236,7 +1253,7 @@ final class Desktop {
                 imageSize = (image.width, image.height)
                 previous = sample(image); sampleKind = image.bitmapInfo.rawValue
                 anchor = rowTop; scroll = 0; velocity = 0; fresh = false; offset = 0
-                if let thumb { thumbFit.append((thumb, 0)); if thumbFit.count > 60 { thumbFit.removeFirst() } }
+                if trusted, let thumb { thumbFit.append((thumb, 0)); if thumbFit.count > 60 { thumbFit.removeFirst() } }
                 return 0
             }
             fresh = false; sawClosed = false

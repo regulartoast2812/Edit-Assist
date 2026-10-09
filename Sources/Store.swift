@@ -462,6 +462,7 @@ final class Store: ObservableObject {
         if projects.isEmpty { projects = [Project()] }
         selected = projects.first?.id
         desktop.detectionHotkey.action = { [weak self] in self?.toggleDetection() }
+        Desktop.styleRows.onReset = { [weak self] why in self?.log("Style rows: \(why)") }
         desktop.onInterrupt = { [weak self] in
             guard let self else { return }
             if self.running { self.runPaused = true; self.status = "Pausing because you took control…" }

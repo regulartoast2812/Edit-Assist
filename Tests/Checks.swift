@@ -459,7 +459,10 @@ struct Checks {
         _ = tracker.observe([], image: atTopView.image, panelOpen: false); _ = tracker.observe([], image: atTopView.image, panelOpen: false)
         check(tracker.observe(oneDown.cells, image: oneDown.image) == 1, "A brief gap in the panel's text does not reset the count")
         tracker.closedAfter = 0
-        _ = tracker.observe([], image: atTopView.image, panelOpen: false)
+        // Really closed: the tiles are gone from the screen, not just from the text reading.
+        let closedPanel = CGContext(data: nil, width: 900, height: 500, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
+        _ = tracker.observe([], image: closedPanel, panelOpen: false)
         check(tracker.observe(oneDown.cells, image: oneDown.image) == 0, "A browser closed and reopened starts again at row 1")
 
         // Live scrolling: frames a few pixels apart, rows that look nearly alike, and some frames where
@@ -555,6 +558,22 @@ struct Checks {
         _ = reopened.observe([], image: smoothView(scroll: 0).image, panelOpen: false)
         check(reopened.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true) == 0,
               "A browser closed briefly and reopened at the top counts from row 1 again")
+        // A reading that misses the panel's labels mid-scroll says "not open"; the list still on screen
+        // says otherwise. The count must hold, and no later look may restart it at R1.
+        let missed = Desktop.StyleRowTracker()
+        var resets: [String] = []
+        missed.onReset = { resets.append($0) }
+        missed.closedAfter = 0   // the bad reading persists, as a reading of unchanged areas can
+        _ = missed.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true)
+        var missedHeld = true
+        for position in stride(from: 0, through: 460, by: 23) {
+            let view = smoothView(scroll: position)
+            let expected = (0..<8).first { 20 + $0 * 220 - position >= 0 } ?? 0
+            if position == 230 || position == 253 { _ = missed.observe([], image: view.image, panelOpen: false); continue }
+            // just after the missed reading, a view at a row boundary that looks like the top
+            if missed.observe(view.cells, image: view.image, atTop: position % 220 == 0) != expected, !view.cells.isEmpty { missedHeld = false }
+        }
+        check(missedHeld && resets.isEmpty, "A reading that misses the panel's labels mid-scroll does not restart the row count")
         let barred = Desktop.StyleRowTracker()
         for position in stride(from: 0, through: 300, by: 25) {
             let view = smoothView(scroll: position, thumb: true)
