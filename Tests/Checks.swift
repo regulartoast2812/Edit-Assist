@@ -280,6 +280,16 @@ struct Checks {
         check(readBack.hits.first?.hit == recordedHit && readBack.hits.first?.hit.words.first?.1 == recordedHit.words.first?.1
               && readBack.candidates == snapshot.candidates && readBack.area == snapshot.area && readBack.span == snapshot.span,
               "A recorded decision reads back exactly as it was written")
+        // Panel tabs, as read on a real screen: a row of tabs, the Properties menu icon, tabs with a sequence
+        // or project name. "Text" as a section header inside Properties is not a tab.
+        func tab(_ text: String, _ x: Double, _ y: Double) -> TextHit { TextHit(text: text, rect: CGRect(x: x, y: y, width: 0.04, height: 0.0116)) }
+        var tabScreen = [tab("Properties =", 0.635, 0.051), tab("Effect Controls", 0.688, 0.051), tab("Lumetri Color", 0.752, 0.051),
+                         tab("Captioneer", 0.814, 0.051), tab("Text", 0.869, 0.051), tab("Program: Tool Test", 0.10, 0.03),
+                         tab("Audio Track Mixer: Tool Test | = Project: EasyShape", 0.30, 0.03), tab("V Text", 0.637, 0.257), tab("Font Size", 0.645, 0.347)]
+        tabScreen += (0..<8).map { tab("label \($0)", 0.4, 0.5 + 0.02 * Double($0)) }
+        let foundTabs = Set(Desktop.panelTabs(in: tabScreen).map(\.panel))
+        check(foundTabs == ["Properties", "Effect Controls", "Lumetri Color", "Text", "Program", "Audio Track Mixer", "Project"],
+              "Premiere's panels are recognised by their tab names, also when two tabs read as one line, and a Text section header is not a tab")
         // A large caption set tight: the lines' centres are closer than a line is tall (measured on a
         // real styled caption). The rest of the phrase still runs across the wrap.
         let tight = [TextHit(text: "ultra-light", rect: CGRect(x: 0.283, y: 0.316, width: 0.283, height: 0.061), words: [("ultra-light", CGRect(x: 0.283, y: 0.316, width: 0.283, height: 0.061))]),

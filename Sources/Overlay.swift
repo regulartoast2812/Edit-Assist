@@ -138,6 +138,11 @@ final class RunOverlay {
                                                   text: name, detail: String(format: "%@ · click at x %.3f y %.3f", name, control.point.x, control.point.y)))
             }
         }
+        // Premiere's panels, by their tab names.
+        for tab in Desktop.panelTabs(in: hits) {
+            controlBoxes.append(InspectionBox(rect: tab.rect.insetBy(dx: -0.002, dy: -0.002), label: "Panel: \(tab.panel)", kind: .control(on: nil),
+                                              text: "Panel: \(tab.panel)", detail: "Panel tab \(tab.label)"))
+        }
         let controlled = controlBoxes.map(\.rect)
         let shown = (styleLeft.map { left in hits.filter { !Desktop.isStyleTileHit($0, left: left) } } ?? hits)
             .filter { hit in !controlled.contains { $0.intersects(hit.rect) } }

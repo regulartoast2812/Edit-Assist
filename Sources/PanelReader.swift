@@ -292,6 +292,75 @@ extension Desktop {
         let centre = count > 0 ? (x: Double(sumX) / Double(count), y: Double(sumY) / Double(count)) : (x: Double(best.x), y: Double(best.y))
         return CGPoint(x: (pixels.minX + CGFloat(centre.x)) / CGFloat(image.width), y: (pixels.minY + CGFloat(centre.y)) / CGFloat(image.height))
     }
+    // MARK: Premiere's panels, by their tab names
+
+    /// Every panel in Premiere's Window menu. Some tabs carry more than the name: "Program: <sequence>",
+    /// "Source: <clip>", "Project: <name>", "Audio Clip Mixer: <sequence>"; those match by what comes
+    /// before the colon.
+    nonisolated static let premierePanels = [
+        "Adobe Stock", "Audio Clip Effect Editor", "Audio Track Effect Editor", "Audio Clip Mixer", "Audio Meters",
+        "Audio Track Mixer", "Effect Controls", "Effects", "Essential Sound", "Events", "Frame.io", "Graphics Templates",
+        "History", "Info", "Learn", "Libraries", "Lumetri Color", "Lumetri Scopes", "Markers", "Media Browser", "Metadata",
+        "Production", "Program", "Progress", "Project", "Properties", "Search", "Sequence Index", "Source", "Text",
+        "Timecode", "Timeline", "Tools",
+    ]
+
+    struct PanelTab: Equatable {
+        /// The panel, as named in the Window menu ("Program", "Project", …).
+        var panel: String
+        /// The tab's full text, e.g. "Program: Tool Test".
+        var label: String
+        var rect: CGRect
+    }
+
+    /// The panel tabs on screen. A panel's name is only taken for a tab when it looks like one: on a
+    /// row with other tabs, or carrying the panel-menu icon (≡, read as "=" or "≡"). "Text" or "Effects"
+    /// inside a panel — a section header, a button — are not tabs.
+    nonisolated static func panelTabs(in hits: [TextHit]) -> [PanelTab] {
+        func key(_ text: String) -> String { normalized(text).joined(separator: " ") }
+        let names = premierePanels.map { (name: $0, key: key($0)) }.sorted { $0.key.count > $1.key.count }
+        func panel(of hit: TextHit) -> (name: String, menu: Bool)? {
+            var text = hit.text.trimmingCharacters(in: .whitespaces)
+            let menu = text.hasSuffix("≡") || text.hasSuffix("=") || text.hasSuffix("☰")
+            if menu { text = String(text.dropLast()).trimmingCharacters(in: .whitespaces) }
+            let head = text.split(separator: ":", maxSplits: 1).first.map(String.init) ?? text
+            let words = key(head)
+            guard let match = names.first(where: { $0.key == words }) else { return nil }
+            // Bare "Program", "Source", "Project" or "Timeline" are ordinary words; as tabs they come with a colon.
+            if ["program", "source", "project"].contains(match.key), !text.contains(":") { return nil }
+            return (match.name, menu)
+        }
+        // Interface text only: a caption in the Program Monitor can contain any of these words.
+        let heights = hits.map(\.rect.height).sorted()
+        let interface = heights.isEmpty ? 0.02 : heights[heights.count / 2] * 1.8
+        // OCR can read neighbouring tabs as one line ("Audio Track Mixer: Tool Test | = Project: Jeans"):
+        // split at the separators between tabs, giving each part its share of the line's width.
+        var pieces: [TextHit] = []
+        for hit in hits where hit.rect.height <= interface {
+            let parts = hit.text.components(separatedBy: CharacterSet(charactersIn: "|≡☰")).flatMap { $0.components(separatedBy: " = ") }
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard parts.count > 1 else { pieces.append(hit); continue }
+            let total = Double(hit.text.count)
+            var offset = 0.0
+            for part in parts {
+                guard let range = hit.text.range(of: part) else { continue }
+                offset = Double(hit.text.distance(from: hit.text.startIndex, to: range.lowerBound))
+                let x = hit.rect.minX + hit.rect.width * offset / total, width = hit.rect.width * Double(part.count) / total
+                pieces.append(TextHit(text: part, rect: CGRect(x: x, y: hit.rect.minY, width: width, height: hit.rect.height)))
+            }
+        }
+        let candidates = pieces.compactMap { hit -> (hit: TextHit, name: String, menu: Bool)? in
+            guard let found = panel(of: hit) else { return nil }
+            return (hit, found.name, found.menu)
+        }
+        return candidates.filter { candidate in
+            candidate.menu || candidate.hit.text.contains(":")
+                || candidates.contains { other in
+                    other.hit != candidate.hit && abs(other.hit.rect.midY - candidate.hit.rect.midY) < candidate.hit.rect.height * 0.6
+                }
+        }.map { PanelTab(panel: $0.name, label: $0.hit.text, rect: $0.hit.rect) }
+    }
+
     // MARK: Which state the Properties panel is in
 
     /// What the Properties panel is showing. Recognised from the panel as a whole — its text and the
