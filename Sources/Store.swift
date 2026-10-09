@@ -909,9 +909,6 @@ final class Store: ObservableObject {
                     var captionReach: CGRect? { captionArea.map { $0.insetBy(dx: -0.10, dy: -0.40) } }
                     /// Set when a phrase runs onto the next clip: step to it before matching again.
                     var mustAdvance = false
-                    /// The Properties panel's area and its text height, from the last reading: the outer panel
-                    /// is showing exactly when the four-square shape is somewhere in it, a check that needs no OCR.
-                    var propertiesPanel: (area: CGRect, line: CGFloat)?
                     /// Where the Font Size value sat, beside its label, and the sizes typed so far this pass.
                     var fontField: (value: CGRect, label: CGRect)?
                     var sizesTyped: [Int] = []
@@ -1280,28 +1277,25 @@ final class Store: ObservableObject {
                                 }
                                 return false
                             }
-                            let area = Desktop.propertiesArea(in: panel.text)
-                            let line = panel.text.first { Desktop.normalized($0.text).joined(separator: " ").contains("track style") }?.rect.height ?? 0.012
-                            if let area { propertiesPanel = (area, line) }
                             try await send(.openStylePanel, AgentAction(kind: "click", x: point.x, y: point.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: OCRStep.openStylePanel.label), pause: 50)
-                            // It opened when the four-square is gone from the panel — the browser replaces the outer
-                            // panel. A busy machine can be slow to draw that, or miss the click: wait, then find the
-                            // icon again wherever it is now and click it again.
+                            // Did it open? Read the panel: the style browser has Back and My Styles. A busy machine
+                            // can be slow to draw it, or miss the click. Only when the panel still reads as the caption
+                            // panel is the four-square clicked again — found again under its Track Style header, never
+                            // by searching the panel, where a style tile can look like it.
                             var opened = false
-                            for attempt in 1 ... 3 {
-                                var stillThere: CGPoint? = point
-                                for _ in 0 ..< 8 {
-                                    try await Task.sleep(for: .milliseconds(200))
-                                    let now = try await desktop.capture(window)
-                                    stillThere = Desktop.fourSquareAnywhere(in: now.image, area: area, line: line)
-                                    if stillThere == nil { opened = true; break }
-                                }
-                                guard !opened, attempt < 3, let again = stillThere else { break }
-                                log("OCR: the style panel has not opened yet (attempt \(attempt)); clicking the four-square again")
-                                let shot = try await desktop.capture(window)
-                                try await perform(AgentAction(kind: "click", x: again.x, y: again.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: shot)
+                            let began = Date()
+                            var clicks = 1
+                            while !opened, Date().timeIntervalSince(began) < 8 {
+                                try await Task.sleep(for: .milliseconds(300))
+                                let read = try await desktop.capture(window, readText: true, notifyOCR: false)
+                                let now = Desktop.propertiesState(in: read.text, image: read.image)
+                                if now.isStyleBrowser { opened = true; break }
+                                guard case let .caption(again?) = now, clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
+                                clicks += 1
+                                log("OCR: Properties still shows the caption panel (click \(clicks - 1)); clicking the four-square again")
+                                try await perform(AgentAction(kind: "click", x: again.x, y: again.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: read)
                             }
-                            if !opened { log("OCR: the four-square still shows after three clicks; looking for the browser anyway") }
+                            if !opened { log("OCR: the style browser has not shown yet; the next step keeps looking for it") }
                             styleOpenedFresh = true
                             return true
                         }
@@ -1742,29 +1736,24 @@ final class Store: ObservableObject {
                                 log("OCR skip: \(OCRStep.backFromStyle.label) — already on the outer panel"); return true
                             }
                             try await send(.backFromStyle, AgentAction(kind: "click", x: back.x, y: back.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: OCRStep.backFromStyle.label), pause: 60)
-                            // Back on the outer panel the four-square is there again. Without it after a moment,
-                            // the click was missed or the machine is slow: wait, then click Back again.
-                            // Back on the outer panel the four-square is somewhere in it again. If it is not after a
-                            // moment, read the panel: still the style browser means the click was missed or the
-                            // machine is slow — click Back again, where it is now.
-                            if let known = propertiesPanel {
-                                var returned = false
-                                for attempt in 1 ... 3 {
-                                    for _ in 0 ..< 8 {
-                                        try await Task.sleep(for: .milliseconds(200))
-                                        let now = try await desktop.capture(window)
-                                        if Desktop.fourSquareAnywhere(in: now.image, area: known.area, line: known.line) != nil { returned = true; break }
-                                    }
-                                    if returned || attempt == 3 { break }
-                                    let read = try await desktop.capture(window, readText: true, notifyOCR: false)
-                                    let state = Desktop.propertiesState(in: read.text, image: read.image)
-                                    guard case let .styleBrowser(again) = state else { returned = true; break }   // something else: not ours to fix here
-                                    log("OCR: Properties still shows the style browser (attempt \(attempt)); clicking Back again")
-                                    let target = again ?? back
-                                    try await perform(AgentAction(kind: "click", x: target.x, y: target.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.backFromStyle.label), on: read)
-                                }
-                                if !returned { log("OCR: the four-square did not come back after three clicks on Back; carrying on") }
+                            // Back worked when the panel reads as the caption panel again. Still the style browser after
+                            // a moment means the click was missed or the machine is slow: click Back again, where the
+                            // panel shows it now.
+                            var returned = false
+                            let began = Date()
+                            var clicks = 1
+                            while !returned, Date().timeIntervalSince(began) < 8 {
+                                try await Task.sleep(for: .milliseconds(300))
+                                let read = try await desktop.capture(window, readText: true, notifyOCR: false)
+                                let now = Desktop.propertiesState(in: read.text, image: read.image)
+                                guard case let .styleBrowser(again) = now else { returned = true; break }
+                                guard clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
+                                clicks += 1
+                                log("OCR: Properties still shows the style browser (click \(clicks - 1)); clicking Back again")
+                                let target = again ?? back
+                                try await perform(AgentAction(kind: "click", x: target.x, y: target.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.backFromStyle.label), on: read)
                             }
+                            if !returned { log("OCR: Properties still shows the style browser after three clicks on Back; carrying on") }
                             return true
                         }
 

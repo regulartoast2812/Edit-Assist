@@ -34,9 +34,11 @@ panels the same way, with a `textSection`-style replay case and a fixture checke
 
 **Know the panel, not a position.** `Desktop.propertiesState` says what the Properties panel shows
 (nothing selected, caption, graphic text, style browser, unknown) from its text and the four-square
-icon's shape found anywhere in it. After a click that should change the panel, check its state, and
-click again (at most three times) only if it has not changed — a busy machine can be slow or miss a
-click. Never re-click a remembered spot.
+icon's shape right under its Track Style header. After a click that should change the panel, read
+its state, and click again (at most three times) only if it still shows the old panel — a busy machine
+can be slow or miss a click. Never re-click a remembered spot, and never click a shape found by
+searching the whole panel: once the browser is open a style tile can look like the four-square, and
+clicking it applies the wrong style to the selected text (this happened).
 
 ## Invariants — each one was learned from a real failure
 

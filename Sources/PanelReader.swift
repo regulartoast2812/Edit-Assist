@@ -335,22 +335,15 @@ extension Desktop {
             return .styleBrowser(back: panel.first { normalized($0.text) == ["back"] }.map { CGPoint(x: $0.rect.midX, y: $0.rect.midY) })
         }
         if let header = panel.first(where: { normalized($0.text).joined(separator: " ").contains("track style") }) {
-            return .caption(fourSquare: findFourSquare(in: image, under: header.rect)?.point ?? fourSquareAnywhere(in: image, area: area, line: header.rect.height))
+            // Only right under the Track Style header: a search of the whole panel can land on another
+            // icon, or on a style tile once the browser is open, and clicking that applies a style.
+            return .caption(fourSquare: findFourSquare(in: image, under: header.rect)?.point)
         }
         if lines.contains(where: { $0.contains("subtitle") && $0.contains("c1") }) {
-            return .caption(fourSquare: fourSquareAnywhere(in: image, area: area, line: panel.map(\.rect.height).sorted().dropFirst(panel.count / 2).first ?? 0.012))
+            return .caption(fourSquare: nil)
         }
         if lines.contains(where: { $0 == "font size" || $0 == "text" || $0 == "appearance" }) { return .graphic }
         return .unknown
-    }
-
-    /// The four-square icon anywhere in the Properties panel, by its shape alone: no text needed, so
-    /// it is quick enough to check again and again while waiting for the panel to change.
-    nonisolated static func fourSquareAnywhere(in image: CGImage, area: CGRect?, line: CGFloat) -> CGPoint? {
-        guard let area else { return nil }
-        // The button sits in the panel's right part; searching there keeps the check fast.
-        let right = CGRect(x: area.minX + area.width * 0.55, y: area.minY, width: area.width * 0.45, height: min(area.height, 0.6))
-        return bestFourSquare(in: image, area: right, line: line)?.point
     }
 
     // MARK: The four-square style button, by its shape
