@@ -1699,6 +1699,12 @@ final class Desktop {
     /// + that creates a new style. Anchoring on the header would press the wrong button.
     static func styleBrowserButton(in hits: [TextHit], image: CGImage) -> CGPoint? {
         guard let header = hits.first(where: { normalized($0.text).joined(separator: " ").contains("track style") }) else { return nil }
+        // By its shape first: four light squares with a dark cross, anywhere under the header and above
+        // the Text section. That needs no text on the value row, which OCR sometimes misses entirely.
+        let textHeader = hits.filter { hit in
+            normalized(hit.text).filter { $0 != "v" && $0 != ">" } == ["text"] && hit.rect.minY > header.rect.maxY && abs(hit.rect.minX - header.rect.minX) < 0.04
+        }.min { $0.rect.minY < $1.rect.minY }
+        if let shape = findFourSquare(in: image, under: header.rect, until: textHeader?.rect.minY) { return shape.point }
         let valueRow = hits
             .filter { $0.rect.minY > header.rect.minY + header.rect.height * 0.4
                       && $0.rect.minY < header.rect.maxY + header.rect.height * 4

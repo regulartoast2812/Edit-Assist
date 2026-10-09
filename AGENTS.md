@@ -32,6 +32,12 @@ seven type buttons, Font Size and its slider, the nine paragraph buttons with th
 tracking, leading). Reading only; a function that acts on a control looks it up by name there. Add new
 panels the same way, with a `textSection`-style replay case and a fixture checked by eye.
 
+**Know the panel, not a position.** `Desktop.propertiesState` says what the Properties panel shows
+(nothing selected, caption, graphic text, style browser, unknown) from its text and the four-square
+icon's shape found anywhere in it. After a click that should change the panel, check its state, and
+click again (at most three times) only if it has not changed — a busy machine can be slow or miss a
+click. Never re-click a remembered spot.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates

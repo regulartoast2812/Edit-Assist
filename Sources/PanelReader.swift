@@ -292,4 +292,124 @@ extension Desktop {
         let centre = count > 0 ? (x: Double(sumX) / Double(count), y: Double(sumY) / Double(count)) : (x: Double(best.x), y: Double(best.y))
         return CGPoint(x: (pixels.minX + CGFloat(centre.x)) / CGFloat(image.width), y: (pixels.minY + CGFloat(centre.y)) / CGFloat(image.height))
     }
+    // MARK: Which state the Properties panel is in
+
+    /// What the Properties panel is showing. Recognised from the panel as a whole — its text and the
+    /// four-square icon's shape found anywhere in it — never from where something was last time.
+    enum PropertiesState: Equatable {
+        /// "Select a clip in the timeline to view properties."
+        case nothingSelected
+        /// A caption: C1: Subtitle / Track Style; with the four-square button if it was seen.
+        case caption(fourSquare: CGPoint?)
+        /// A text item without a Track Style row: a graphic, or a caption upgraded to one.
+        case graphic
+        /// The style browser: Back with My Styles, Local Styles or Open Projects.
+        case styleBrowser(back: CGPoint?)
+        case unknown
+
+        var name: String {
+            switch self {
+            case .nothingSelected: return "nothing selected"
+            case let .caption(button): return button == nil ? "caption" : "caption (style button seen)"
+            case .graphic: return "graphic text"
+            case .styleBrowser: return "style browser"
+            case .unknown: return "unknown"
+            }
+        }
+        var isStyleBrowser: Bool { if case .styleBrowser = self { return true } else { return false } }
+        var isOuterPanel: Bool { if case .caption = self { return true } else { return false } }
+    }
+
+    /// The Properties panel's area: below its tab, from the tab's left edge to the window's right.
+    nonisolated static func propertiesArea(in hits: [TextHit]) -> CGRect? {
+        guard let tab = hits.first(where: { normalized($0.text).first == "properties" && $0.rect.minY < 0.2 }) else { return nil }
+        return CGRect(x: max(0, tab.rect.minX - 0.01), y: tab.rect.maxY, width: 1 - max(0, tab.rect.minX - 0.01), height: 1 - tab.rect.maxY)
+    }
+
+    nonisolated static func propertiesState(in hits: [TextHit], image: CGImage) -> PropertiesState {
+        let area = propertiesArea(in: hits)
+        let panel = area.map { area in hits.filter { $0.rect.intersects(area) } } ?? hits
+        let lines = panel.map { normalized($0.text).filter { $0 != "v" && $0 != ">" }.joined(separator: " ") }
+        if lines.contains(where: { $0.contains("select a clip in the timeline") || $0.contains("select clip in the timeline") }) { return .nothingSelected }
+        if lines.contains("back"), lines.contains(where: { $0.contains("my styles") || $0.contains("local styles") || $0.contains("open projects") }) {
+            return .styleBrowser(back: panel.first { normalized($0.text) == ["back"] }.map { CGPoint(x: $0.rect.midX, y: $0.rect.midY) })
+        }
+        if let header = panel.first(where: { normalized($0.text).joined(separator: " ").contains("track style") }) {
+            return .caption(fourSquare: findFourSquare(in: image, under: header.rect)?.point ?? fourSquareAnywhere(in: image, area: area, line: header.rect.height))
+        }
+        if lines.contains(where: { $0.contains("subtitle") && $0.contains("c1") }) {
+            return .caption(fourSquare: fourSquareAnywhere(in: image, area: area, line: panel.map(\.rect.height).sorted().dropFirst(panel.count / 2).first ?? 0.012))
+        }
+        if lines.contains(where: { $0 == "font size" || $0 == "text" || $0 == "appearance" }) { return .graphic }
+        return .unknown
+    }
+
+    /// The four-square icon anywhere in the Properties panel, by its shape alone: no text needed, so
+    /// it is quick enough to check again and again while waiting for the panel to change.
+    nonisolated static func fourSquareAnywhere(in image: CGImage, area: CGRect?, line: CGFloat) -> CGPoint? {
+        guard let area else { return nil }
+        // The button sits in the panel's right part; searching there keeps the check fast.
+        let right = CGRect(x: area.minX + area.width * 0.55, y: area.minY, width: area.width * 0.45, height: min(area.height, 0.6))
+        return bestFourSquare(in: image, area: right, line: line)?.point
+    }
+
+    // MARK: The four-square style button, by its shape
+
+    /// Premiere's style-browser button: four light squares in a 2x2 grid with a dark cross between them.
+    /// Found by that shape in the area under the "Track Style" header, so it does not depend on OCR
+    /// reading the row's text — on a slow machine the value ("None") is sometimes not read at all.
+    nonisolated static func findFourSquare(in image: CGImage, under header: CGRect, until limit: CGFloat? = nil) -> (point: CGPoint, score: Int)? {
+        let line = header.height
+        let area = CGRect(x: header.maxX, y: header.maxY + line * 0.2, width: 1 - header.maxX, height: (limit ?? header.maxY + line * 6) - header.maxY - line * 0.2)
+        return bestFourSquare(in: image, area: area, line: line)
+    }
+
+    nonisolated private static func bestFourSquare(in image: CGImage, area: CGRect, line: CGFloat) -> (point: CGPoint, score: Int)? {
+        let pixels = CGRect(x: area.minX * CGFloat(image.width), y: area.minY * CGFloat(image.height),
+                            width: area.width * CGFloat(image.width), height: area.height * CGFloat(image.height))
+            .integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let width = Int(pixels.width), height = Int(pixels.height)
+        guard width > 8, height > 8 else { return nil }
+        let rgba = patch(of: image, rect: pixels, width: width, height: height)
+        // Summed-area table of brightness: any box's mean in four lookups.
+        var table = [Int](repeating: 0, count: (width + 1) * (height + 1))
+        for y in 0 ..< height {
+            var row = 0
+            for x in 0 ..< width {
+                let i = (y * width + x) * 4
+                row += (Int(rgba[i]) * 30 + Int(rgba[i + 1]) * 59 + Int(rgba[i + 2]) * 11) / 100
+                table[(y + 1) * (width + 1) + x + 1] = table[y * (width + 1) + x + 1] + row
+            }
+        }
+        func mean(_ x0: Int, _ y0: Int, _ x1: Int, _ y1: Int) -> Int {
+            let a = max(0, min(width, x0)), b = max(0, min(height, y0)), c = max(0, min(width, x1)), d = max(0, min(height, y1))
+            guard c > a, d > b else { return 0 }
+            let sum = table[d * (width + 1) + c] - table[b * (width + 1) + c] - table[d * (width + 1) + a] + table[b * (width + 1) + a]
+            return sum / ((c - a) * (d - b))
+        }
+        let linePixels = line * CGFloat(image.height)
+        var best: (score: Int, x: Int, y: Int, size: Int)?
+        for factor in [0.75, 0.9, 1.05, 1.25] {
+            let size = max(8, Int(linePixels * factor))
+            let q = Int(Double(size) * 0.4), gap = max(1, size - q * 2)   // quadrant side, cross width
+            guard size + 4 < width, size + 4 < height else { continue }
+            for y in stride(from: 2, to: height - size - 2, by: 1) {
+                for x in stride(from: 2, to: width - size - 2, by: 1) {
+                    let quads = [mean(x, y, x + q, y + q), mean(x + q + gap, y, x + size, y + q),
+                                 mean(x, y + q + gap, x + q, y + size), mean(x + q + gap, y + q + gap, x + size, y + size)]
+                    let cross = max(mean(x + q, y, x + q + gap, y + size), mean(x, y + q, x + size, y + q + gap))
+                    let ring = max(mean(x - 2, y - 2, x + size + 2, y), mean(x - 2, y + size, x + size + 2, y + size + 2),
+                                   mean(x - 2, y, x, y + size), mean(x + size, y, x + size + 2, y + size))
+                    let score = (quads.min() ?? 0) - max(cross, ring)
+                    // The four squares are alike; a glyph or a chevron is not.
+                    guard (quads.max() ?? 0) - (quads.min() ?? 0) < 40 else { continue }
+                    if best.map({ score > $0.score }) ?? true { best = (score, x, y, size) }
+                }
+            }
+        }
+        guard let found = best, found.score >= 40 else { return nil }
+        let centre = CGPoint(x: (pixels.minX + CGFloat(found.x) + CGFloat(found.size) / 2) / CGFloat(image.width),
+                             y: (pixels.minY + CGFloat(found.y) + CGFloat(found.size) / 2) / CGFloat(image.height))
+        return (centre, found.score)
+    }
 }

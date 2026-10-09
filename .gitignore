@@ -15,3 +15,5 @@ Tools/*.png
 Tests/MakeFixtures.swift
 !Tests/Fixtures/19-textSection.json
 !Tests/Fixtures/19-textSection.png
+!Tests/Fixtures/21-panelState.json
+!Tests/Fixtures/21-panelState.png

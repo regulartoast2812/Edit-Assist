@@ -80,7 +80,10 @@ struct Replay {
             if now != s.number { return "font size read \(now.map(String.init) ?? "none"), recorded \(s.number.map(String.init) ?? "none")" }
         case "styleButton":
             guard let image else { return "image missing" }
-            let now = Desktop.styleBrowserButton(in: hits, image: image).map { [Double($0.x), Double($0.y)] }
+            // As the routine decides it: the panel's state, and the four-square found in it by shape.
+            var found: CGPoint?
+            if case let .caption(button) = Desktop.propertiesState(in: hits, image: image) { found = button }
+            let now = found.map { [Double($0.x), Double($0.y)] }
             if !close(now, s.location) { return "style button at \(now ?? []), recorded \(s.location ?? [])" }
         case "styleGrid", "tile":
             guard let image, let left = s.left else { return "image or panel edge missing" }
@@ -107,6 +110,10 @@ struct Replay {
             for (index, point) in points.enumerated() where index < (s.points ?? []).count && !close(point, s.points?[index], within: 0.006) {
                 return "\(now[index]) is at \(point), recorded \(s.points?[index] ?? [])"
             }
+        case "panelState":
+            guard let image else { return "image missing" }
+            let now = Desktop.propertiesState(in: hits, image: image).name
+            if now != s.note.components(separatedBy: " — ").first { return "Properties reads as \(now), recorded \(s.note)" }
         case "dragGuard":
             guard let point = s.point else { return "point missing" }
             let now = Desktop.captionBlocks(in: hits, minHeight: minHeight, area: area).flatMap { $0 }
