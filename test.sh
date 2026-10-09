@@ -4,7 +4,7 @@ set -euo pipefail
 cd "${0:A:h}"
 mkdir -p .build/module-cache
 SOURCES=(Sources/Models.swift Sources/ScriptParser.swift Sources/AIClient.swift Sources/CLIClient.swift Sources/Desktop.swift
-         Sources/LiveFeed.swift Sources/Overlay.swift Sources/Recorder.swift Sources/Store.swift)
+         Sources/LiveFeed.swift Sources/Overlay.swift Sources/PanelReader.swift Sources/Recorder.swift Sources/Store.swift)
 xcrun swiftc -parse-as-library -module-cache-path .build/module-cache Helpers/CLIWorker.swift -o .build/CLIWorker
 xcrun swiftc -swift-version 5 -parse-as-library -module-cache-path .build/module-cache $SOURCES Tests/Checks.swift -o .build/checks
 .build/checks

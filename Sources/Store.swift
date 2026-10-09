@@ -1196,6 +1196,11 @@ final class Store: ObservableObject {
                             let target: Int, at: CGRect, was: String
                             let reading = Desktop.numberField(labelled: "Font Size", in: outer.text, image: outer.image)
                             recordDecision(Snapshot(kind: "fontSize", hits: outer.text.map(RecordedHit.init), number: reading?.value), image: outer.image)
+                            if recorder.isOn, let section = Desktop.textSection(in: outer.text, image: outer.image) {
+                                recordDecision(Snapshot(kind: "textSection", hits: outer.text.map(RecordedHit.init),
+                                                        controls: section.all.map { "\($0.name)=\($0.value ?? "")|\($0.on.map { $0 ? "on" : "off" } ?? "")" },
+                                                        points: section.all.map { [Double($0.point.x), Double($0.point.y)] }), image: outer.image)
+                            }
                             if let field = reading {
                                 target = max(1, field.value + max(1, project.fontSizeStep)); at = field.rect; was = "\(field.value)"
                                 fontField = (field.rect, label.rect)

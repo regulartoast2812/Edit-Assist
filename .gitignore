@@ -13,3 +13,5 @@ Tests/AccuracyAudit.swift
 ACCURACY_FINDINGS.md
 Tools/*.png
 Tests/MakeFixtures.swift
+!Tests/Fixtures/19-textSection.json
+!Tests/Fixtures/19-textSection.png

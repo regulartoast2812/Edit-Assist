@@ -4,7 +4,7 @@ import AppKit
 /// and compared. Tests/Replay.swift feeds these back through the same functions on every build: a
 /// change that would decide differently on a screen that once worked fails there, not in a run.
 struct Snapshot: Codable {
-    /// phrase, selected, panel, fontSize, styleButton, styleGrid, tile, dragGuard
+    /// phrase, selected, panel, fontSize, styleButton, styleGrid, tile, dragGuard, textSection
     var kind: String
     var note: String = ""
     var image: String?
@@ -36,6 +36,10 @@ struct Snapshot: Codable {
     var rows: [Int]?
     /// tile: the clicked tile's difference from your image.
     var difference: Int?
+    /// textSection: every control read, as "name=value|on" (value and state empty when absent), with
+    /// its click point.
+    var controls: [String]?
+    var points: [[Double]]?
 }
 
 struct RecordedHit: Codable {

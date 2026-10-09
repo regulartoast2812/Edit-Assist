@@ -25,6 +25,13 @@ Treat every change to decision logic as a change to what happens in their timeli
 - New decision points must be recorded (`recordDecision(Snapshot(...))`) and replayed (a case in
   `Replay.check`).
 
+## Reading the UI
+
+`Sources/PanelReader.swift` reads panels as named controls (`Desktop.textSection`: font, weight, the
+seven type buttons, Font Size and its slider, the nine paragraph buttons with their on/off state,
+tracking, leading). Reading only; a function that acts on a control looks it up by name there. Add new
+panels the same way, with a `textSection`-style replay case and a fixture checked by eye.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates

@@ -85,6 +85,8 @@ final class RunOverlay {
         if panel?.isVisible == true { panel?.orderFrontRegardless() }
     }
 
+    private static var sectionCache: (hits: [TextHit], size: (Int, Int), section: Desktop.TextSection?)?
+
     static func ocrBoxes(_ hits: [TextHit], image: CGImage? = nil) -> [InspectionBox] {
         let eligible = Desktop.captionBlocks(in: hits).flatMap { $0 }
         // With the style browser open, show its grid as the pass counts it: one box per rounded tile,
@@ -120,8 +122,23 @@ final class RunOverlay {
         } else if let image {
             _ = Desktop.styleRows.observe([], image: image, panelOpen: false)
         }
-        let shown = styleLeft.map { left in hits.filter { !Desktop.isStyleTileHit($0, left: left) } } ?? hits
-        return styleBoxes + shown.map { hit in
+        // The Properties panel's Text section as named controls. Read once per text reading, not per
+        // frame: its small numbers are read magnified, which costs a few OCR passes.
+        var controlBoxes: [InspectionBox] = []
+        if let image {
+            let section: Desktop.TextSection?
+            if let cached = sectionCache, cached.hits == hits, cached.size == (image.width, image.height) { section = cached.section }
+            else { section = Desktop.textSection(in: hits, image: image); sectionCache = (hits, (image.width, image.height), section) }
+            for control in section?.all ?? [] {
+                let name = control.name + (control.value.map { ": \($0)" } ?? "") + (control.on == true ? " · on" : "")
+                controlBoxes.append(InspectionBox(rect: control.rect.insetBy(dx: -0.002, dy: -0.002), label: name, kind: .control(on: control.on),
+                                                  text: name, detail: String(format: "%@ · click at x %.3f y %.3f", name, control.point.x, control.point.y)))
+            }
+        }
+        let controlled = controlBoxes.map(\.rect)
+        let shown = (styleLeft.map { left in hits.filter { !Desktop.isStyleTileHit($0, left: left) } } ?? hits)
+            .filter { hit in !controlled.contains { $0.intersects(hit.rect) } }
+        return styleBoxes + controlBoxes + shown.map { hit in
             let candidate = eligible.contains(hit)
             return InspectionBox(rect: hit.rect,
                                  label: "\(candidate ? "Caption candidate" : "Excluded by size filter"): \(hit.text)",
@@ -204,7 +221,7 @@ private struct OverlayView: View {
 }
 
 struct InspectionBox: Identifiable {
-    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int) }
+    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?) }
     let id = UUID()
     let rect: CGRect
     let label: String
@@ -228,6 +245,7 @@ struct InspectionBox: Identifiable {
         case .excluded: return .gray
         case .selected: return .green
         case .style: return .cyan
+        case let .control(on): return on == true ? .green : .teal
         case let .styleRow(row):
             guard row != 99 else { return .gray }
             let palette: [Color] = [.orange, .pink, .purple, .mint, .indigo, .brown]
@@ -274,7 +292,7 @@ private struct InspectionView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · other colours: style browser rows")
+            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · other colours: style browser rows")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white).padding(7).background(.black.opacity(0.85)).padding(8) }
         }

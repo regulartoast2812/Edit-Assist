@@ -37,6 +37,11 @@ struct Replay {
         exit(failed.isEmpty ? 0 : 1)
     }
 
+    /// "name=value|on" for comparing a read control with a recorded one.
+    static func describe(_ control: Desktop.PanelControl) -> String {
+        "\(control.name)=\(control.value ?? "")|\(control.on.map { $0 ? "on" : "off" } ?? "")"
+    }
+
     static func close(_ a: [Double]?, _ b: [Double]?, within: Double = 0.004) -> Bool {
         switch (a, b) {
         case (nil, nil): return true
@@ -89,6 +94,18 @@ struct Replay {
                 let now = slot.difference(from: Desktop.cellPatch(image, cell: CGRect(recorded: wanted)))
                 if (now >= 500) != (recorded >= 500) { return "colour match is \(now < 500), recorded \(recorded < 500)" }
                 if abs(now - recorded) > 6 { return "difference \(now), recorded \(recorded)" }
+            }
+        case "textSection":
+            guard let image else { return "image missing" }
+            let section = Desktop.textSection(in: hits, image: image)
+            let now = section?.all.map(Replay.describe) ?? []
+            if now != (s.controls ?? []) {
+                let missing = (s.controls ?? []).filter { !now.contains($0) }, extra = now.filter { !(s.controls ?? []).contains($0) }
+                return "controls differ — no longer read: \(missing.joined(separator: ", ")); newly read: \(extra.joined(separator: ", "))"
+            }
+            let points = section?.all.map { [Double($0.point.x), Double($0.point.y)] } ?? []
+            for (index, point) in points.enumerated() where index < (s.points ?? []).count && !close(point, s.points?[index], within: 0.006) {
+                return "\(now[index]) is at \(point), recorded \(s.points?[index] ?? [])"
             }
         case "dragGuard":
             guard let point = s.point else { return "point missing" }
