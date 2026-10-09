@@ -1643,7 +1643,11 @@ final class Desktop {
                       && abs($0.rect.minX - header.rect.minX) < 0.08 }
             .min { $0.rect.minY < $1.rect.minY }
         guard let row = valueRow else { return nil }
-        return lastControl(onRowOf: row.rect, in: image)
+        // Size the scan from the header too: OCR sometimes reads the value ("None") as a squashed box a
+        // third of its real height, and a band that thin rejects the four-square as too wide for a square
+        // icon, leaving the "0 ⌄" chevron beside it as the last control.
+        let height = max(row.rect.height, header.rect.height)
+        return lastControl(onRowOf: CGRect(x: row.rect.minX, y: row.rect.midY - height / 2, width: row.rect.width, height: height), in: image)
     }
 
     /// A button identified by its own label, such as the style panel's Back.
