@@ -896,10 +896,9 @@ final class Desktop {
         return best
     }
 
-    @MainActor
     /// The tiles of the style browser, found from their own "Ag" labels: every preset renders as
     /// "Ag", so OCR draws a box on each one. Their union is the scrollable grid.
-    private static func isTileLabel(_ token: String) -> Bool {
+    nonisolated private static func isTileLabel(_ token: String) -> Bool {
         // "ag", or tiles merged without a space ("agag"); serif presets read as "aơ", "ad", "aa".
         let letters = Array(token)
         guard letters.count >= 2, letters.count % 2 == 0 else { return false }
@@ -949,14 +948,14 @@ final class Desktop {
     /// pixels rather than the "Ag" OCR boxes, which merge neighbouring tiles or miss some entirely:
     /// the gaps between tiles are flat panel background, so a column or row whose brightness barely
     /// varies is a gap, and everything between gaps is a tile. OCR only says where the grid is.
-    static func styleCells(in hits: [TextHit], image: CGImage, left: CGFloat) -> [[CGRect]] {
+    nonisolated static func styleCells(in hits: [TextHit], image: CGImage, left: CGFloat) -> [[CGRect]] {
         styleGrid(in: hits, image: image, left: left).cells
     }
 
     /// The grid plus whether the browser is scrolled to the top, judged from this one look: scrolled,
     /// a cut-off row of tiles sits between the Open Projects box and the first full row; at the top
     /// that strip holds only the box edge, a separator and flat background. Nil when it cannot tell.
-    static func styleGrid(in hits: [TextHit], image: CGImage, left: CGFloat) -> (cells: [[CGRect]], atTop: Bool?) {
+    nonisolated static func styleGrid(in hits: [TextHit], image: CGImage, left: CGFloat) -> (cells: [[CGRect]], atTop: Bool?) {
         let labels = hits.filter { hit in
             let tokens = normalized(hit.text)
             return hit.rect.minX >= left - 0.08 && !tokens.isEmpty && tokens.allSatisfy(isTileLabel)
@@ -1561,7 +1560,7 @@ final class Desktop {
 
     /// The left edge of the style browser, taken from its own labels, so the tile search covers the
     /// panel instead of the whole window.
-    static func stylePanelLeft(in hits: [TextHit]) -> CGFloat? {
+    nonisolated static func stylePanelLeft(in hits: [TextHit]) -> CGFloat? {
         let names = ["back", "my styles", "local styles", "open projects"]
         let edges = hits.compactMap { hit -> CGFloat? in
             let text = normalized(hit.text).joined(separator: " ")

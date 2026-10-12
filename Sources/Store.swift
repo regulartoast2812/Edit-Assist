@@ -300,13 +300,27 @@ final class Store: ObservableObject {
                                 let text = Desktop.recognize(image)
                                 return (text, Desktop.textSection(in: text, image: image), true)
                             }
-                            let text = Desktop.reread(image, areas: changed.rects, keeping: earlier.text)
+                            var text = Desktop.reread(image, areas: changed.rects, keeping: earlier.text)
+                            // A partial reading keeps earlier text where nothing changed; if that leaves the style
+                            // browser without its grid (labels from before a scroll or a resize), read it all again.
+                            if let left = Desktop.stylePanelLeft(in: text), Desktop.styleCells(in: text, image: image, left: left).isEmpty {
+                                text = Desktop.recognize(image)
+                                return (text, Desktop.textSection(in: text, image: image), true)
+                            }
                             // The panel section is read again only when something in the panel changed.
                             let panel = earlier.section?.all.reduce(CGRect.null) { $0.union($1.rect) }.insetBy(dx: -0.02, dy: -0.04)
                             let panelChanged = panel.map { area in changed.rects.contains { $0.intersects(area) } } ?? true
                             return (text, panelChanged ? Desktop.textSection(in: text, image: image) : earlier.section, false)
                         }.value
                         if result.whole { self.lastWholeRead = Date() }
+                        // Evidence for a failure that would otherwise only show as "the boxes went away": the browser
+                        // is on screen but no grid is found even in a whole reading. Saved at most every 30 s.
+                        if result.whole, let left = Desktop.stylePanelLeft(in: result.text),
+                           Desktop.styleCells(in: result.text, image: image, left: left).isEmpty,
+                           Date().timeIntervalSince(self.lastGridDiagnostic) > 30 {
+                            self.lastGridDiagnostic = Date()
+                            self.saveGridDiagnostic(image: image, text: result.text)
+                        }
                         guard !Task.isCancelled, self.inspectionGeneration == token, self.liveActive,
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
                         var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
@@ -336,6 +350,22 @@ final class Store: ObservableObject {
     private var textDirty = false
     /// When the overlay last read the whole window rather than only what changed.
     private var lastWholeRead = Date.distantPast
+    private var lastGridDiagnostic = Date.distantPast
+
+    /// Saves a screen where the style browser shows but its grid is not found, with what was read on it,
+    /// to recordings/diagnostics, so the failure can be studied instead of guessed at.
+    private func saveGridDiagnostic(image: CGImage, text: [TextHit]) {
+        let directory = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let snapshot = Snapshot(kind: "styleGrid", note: "live overlay: style browser shown, no grid found", image: "\(stamp).png",
+                                hits: text.map(RecordedHit.init), left: Desktop.stylePanelLeft(in: text).map(Double.init))
+        if let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            try? png.write(to: directory.appendingPathComponent("\(stamp).png"))
+        }
+        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: directory.appendingPathComponent("\(stamp).json")) }
+        log("Overlay: the style browser is showing but its tiles were not found; saved the screen to \(directory.path) for diagnosis")
+    }
     private var activationObservers: [NSObjectProtocol] = []
     /// The newest frame that arrived while you were in another app, drawn the moment you return.
     private var hiddenFrame: CGImage?
