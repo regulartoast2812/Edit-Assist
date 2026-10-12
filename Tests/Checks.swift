@@ -604,6 +604,42 @@ struct Checks {
         let topView = smoothView(scroll: 0)
         check(cut.above.count == 4 && cut.below.count == 4 && Desktop.partialStyleRows(in: topView.image, cells: topView.cells).above.isEmpty,
               "Style rows cut off at the top and bottom of the view are recognised, and none above the top of the list")
+        // The panel made wider mid-session reflows the list (more tiles a row, fewer rows): a calibration
+        // learned before must not turn into wrong row numbers. The count is lost, never made up.
+        func reflowView(scroll: Int, columns: Int) -> (cells: [[CGRect]], image: CGImage) {
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2200, pixelsHigh: 500, bitsPerSample: 8, samplesPerPixel: 4,
+                                       hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            let context = NSGraphicsContext(bitmapImageRep: rep)!
+            NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
+            let pen = context.cgContext
+            pen.setFillColor(CGColor(gray: 31.0 / 255, alpha: 1)); pen.fill(CGRect(x: 0, y: 0, width: 2200, height: 500))
+            var cells: [[CGRect]] = []
+            for absolute in 0..<10 {
+                let top = 20 + absolute * 220 - scroll
+                guard top + 190 > 0, top < 500 else { continue }
+                var row: [CGRect] = []
+                for column in 0..<columns {
+                    let x = 30 + column * 210
+                    pen.setFillColor(CGColor(gray: 46.0 / 255, alpha: 1)); pen.fill(CGRect(x: x, y: 500 - top - 190, width: 190, height: 190))
+                    pen.setFillColor(NSColor(hue: CGFloat((absolute * columns + column) % 9) / 9, saturation: 0.7, brightness: 0.9, alpha: 1).cgColor)
+                    pen.fill(CGRect(x: x + 50, y: 500 - top - 140, width: 90, height: 90))
+                    row.append(CGRect(x: CGFloat(x) / 2200, y: CGFloat(top) / 500, width: 190.0 / 2200, height: 190.0 / 500))
+                }
+                if top >= 0 && top + 190 <= 500 { cells.append(row) }
+            }
+            // the scrollbar: with fewer, longer rows the list is shorter and the thumb moves further per pixel
+            let travel = columns == 5 ? 4.0 : 2.2
+            pen.setFillColor(CGColor(gray: 0.5, alpha: 1)); pen.fill(CGRect(x: 30 + columns * 210, y: 500 - (20 + Int(Double(scroll) / travel)) - 100, width: 6, height: 100))
+            NSGraphicsContext.restoreGraphicsState()
+            return (cells, rep.cgImage!)
+        }
+        let resized = Desktop.StyleRowTracker()
+        for position in stride(from: 0, through: 660, by: 22) {
+            _ = resized.observe(reflowView(scroll: position, columns: 5).cells, image: reflowView(scroll: position, columns: 5).image, atTop: position == 0)
+        }
+        let wider = reflowView(scroll: 450, columns: 9)
+        let afterResize = resized.observe(wider.cells, image: wider.image)
+        check(afterResize == nil, "After the panel is made wider mid-session, the row count is lost rather than made up")
         let barred = Desktop.StyleRowTracker()
         for position in stride(from: 0, through: 300, by: 25) {
             let view = smoothView(scroll: position, thumb: true)

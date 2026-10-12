@@ -1176,6 +1176,8 @@ final class Desktop {
         /// Scrollbar thumb positions against the scroll measured at the same time. Once they span a few
         /// pixels, the thumb alone gives the scroll: it recovers a lost count and corrects a slip.
         private var thumbFit: [(thumb: Double, scroll: Double)] = []
+        /// Tiles per row and tile size (in 4-pixel steps) when the count was anchored.
+        private var layout: (Int, Int)?
         /// Where the thumb sits with the list at its top, and whether the browser was seen closed since.
         private var topThumb: Double?
         /// Looks in a row where neither the text nor the pixels showed the list.
@@ -1235,6 +1237,19 @@ final class Desktop {
             if cells.count >= 2 { pitch = Double(cells[1][0].minY - cells[0][0].minY) * height }
             else if firstRow.count >= 2 { pitch = Double(firstRow[1].minX - firstRow[0].minX) * width }
             guard pitch > 4 else { return offset }
+            // The grid's shape: tiles per row and tile size. If it changes mid-session the panel was resized and
+            // the list reflowed; rows no longer mean what they did, so the count is lost rather than guessed.
+            let widest = cells.map(\.count).max() ?? 0
+            let currentLayout = (widest, Int((Double(firstCell.width) * width / 4).rounded()))
+            // A short last row is not a narrower panel: only more tiles in a row, every row of two or more
+            // showing fewer, or a different tile size means the layout changed.
+            let reflowed = layout.map { known in
+                widest > known.0 || (cells.count >= 2 && widest < known.0) || abs(currentLayout.1 - known.1) > max(1, known.1 / 12)
+            } ?? false
+            if let known = layout, reflowed, !forceTop, !fresh {
+                scroll = nil; offset = nil; thumbFit = []; topThumb = nil; layout = currentLayout
+                onReset?("the browser's layout changed (\(known.0) to \(currentLayout.0) tiles a row); the count is lost until the top")
+            }
 
             // Scrolled by exactly a whole number of rows, a view looks just like the top, so the tiles alone
             // never reset a count. What does: the routine scrolling to the top; a freshly opened browser;
@@ -1264,7 +1279,10 @@ final class Desktop {
                 imageSize = (image.width, image.height)
                 previous = sample(image); sampleKind = image.bitmapInfo.rawValue
                 anchor = rowTop; scroll = 0; velocity = 0; fresh = false; offset = 0
-                if trusted, let thumb { thumbFit.append((thumb, 0)); if thumbFit.count > 60 { thumbFit.removeFirst() } }
+                // A new session of the browser: the list may have reflowed since (a wider panel puts more
+                // tiles in a row and fewer rows in the list), so the scrollbar is calibrated afresh.
+                if trusted { thumbFit = thumb.map { [($0, 0)] } ?? [] }
+                layout = currentLayout
                 return 0
             }
             fresh = false; sawClosed = false
@@ -1297,7 +1315,12 @@ final class Desktop {
             var top = 0.0, bottom = 0.0
             for (x, y) in zip(xs, ys) { top += (x - meanX) * (y - meanY); bottom += (x - meanX) * (x - meanX) }
             guard bottom > 0 else { return nil }
-            return meanY + top / bottom * (thumb - meanX)
+            let slope = top / bottom
+            // Trust it only when the points really lie on a line: a fit spoiled by a slip, or by a layout
+            // that changed under it, would turn the scrollbar into wrong row numbers.
+            let worst = zip(xs, ys).map { abs(meanY + slope * ($0 - meanX) - $1) }.max() ?? 0
+            guard thumbFit.count >= 6, worst <= max(4, pitch * 0.12) else { return nil }
+            return meanY + slope * (thumb - meanX)
         }
 
         /// What produced the last sample. A screenshot and a streamed frame of the same, unmoved list
