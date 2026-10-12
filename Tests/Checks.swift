@@ -560,6 +560,7 @@ struct Checks {
                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
         _ = browsing.observe([], image: blank)
         check(browsing.offset == nil, "Precondition: a jump with an uncalibrated scrollbar loses the count")
+        _ = browsing.observe(smoothView(scroll: 0, thumb: true).cells, image: smoothView(scroll: 0, thumb: true).image, atTop: false)
         check(browsing.observe(smoothView(scroll: 0, thumb: true).cells, image: smoothView(scroll: 0, thumb: true).image, atTop: false) == 0,
               "Scrolled back to the top, the scrollbar thumb at its top position restores the count")
         let reopened = Desktop.StyleRowTracker()
@@ -643,6 +644,7 @@ struct Checks {
         check(afterResize == nil, "After the panel is made wider mid-session, the row count is lost rather than made up")
         // Back at the top in the new layout, the scrollbar beside the first row says so: counting restarts.
         let backAtTop = reflowView(scroll: 0, columns: 9)
+        _ = resized.observe(backAtTop.cells, image: backAtTop.image, atTop: true)     // a top must hold for more than one frame
         check(resized.observe(backAtTop.cells, image: backAtTop.image, atTop: true) == 0,
               "After a resize, scrolling back to the top restores the count without reopening the browser")
         let barred = Desktop.StyleRowTracker()

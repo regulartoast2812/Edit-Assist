@@ -1175,8 +1175,12 @@ final class Desktop {
         /// Scrollbar thumb positions against the scroll measured at the same time. Once they span a few
         /// pixels, the thumb alone gives the scroll: it recovers a lost count and corrects a slip.
         private var thumbFit: [(thumb: Double, scroll: Double)] = []
-        /// Tiles per row and tile size (in 4-pixel steps) when the count was anchored.
+        /// Tiles per row and tile size (in 4-pixel steps) when the count was anchored, and a different layout
+        /// seen since, with how many frames in a row it has lasted.
         private var layout: (Int, Int)?
+        private var pendingLayout: (layout: (Int, Int), frames: Int)?
+        /// Frames in a row on which the list measured as at its top.
+        private var topFrames = 0
         /// Looks in a row where neither the text nor the pixels showed the list.
         private var goneFrames = 0
         /// Told each time the count restarts at R1, with why, so a wrong restart shows in the log.
@@ -1238,10 +1242,15 @@ final class Desktop {
             let currentLayout = (widest, Int((Double(firstCell.width) * width / 4).rounded()))
             // A short last row is not a narrower panel: only more tiles in a row, every row of two or more
             // showing fewer, or a different tile size means the layout changed.
-            let reflowed = layout.map { known in
-                widest > known.0 || (cells.count >= 2 && widest < known.0) || abs(currentLayout.1 - known.1) > max(1, known.1 / 12)
+            let differs = layout.map { known in
+                widest > known.0 || (cells.count >= 2 && widest < known.0) || abs(currentLayout.1 - known.1) > max(2, known.1 / 7)
             } ?? false
-            if let known = layout, reflowed, !forceTop, !fresh {
+            // One frame's grid can miss a tile or misjudge a size by a few pixels; a real resize lasts. Only the
+            // same new layout on six frames in a row counts.
+            if differs, let pending = pendingLayout, pending.layout == currentLayout { pendingLayout = (currentLayout, pending.frames + 1) }
+            else { pendingLayout = differs ? (currentLayout, 1) : nil }
+            if let known = layout, let pending = pendingLayout, pending.frames >= 6, !forceTop, !fresh {
+                pendingLayout = nil
                 scroll = nil; offset = nil; thumbFit = []; layout = currentLayout
                 onReset?("the browser's layout changed (\(known.0) to \(currentLayout.0) tiles a row); the count is lost until the top")
             }
@@ -1255,15 +1264,18 @@ final class Desktop {
             // Without a scrollbar there is no measurement: a scrollbar not seen on a long list would let a view
             // scrolled by whole rows pass for the top, the very failure this avoids.
             let measuredTop = Desktop.listAtTop(in: image, cells: cells, thumb: thumb)
+            // A count being followed is only overruled by a top that holds: one odd frame's reading must
+            // not undo frame-by-frame tracking that is working.
+            topFrames = measuredTop ? topFrames + 1 : 0
             let reason = forceTop ? "the list was scrolled to its top" : fresh && atTop != false ? "the browser has just opened"
-                : measuredTop && (scroll == nil || offset != 0) ? "the scrollbar shows the top of the list" : nil
+                : measuredTop && (scroll == nil ? topFrames >= 2 : offset != 0 && topFrames >= 4) ? "the scrollbar shows the top of the list" : nil
             if let reason {
                 // Only resets known to be right may teach the scrollbar where the top is: a wrong one would
                 // otherwise teach a wrong top and make the next wrong reset likelier.
                 let trusted = forceTop || fresh || measuredTop
                 forceTop = false
                 // Report restarts that replace a count or recover a lost one; a browser opening is normal.
-                if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1))") }
+                if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1), a count being followed)") }
                 else if offset == nil, !fresh { onReset?("counting from R1: \(reason) (the count was lost)") }
                 // At the top: the first full row is row 1. Sample within the visible rows, which sit
                 // inside the scrolling viewport, so nothing that stays still is compared.
@@ -1282,7 +1294,9 @@ final class Desktop {
             }
             fresh = false
             let followed = follow(image)
-            if let thumb, let fromThumb = scrollFrom(thumb: thumb) {
+            // A frame laid out differently from the anchored one never uses the scrollbar calibration: that
+            // would turn positions from the old geometry into made-up rows.
+            if !differs, let thumb, let fromThumb = scrollFrom(thumb: thumb) {
                 if !followed || scroll == nil {
                     // Lost: the scrollbar says where the list is.
                     scroll = fromThumb; previous = sample(image); sampleKind = image.bitmapInfo.rawValue

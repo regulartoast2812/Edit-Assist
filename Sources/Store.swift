@@ -354,17 +354,17 @@ final class Store: ObservableObject {
 
     /// Saves a screen where the style browser shows but its grid is not found, with what was read on it,
     /// to recordings/diagnostics, so the failure can be studied instead of guessed at.
-    private func saveGridDiagnostic(image: CGImage, text: [TextHit]) {
+    private func saveGridDiagnostic(image: CGImage, text: [TextHit], note: String = "live overlay: style browser shown, no grid found") {
         let directory = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let snapshot = Snapshot(kind: "styleGrid", note: "live overlay: style browser shown, no grid found", image: "\(stamp).png",
+        let snapshot = Snapshot(kind: "styleGrid", note: note, image: "\(stamp).png",
                                 hits: text.map(RecordedHit.init), left: Desktop.stylePanelLeft(in: text).map(Double.init))
         if let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
             try? png.write(to: directory.appendingPathComponent("\(stamp).png"))
         }
         if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: directory.appendingPathComponent("\(stamp).json")) }
-        log("Overlay: the style browser is showing but its tiles were not found; saved the screen to \(directory.path) for diagnosis")
+        log("Overlay: \(note); saved the screen to \(directory.path) for diagnosis")
     }
     private var activationObservers: [NSObjectProtocol] = []
     /// The newest frame that arrived while you were in another app, drawn the moment you return.
@@ -492,7 +492,15 @@ final class Store: ObservableObject {
         if projects.isEmpty { projects = [Project()] }
         selected = projects.first?.id
         desktop.detectionHotkey.action = { [weak self] in self?.toggleDetection() }
-        Desktop.styleRows.onReset = { [weak self] why in self?.log("Style rows: \(why)") }
+        Desktop.styleRows.onReset = { [weak self] why in
+            guard let self else { return }
+            self.log("Style rows: \(why)")
+            // A followed count being replaced is the failure worth seeing: keep the frame and its reading.
+            if why.contains("a count being followed"), let look = self.lastLook, Date().timeIntervalSince(self.lastGridDiagnostic) > 10 {
+                self.lastGridDiagnostic = Date()
+                self.saveGridDiagnostic(image: look.image, text: look.text, note: "row count replaced: \(why)")
+            }
+        }
         desktop.onInterrupt = { [weak self] in
             guard let self else { return }
             if self.running { self.runPaused = true; self.status = "Pausing because you took control…" }
