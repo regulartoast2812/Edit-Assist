@@ -1,3 +1,4 @@
+import CoreImage
 import CoreML
 import Vision
 
@@ -132,6 +133,20 @@ extension Desktop {
         }
     }
 
+    private static let maskContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// A person mask blurred by a few of its pixels, as 8-bit levels: edges become smooth curves and
+    /// specks and thin strands fall under the halfway level the outline is cut at.
+    nonisolated static func smoothed(_ mask: CVPixelBuffer) -> CVPixelBuffer? {
+        let image = CIImage(cvPixelBuffer: mask)
+        let soft = image.clampedToExtent().applyingGaussianBlur(sigma: 3).cropped(to: image.extent)
+        var out: CVPixelBuffer?
+        CVPixelBufferCreate(nil, CVPixelBufferGetWidth(mask), CVPixelBufferGetHeight(mask), kCVPixelFormatType_OneComponent8, nil, &out)
+        guard let out else { return nil }
+        maskContext.render(soft, to: out)
+        return out
+    }
+
     /// Every face and body in the image, or in one area of it (the Program Monitor's picture). One
     /// Vision pass for all three requests, then an outline traced around each person's mask.
     nonisolated static func people(in image: CGImage, area: CGRect? = nil) -> People {
@@ -155,17 +170,28 @@ extension Desktop {
         found.faces = Self.faces(faces.results ?? [], in: area)
 
 
-        // One outline per person in the mask: the largest contour around it, simplified.
+        // One outline per person in the mask (a few hundred pixels for the whole picture, soft at its edges).
+        // Smoothed, then cut where it is more person than not, then traced at its own size: the raw mask
+        // traced small came out in stair-steps and kept the stray bits the model was unsure about. Of the
+        // shapes found, the one covering most area is the person; a jagged blob only has the most points.
         var outlines: [[CGPoint]] = []
         if let result = masks.results?.first {
             for person in result.allInstances {
-                guard let mask = try? result.generateMask(forInstances: [person]) else { continue }
+                guard let mask = try? result.generateMask(forInstances: [person]), let soft = Self.smoothed(mask) else { continue }
                 let contours = VNDetectContoursRequest()
                 contours.detectsDarkOnLight = false
-                contours.maximumImageDimension = 256
-                guard (try? VNImageRequestHandler(cvPixelBuffer: mask, options: [:]).perform([contours])) != nil,
-                      let largest = contours.results?.first?.topLevelContours.max(by: { $0.pointCount < $1.pointCount }),
-                      let simple = try? largest.polygonApproximation(epsilon: 0.003), simple.pointCount >= 3 else { continue }
+                contours.maximumImageDimension = max(CVPixelBufferGetWidth(soft), CVPixelBufferGetHeight(soft))
+                contours.contrastPivot = 0.5
+                contours.contrastAdjustment = 3
+                func area(_ contour: VNContour) -> Float {
+                    let points = contour.normalizedPoints
+                    var twice: Float = 0
+                    for i in points.indices { let j = (i + 1) % points.count; twice += points[i].x * points[j].y - points[j].x * points[i].y }
+                    return abs(twice) / 2
+                }
+                guard (try? VNImageRequestHandler(cvPixelBuffer: soft, options: [:]).perform([contours])) != nil,
+                      let largest = contours.results?.first?.topLevelContours.max(by: { area($0) < area($1) }),
+                      let simple = try? largest.polygonApproximation(epsilon: 0.002), simple.pointCount >= 3 else { continue }
                 var line = simple.normalizedPoints.map { flip(CGPoint(x: CGFloat($0.x), y: CGFloat($0.y))) }
                 if let first = line.first { line.append(first) }
                 outlines.append(line)
