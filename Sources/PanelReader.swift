@@ -421,8 +421,11 @@ extension Desktop {
         case nothingSelected
         /// A caption: C1: Subtitle / Track Style; with the four-square button if it was seen.
         case caption(fourSquare: CGPoint?)
-        /// A text item without a Track Style row: a graphic, or a caption upgraded to one.
-        case graphic
+        /// The text layer of a graphic (or of a caption upgraded to one): Text, Appearance, Align and
+        /// Transform, then Linked style far down, whose row has the four-square; with it if it was seen.
+        case graphic(fourSquare: CGPoint?)
+        /// A graphic selected as a whole: its layer list, Transform and Responsive Design, no Text section.
+        case graphicLayers
         /// The style browser: Back with My Styles, Local Styles or Open Projects.
         case styleBrowser(back: CGPoint?)
         case unknown
@@ -431,13 +434,22 @@ extension Desktop {
             switch self {
             case .nothingSelected: return "nothing selected"
             case let .caption(button): return button == nil ? "caption" : "caption (style button seen)"
-            case .graphic: return "graphic text"
+            case let .graphic(button): return button == nil ? "graphic text" : "graphic text (style button seen)"
+            case .graphicLayers: return "graphic layers"
             case .styleBrowser: return "style browser"
             case .unknown: return "unknown"
             }
         }
         var isStyleBrowser: Bool { if case .styleBrowser = self { return true } else { return false } }
         var isOuterPanel: Bool { if case .caption = self { return true } else { return false } }
+        /// The four-square that opens the style browser: under Track Style for a caption, under Linked
+        /// style for a graphic's text.
+        var styleButton: CGPoint? {
+            switch self {
+            case let .caption(button), let .graphic(button): return button
+            default: return nil
+            }
+        }
     }
 
     /// The Properties panel's area: below its tab, from the tab's left edge to the window's right.
@@ -462,7 +474,14 @@ extension Desktop {
         if lines.contains(where: { $0.contains("subtitle") && $0.contains("c1") }) {
             return .caption(fourSquare: nil)
         }
-        if lines.contains(where: { $0 == "font size" || $0 == "text" || $0 == "appearance" }) { return .graphic }
+        if let header = panel.first(where: { normalized($0.text).joined(separator: " ") == "linked style" }) {
+            // As for a caption's Track Style: the four-square only in the rows right under its header.
+            return .graphic(fourSquare: findFourSquare(in: image, under: header.rect)?.point)
+        }
+        // A graphic's text layer, at any scroll position: the sections it shows from top to bottom.
+        let sections = ["font size", "text", "appearance", "stroke", "shadow", "mask with text", "align and transform"]
+        if lines.contains(where: { sections.contains($0) }) { return .graphic(fourSquare: nil) }
+        if lines.contains(where: { $0.hasPrefix("responsive design") }) { return .graphicLayers }
         return .unknown
     }
 

@@ -1286,6 +1286,24 @@ final class Store: ObservableObject {
                                     return words.joined(separator: " ") == label && hit.rect.minY > below
                                 }
                             }
+                            // A graphic's text layer: Font Size is at the top of its Text section, and opening Linked
+                            // style for the last phrase left the panel scrolled far below it. Scroll up to it.
+                            // (A caption's panel never reads as a graphic, so its path below is unchanged.)
+                            var lifts = 0
+                            while find("font size", in: outer.text) == nil, lifts < 8,
+                                  case .graphic = Desktop.propertiesState(in: outer.text, image: outer.image),
+                                  let area = Desktop.propertiesArea(in: outer.text) {
+                                lifts += 1
+                                log("OCR: graphic text — Font Size is above the view; scrolling the Properties panel up")
+                                try await perform(AgentAction(kind: "scroll", x: min(0.99, area.minX + 0.012), y: area.midY, endX: 0, endY: 0, keys: [], scroll: 12,
+                                                              purpose: "Scroll the Properties panel up to Font Size"), on: outer)
+                                try await Task.sleep(for: .milliseconds(150))
+                                outer = try await desktop.capture(window, readText: true); outerReading = outer
+                            }
+                            if find("font size", in: outer.text) == nil, case .graphicLayers = Desktop.propertiesState(in: outer.text, image: outer.image) {
+                                try await stop(OCRStep.increaseSize, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Font Size. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
+                                return false
+                            }
                             // Bring the Font Size row into view, whatever the panel is doing: another tab in
                             // front, the Text section folded, or the panel scrolled past it.
                             for _ in 0 ..< 3 where find("font size", in: outer.text) == nil {
@@ -1352,16 +1370,31 @@ final class Store: ObservableObject {
                             // and the four-square icon found by its shape wherever it is.
                             let state = Desktop.propertiesState(in: panel.text, image: panel.image)
                             if state.isStyleBrowser { log("OCR skip: \(OCRStep.openStylePanel.label) — already open"); return true }
-                            var button: CGPoint?
-                            if case let .caption(found) = state { button = found }
-                            recordDecision(Snapshot(kind: "styleButton", note: "Properties shows \(state.name)", hits: panel.text.map(RecordedHit.init),
-                                            location: button.map { [Double($0.x), Double($0.y)] }), image: panel.image)
+                            var button = state.styleButton
+                            var shown = state, seen = panel
+                            // A graphic's text layer: the four-square is on the Linked style row, several sections
+                            // below the text. Scroll down until that header shows; the button is found under it.
+                            var lowers = 0
+                            while button == nil, lowers < 8, case .graphic = shown, let area = Desktop.propertiesArea(in: seen.text) {
+                                lowers += 1
+                                log("OCR: graphic text — Linked style is below the view; scrolling the Properties panel down")
+                                try await perform(AgentAction(kind: "scroll", x: min(0.99, area.minX + 0.012), y: area.midY, endX: 0, endY: 0, keys: [], scroll: -12,
+                                                              purpose: "Scroll the Properties panel down to Linked style"), on: seen)
+                                try await Task.sleep(for: .milliseconds(150))
+                                seen = try await desktop.capture(window, readText: true)
+                                shown = Desktop.propertiesState(in: seen.text, image: seen.image)
+                                button = shown.styleButton
+                            }
+                            recordDecision(Snapshot(kind: "styleButton", note: "Properties shows \(shown.name)", hits: seen.text.map(RecordedHit.init),
+                                            location: button.map { [Double($0.x), Double($0.y)] }), image: seen.image)
                             guard let point = button else {
-                                switch state {
+                                switch shown {
                                 case .nothingSelected:
                                     try await stop(OCRStep.openStylePanel, "Properties shows no clip selected (\"Select a clip in the timeline\"), so there is no style button to open. The selection was lost; run again from this phrase.")
                                 case .graphic:
-                                    try await stop(OCRStep.openStylePanel, "This text item has no Track Style row (a graphic, or a caption upgraded to one), so there is no four-square style button to open. Its font size was set; apply the style by hand or untick the style steps for it.")
+                                    try await stop(OCRStep.openStylePanel, "Scrolled the graphic's Properties down \(lowers) times without finding Linked style and its four-square button. Its font size was set; apply the style by hand, or open Linked style and run again.")
+                                case .graphicLayers:
+                                    try await stop(OCRStep.openStylePanel, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Linked style row. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
                                 default:
                                     try await stop(OCRStep.openStylePanel, "The Properties panel shows \(state.name), and the four-square style button is not in it.")
                                 }
@@ -1380,9 +1413,9 @@ final class Store: ObservableObject {
                                 let read = try await desktop.capture(window, readText: true, notifyOCR: false)
                                 let now = Desktop.propertiesState(in: read.text, image: read.image)
                                 if now.isStyleBrowser { opened = true; break }
-                                guard case let .caption(again?) = now, clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
+                                guard let again = now.styleButton, clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
                                 clicks += 1
-                                log("OCR: Properties still shows the caption panel (click \(clicks - 1)); clicking the four-square again")
+                                log("OCR: Properties still shows the \(now.name) panel (click \(clicks - 1)); clicking the four-square again")
                                 try await perform(AgentAction(kind: "click", x: again.x, y: again.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: read)
                             }
                             if !opened { log("OCR: the style browser has not shown yet; the next step keeps looking for it") }
@@ -1413,9 +1446,9 @@ final class Store: ObservableObject {
                             var reopened = false
                             while Desktop.stylePanelLeft(in: panel.text) == nil, waited < 12 {
                                 try await Task.sleep(for: .milliseconds(500)); waited += 1
-                                if !reopened, waited == 4, case let .caption(button?) = Desktop.propertiesState(in: panel.text, image: panel.image) {
+                                if !reopened, waited == 4, let button = Desktop.propertiesState(in: panel.text, image: panel.image).styleButton {
                                     reopened = true
-                                    log("OCR: Properties still shows the caption panel; clicking the four-square again")
+                                    log("OCR: Properties still shows the outer panel; clicking the four-square again")
                                     try await perform(AgentAction(kind: "click", x: button.x, y: button.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: panel)
                                     styleOpenedFresh = true
                                 }

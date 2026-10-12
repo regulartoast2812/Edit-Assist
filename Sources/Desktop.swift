@@ -1820,6 +1820,8 @@ final class Desktop {
         return joined.contains { line in
             line.contains("track style") || line.contains("subtitle") && line.contains("c1")
                 || line == "font size" || line == "v text" || line.contains("my styles")
+                // A graphic: as a whole (Responsive Design under its Transform) or its text layer scrolled down.
+                || line.hasPrefix("responsive design") || line == "linked style" || line == "align and transform"
         }
     }
 

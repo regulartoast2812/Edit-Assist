@@ -82,7 +82,7 @@ struct Replay {
             guard let image else { return "image missing" }
             // As the routine decides it: the panel's state, and the four-square found in it by shape.
             var found: CGPoint?
-            if case let .caption(button) = Desktop.propertiesState(in: hits, image: image) { found = button }
+            found = Desktop.propertiesState(in: hits, image: image).styleButton
             let now = found.map { [Double($0.x), Double($0.y)] }
             if !close(now, s.location) { return "style button at \(now ?? []), recorded \(s.location ?? [])" }
         case "styleGrid", "tile":

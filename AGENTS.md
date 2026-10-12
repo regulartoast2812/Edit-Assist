@@ -57,6 +57,13 @@ can be slow or miss a click. Never re-click a remembered spot, and never click a
 searching the whole panel: once the browser is open a style tile can look like the four-square, and
 clicking it applies the wrong style to the selected text (this happened).
 
+**Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
+whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the
+text layer (`graphic`): Text, Appearance, Align and Transform, then **Linked style** far below, whose row
+holds the four-square. The routine scrolls the panel down to Linked style to open the browser, and back up
+to Font Size on the next phrase; it does not click a layer row (that could drop the word selection).
+Fixtures 33-37.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates
