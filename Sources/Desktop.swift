@@ -1247,15 +1247,14 @@ final class Desktop {
             }
 
             // At the top, measured on this frame alone, whatever the panel's size: the scrollbar thumb's top
-            // is level with the first full row's top (within 8% of a tile), and no partly hidden row shows
+            // is level with the first full row's top (within 12% of a tile), and no partly hidden row shows
             // above it. Scrolled by whole rows, a row still starts at that line but the thumb has moved down;
             // scrolled by part of a row, the thumb can line up by chance, but a cut-off row shows above.
             // A list too short to scroll has no thumb and never needs this.
             let thumb = Desktop.scrollThumb(in: image, cells: cells)
             // Without a scrollbar there is no measurement: a scrollbar not seen on a long list would let a view
             // scrolled by whole rows pass for the top, the very failure this avoids.
-            let measuredTop = thumb.map { abs($0 - rowTop) <= Double(firstCell.height) * height * 0.08 } == true
-                && Desktop.partialStyleRows(in: image, cells: cells).above.isEmpty
+            let measuredTop = Desktop.listAtTop(in: image, cells: cells, thumb: thumb)
             let reason = forceTop ? "the list was scrolled to its top" : fresh && atTop != false ? "the browser has just opened"
                 : measuredTop && (scroll == nil || offset != 0) ? "the scrollbar shows the top of the list" : nil
             if let reason {
@@ -1400,8 +1399,11 @@ final class Desktop {
         guard let right = cells.flatMap({ $0 }).map(\.maxX).max(), let top = cells.first?.first?.minY,
               let bottom = cells.last?.first?.maxY, let tile = cells.first?.first?.height else { return nil }
         let width = CGFloat(image.width), height = CGFloat(image.height)
+        // The scrollbar sits at the panel's right edge, which is not next to the tiles once the panel is
+        // wider than its columns: search up to a tile and a half beyond them.
+        let reach = max(width * 0.035, tile * height * 1.6)
         let band = CGRect(x: right * width + 2, y: max(0, (top - tile * 1.6) * height),
-                          width: min(width - right * width - 2, width * 0.035), height: 0)
+                          width: min(width - right * width - 2, reach), height: 0)
         let span = min(height, (bottom + tile * 1.6) * height) - band.minY
         guard band.width >= 4, span > 20 else { return nil }
         let rect = CGRect(x: band.minX, y: band.minY, width: band.width, height: span)
@@ -1412,23 +1414,45 @@ final class Desktop {
             let r = Int(rgba[i]), g = Int(rgba[i + 1]), b = Int(rgba[i + 2])
             return max(r, g, b) - min(r, g, b) < 25 && (r * 30 + g * 59 + b * 11) / 100 >= 62
         }
-        var best: (length: Int, start: Int, x: Int)?
-        for x in 0 ..< columns {
+        // Each column's longest light run, if it is bar-sized: a good part of the view tall, never all of it.
+        let runs: [(start: Int, length: Int)?] = (0 ..< columns).map { x in
+            var best: (start: Int, length: Int)?
             var y = 0
             while y < rows {
                 guard thumbPixel(x, y) else { y += 1; continue }
                 var end = y
                 while end + 1 < rows, thumbPixel(x, end + 1) { end += 1 }
-                let length = end - y + 1
-                if best.map({ length > $0.length }) ?? true { best = (length, y, x) }
+                if best.map({ end - y + 1 > $0.length }) ?? true { best = (y, end - y + 1) }
                 y = end + 1
             }
+            guard let found = best, found.length >= rows / 12, found.length < rows * 95 / 100 else { return nil }
+            return found
         }
-        // A thumb is a real bar: a good part of the view tall, never all of it, and narrow.
-        guard let found = best, found.length >= rows / 12, found.length < rows * 95 / 100 else { return nil }
-        let wide = (0 ..< columns).filter { x in (found.start ..< found.start + found.length).filter { thumbPixel(x, $0) }.count > found.length * 3 / 4 }.count
-        guard Double(wide) <= max(3, Double(columns) * 0.5) else { return nil }
-        return Double(rect.minY) + Double(found.start) * Double(rect.height) / Double(rows)
+        // Neighbouring columns with such runs form a bar; a thumb is narrow. The one nearest the tiles wins.
+        let narrow = max(3, Int(tile * height * 0.12))
+        var x = 0
+        while x < columns {
+            guard let run = runs[x] else { x += 1; continue }
+            var end = x
+            while end + 1 < columns, runs[end + 1] != nil { end += 1 }
+            if end - x + 1 <= narrow {
+                // The bar's top is rounded: its middle column reaches highest, so measure there.
+                let tallest = (x ... end).compactMap { runs[$0] }.max { $0.length < $1.length } ?? run
+                return Double(rect.minY) + Double(tallest.start) * Double(rect.height) / Double(rows)
+            }
+            x = end + 1
+        }
+        return nil
+    }
+
+    /// Whether the style list is at its top, measured on this frame alone at any panel size: the scrollbar
+    /// thumb's top is level with the first full row's top (within 12% of a tile) and no partly hidden row
+    /// shows above it. Without a scrollbar there is no measurement and the answer is no.
+    static func listAtTop(in image: CGImage, cells: [[CGRect]], thumb: Double? = nil) -> Bool {
+        guard let first = cells.first?.first, let thumb = thumb ?? scrollThumb(in: image, cells: cells) else { return false }
+        let height = Double(image.height)
+        return abs(thumb - Double(first.minY) * height) <= Double(first.height) * height * 0.12
+            && partialStyleRows(in: image, cells: cells).above.isEmpty
     }
 
     /// The tile's appearance, inset so the rounded edge and hover tint matter less than the glyph.

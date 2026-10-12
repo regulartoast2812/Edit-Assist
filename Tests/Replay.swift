@@ -114,6 +114,11 @@ struct Replay {
             guard let image else { return "image missing" }
             let now = Desktop.propertiesState(in: hits, image: image).name
             if now != s.note.components(separatedBy: " — ").first { return "Properties reads as \(now), recorded \(s.note)" }
+        case "listTop":
+            guard let image, let left = s.left else { return "image or panel edge missing" }
+            let cells = Desktop.styleGrid(in: hits, image: image, left: CGFloat(left)).cells
+            let now = Desktop.listAtTop(in: image, cells: cells)
+            if now != s.bool { return "at the top of the list is \(now), recorded \(s.bool.map(String.init) ?? "-")" }
         case "dragGuard":
             guard let point = s.point else { return "point missing" }
             let now = Desktop.captionBlocks(in: hits, minHeight: minHeight, area: area).flatMap { $0 }
