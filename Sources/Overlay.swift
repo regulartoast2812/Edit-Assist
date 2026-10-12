@@ -71,7 +71,7 @@ final class RunOverlay {
     }
 
     func inspect(_ shot: Observation) {
-        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people)
+        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people, picture: shot.picture)
         // The legend shows when the text was read; the grid boxes are redrawn from every look's pixels.
         inspection.stamp = shot.textTimestamp.formatted(date: .omitted, time: .standard)
         if inspectionPanel == nil {
@@ -174,9 +174,13 @@ final class RunOverlay {
     }
 
     /// Faces with their outlines, and bodies with their skeletons.
-    static func peopleBoxes(_ people: Desktop.People?) -> [InspectionBox] {
+    static func peopleBoxes(_ people: Desktop.People?, picture: CGRect?) -> [InspectionBox] {
         guard let people else { return [] }
         var boxes: [InspectionBox] = []
+        if let picture {
+            boxes.append(InspectionBox(rect: picture, label: "Program picture", kind: .picture, text: "Program picture",
+                                       detail: String(format: "Program Monitor picture · x %.3f y %.3f w %.3f h %.3f", picture.minX, picture.minY, picture.width, picture.height)))
+        }
         for (index, face) in people.faces.enumerated() {
             var angle = ""
             if let yaw = face.yaw { angle += String(format: " · turned %.0f°", yaw) }
@@ -188,15 +192,15 @@ final class RunOverlay {
         for (index, body) in people.bodies.enumerated() {
             boxes.append(InspectionBox(rect: body.rect, label: "Person \(index + 1)", kind: .body, text: "Person \(index + 1)",
                                        detail: String(format: "Person %d · %d joints · x %.3f y %.3f w %.3f h %.3f", index + 1, body.joints.count, body.rect.minX, body.rect.minY, body.rect.width, body.rect.height),
-                                       lines: body.bones))
+                                       lines: body.bones + (body.outline.isEmpty ? [] : [body.outline])))
         }
         return boxes
     }
 
     /// Replaces only the face and body boxes, for people read between text readings.
-    func updatePeople(_ people: Desktop.People?) {
+    func updatePeople(_ people: Desktop.People?, picture: CGRect?) {
         guard inspectionPanel?.isVisible == true else { return }
-        inspection.boxes = inspection.boxes.filter { $0.kind != .face && $0.kind != .body } + Self.peopleBoxes(people)
+        inspection.boxes = inspection.boxes.filter { $0.kind != .face && $0.kind != .body && $0.kind != .picture } + Self.peopleBoxes(people, picture: picture)
     }
 
     func inspectDecision(rect: CGRect, label: String, kind: InspectionBox.Kind) {
@@ -281,7 +285,7 @@ private struct OverlayView: View {
 }
 
 struct InspectionBox: Identifiable {
-    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab, face, body }
+    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab, face, body, picture }
     let id = UUID()
     let rect: CGRect
     let label: String
@@ -311,6 +315,7 @@ struct InspectionBox: Identifiable {
         case .panelTab: return .blue
         case .face: return Color(red: 1, green: 0.35, blue: 0.75)
         case .body: return Color(red: 0.55, green: 0.95, blue: 0.3)
+        case .picture: return .blue
         case let .styleRow(row):
             guard row != 99 else { return .gray }
             let palette: [Color] = [.orange, .pink, .purple, .mint, .indigo, .brown]
@@ -350,7 +355,8 @@ private struct InspectionView: View {
                         lines.move(to: first); for point in points.dropFirst() { lines.addLine(to: point) }
                     }
                     context.stroke(lines, with: .color(box.color.opacity(0.9)), lineWidth: 2)
-                    for line in box.lines where box.kind == .body {
+                    // Joints: the ends of each bone (two-point lines); the outline gets none.
+                    for line in box.lines where box.kind == .body && line.count == 2 {
                         for point in line {
                             let dot = CGRect(x: point.x * size.width - 3, y: point.y * size.height - 3, width: 6, height: 6)
                             context.fill(Path(ellipseIn: dot), with: .color(box.color))
@@ -372,7 +378,7 @@ private struct InspectionView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · Pink: faces · Lime: people · other colours: style browser rows")
+            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · Pink: faces · Lime: people, their joints and outline · other colours: style browser rows")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white).padding(7).background(.black.opacity(0.85)).padding(8) }
         }

@@ -33,7 +33,10 @@ tracking, leading). Reading only; a function that acts on a control looks it up 
 panels the same way, with a `textSection`-style replay case and a fixture checked by eye.
 
 **Faces and bodies**: `Desktop.people` (`Sources/PeopleReader.swift`) finds faces (box, tilt, turn,
-outlines) and people (box, body joints) with Apple's Vision, about 20 ms a window. Overlay only
+outlines) and people (outline from the person mask, body joints when the pose is visible) with Apple's
+Vision, about 20-30 ms a frame, read on every stream frame. It reads inside `Desktop.programPicture`
+(the Program Monitor's picture, found from its tab, the timecode under it and the pixels) when found,
+which gives Vision about three times the detail of the whole window. Overlay only
 (Detection settings → Faces and bodies); no run decides anything from it yet. A function that starts
 acting on it adds a replay case and fixtures like any other decision.
 

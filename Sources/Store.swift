@@ -321,6 +321,7 @@ final class Store: ObservableObject {
                             return (text, panelChanged ? Desktop.textSection(in: text, image: image) : earlier.section, false)
                         }.value
                         if result.whole { self.lastWholeRead = Date() }
+                        let picture = await Task.detached(priority: .userInitiated) { Desktop.programPicture(in: result.text, image: image) }.value
                         // Evidence for a failure that would otherwise only show as "the boxes went away": the browser
                         // is on screen but no grid is found even in a whole reading. Saved at most every 30 s.
                         if result.whole, let left = Desktop.stylePanelLeft(in: result.text),
@@ -332,6 +333,7 @@ final class Store: ObservableObject {
                         guard !Task.isCancelled, self.inspectionGeneration == token, self.liveActive,
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
                         var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
+                        read.picture = picture
                         self.reading = read
                         var shown = latest.reusing(read); shown.people = self.people
                         self.lastLook = shown
@@ -466,8 +468,10 @@ final class Store: ObservableObject {
         guard detectPeople else { if people != nil { people = nil }; return }
         guard !peopleReading else { peopleWaiting = image; return }
         peopleReading = true
+        // Inside the Program Monitor's picture when it has been found: about three times the detail.
+        let picture = reading.flatMap { $0.image.width == image.width && $0.image.height == image.height ? $0.picture : nil }
         Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) { Desktop.people(in: image) }.value
+            let found = await Task.detached(priority: .userInitiated) { Desktop.people(in: image, area: picture) }.value
             guard let self else { return }
             self.peopleReading = false
             guard self.detectPeople, self.liveActive, !self.busy else { self.peopleWaiting = nil; return }
@@ -475,7 +479,7 @@ final class Store: ObservableObject {
             if var look = self.lastLook {
                 look.people = found; self.lastLook = look
                 // Only the face and body boxes: a full redraw would show the style row tracker this frame again.
-                if self.editorFrontmost, self.detectionEnabled { self.overlay.updatePeople(found) }
+                if self.editorFrontmost, self.detectionEnabled { self.overlay.updatePeople(found, picture: look.picture) }
             }
             if let next = self.peopleWaiting { self.peopleWaiting = nil; self.followPeople(next) }
         }

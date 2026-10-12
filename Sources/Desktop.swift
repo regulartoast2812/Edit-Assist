@@ -48,6 +48,8 @@ struct Observation {
     var section: Desktop.TextSection?
     /// Faces and bodies, read in the background with the text when that is switched on.
     var people: Desktop.People?
+    /// The Program Monitor's picture, found with the text; faces and bodies are read inside it.
+    var picture: CGRect?
     /// Encoded only when asked for: the model path and debug dumps need it, OCR mode does not, and
     /// encoding a 2400-pixel window with its coordinate grid took 67 ms on every capture.
     @MainActor var png: Data { Desktop.gridded(image) ?? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) ?? Data() }
@@ -59,6 +61,7 @@ struct Observation {
         copy.textTimestamp = earlier.textTimestamp
         copy.section = earlier.section
         copy.people = earlier.people
+        copy.picture = earlier.picture
         return copy
     }
 }
@@ -1707,7 +1710,7 @@ final class Desktop {
 
     /// Seconds for a HH:MM:SS:FF timecode. Frames are divided by a nominal 30; across a timeline
     /// ruler that is a few pixels either way, far below the width of a clip.
-    static func seconds(ofTimecode text: String) -> Double? {
+    nonisolated static func seconds(ofTimecode text: String) -> Double? {
         let parts = text.split(whereSeparator: { !$0.isNumber })
         guard parts.count == 4, parts.allSatisfy({ $0.count == 2 }) else { return nil }
         let values = parts.compactMap { Int($0) }
