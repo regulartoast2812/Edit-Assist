@@ -1,3 +1,4 @@
+import CoreML
 import Vision
 
 // Faces and bodies in the editor window, from Apple's Vision models on this Mac (no download, no
@@ -23,8 +24,11 @@ extension Desktop {
         /// The person's outline from Vision's person mask, closed. Found even when only part of the
         /// body is in the shot (waist down, hands), where the pose has no joints to give.
         var outline: [CGPoint] = []
-        /// Joints found with enough confidence, by name ("left_shoulder_1_joint", …).
+        /// Joints found with enough confidence, by Vision's joint names. Vision's pose first; joints it
+        /// has not found are added from the whole-body model when that is confident about them.
         var joints: [String: CGPoint]
+        /// Each hand the whole-body model is confident about, as lines from the wrist along each finger.
+        var hands: [[CGPoint]] = []
         /// Bones between found joints, each a two-point line.
         var bones: [[CGPoint]] { Self.skeleton.compactMap { pair in
             guard let a = joints[pair.0.rawValue.rawValue], let b = joints[pair.1.rawValue.rawValue] else { return nil }
@@ -52,7 +56,7 @@ extension Desktop {
         let below = hits.filter { $0.rect.minY > tab.maxY && abs($0.rect.minX - tab.minX) < 0.08 && seconds(ofTimecode: $0.text) != nil }
             .min { $0.rect.minY < $1.rect.minY }?.rect
         // Down to the bottom of the timecode's row: that row is the panel's own background around a little text.
-        let band = CGRect(x: max(0, tab.minX - 0.02), y: tab.maxY, width: min(1, tab.minX + 0.7) - max(0, tab.minX - 0.02),
+        let band = CGRect(x: max(0, tab.minX - 0.02), y: tab.maxY, width: 1 - max(0, tab.minX - 0.02),
                           height: (below?.maxY ?? 1) - tab.maxY)
         guard band.width > 0.05, band.height > 0.05 else { return nil }
         let pixels = CGRect(x: band.minX * CGFloat(image.width), y: band.minY * CGFloat(image.height),
@@ -191,6 +195,11 @@ extension Desktop {
             }
         }
         for index in boxes.indices where !used.contains(index) { found.bodies.append(Body(rect: boxes[index], outline: outlines[index], joints: [:])) }
+        // The whole-body model only where Vision's skeleton is missing much of the body (a close-up): it
+        // costs 15-20 ms a person, and on a full shot Vision's pose already has every joint.
+        for index in found.bodies.indices where found.bodies[index].joints.count < 15 {
+            WholeBodyPose.shared.complete(&found.bodies[index], image: image, picture: area)
+        }
         return found
     }
 }
@@ -319,5 +328,111 @@ final class PeopleFollower: @unchecked Sendable {
             extra += Desktop.faces(request.results ?? [], in: head)
         }
         return extra
+    }
+}
+
+/// Whole-body pose for one person (OpenMMLab's DWPose RTMPose-m, Apache-2.0; Resources/Models/NOTICE.md):
+/// 133 keypoints including both hands, from a crop around the person. Unlike Vision's pose it does not
+/// need the head in the shot, so it gives arms, hands and hips on close-ups where Vision gives none.
+/// Out-of-shot joints come back as guesses, so only confident ones away from the picture's edges are
+/// kept. Frames come one at a time (PeopleFollower), so one model serves them all.
+final class WholeBodyPose: @unchecked Sendable {
+    static let shared = WholeBodyPose()
+    private let model: MLModel?
+    private static let width = 192, height = 256
+    /// Confidence a keypoint needs to be shown.
+    private static let confident: Float = 0.5
+
+    private init() {
+        let configuration = MLModelConfiguration()
+        // On the Neural Engine and the CPU this float16 model loses some keypoint scores; the GPU matches
+        // the original model (checked on real frames when it was converted).
+        configuration.computeUnits = .cpuAndGPU
+        model = Bundle.main.url(forResource: "WholeBodyPose", withExtension: "mlmodelc")
+            .flatMap { try? MLModel(contentsOf: $0, configuration: configuration) }
+    }
+
+    /// COCO-WholeBody's first 17 keypoints, as Vision's joint names.
+    private static let body: [VNHumanBodyPoseObservation.JointName] = [
+        .nose, .leftEye, .rightEye, .leftEar, .rightEar, .leftShoulder, .rightShoulder, .leftElbow, .rightElbow,
+        .leftWrist, .rightWrist, .leftHip, .rightHip, .leftKnee, .rightKnee, .leftAnkle, .rightAnkle,
+    ]
+    /// Each hand's 21 keypoints: the wrist, then four per finger from thumb to little finger.
+    private static let hands = [91, 112]
+
+    /// Adds the joints Vision did not find, and the hands, to one person.
+    func complete(_ person: inout Desktop.Body, image: CGImage, picture: CGRect) {
+        guard let points = points(in: image, box: person.rect) else { return }
+        // A body joint on the picture's edge is where the model puts one that is out of the shot. Hands
+        // are seen, not guessed: one at the edge (holding a waistband at the frame's side) is kept.
+        let inside = picture.insetBy(dx: picture.width * 0.02, dy: picture.height * 0.02)
+        func usable(_ index: Int, edge: Bool = false) -> CGPoint? {
+            points[index].score >= Self.confident && (edge ? picture : inside).contains(points[index].at) ? points[index].at : nil
+        }
+        for (index, joint) in Self.body.enumerated() where person.joints[joint.rawValue.rawValue] == nil {
+            if let point = usable(index) { person.joints[joint.rawValue.rawValue] = point }
+        }
+        // Vision's skeleton runs through a neck and a root; between the shoulders and between the hips.
+        func middle(_ a: VNHumanBodyPoseObservation.JointName, _ b: VNHumanBodyPoseObservation.JointName) -> CGPoint? {
+            guard let p = person.joints[a.rawValue.rawValue], let q = person.joints[b.rawValue.rawValue] else { return nil }
+            return CGPoint(x: (p.x + q.x) / 2, y: (p.y + q.y) / 2)
+        }
+        if person.joints[VNHumanBodyPoseObservation.JointName.neck.rawValue.rawValue] == nil, let neck = middle(.leftShoulder, .rightShoulder) {
+            person.joints[VNHumanBodyPoseObservation.JointName.neck.rawValue.rawValue] = neck
+        }
+        if person.joints[VNHumanBodyPoseObservation.JointName.root.rawValue.rawValue] == nil, let root = middle(.leftHip, .rightHip) {
+            person.joints[VNHumanBodyPoseObservation.JointName.root.rawValue.rawValue] = root
+        }
+        for start in Self.hands {
+            let scores = (start ..< start + 21).map { points[$0].score }
+            guard scores.reduce(0, +) / 21 >= Self.confident else { continue }
+            for finger in 0 ..< 5 {
+                // Wrist, then the finger's four points out to its tip; stops where the model is unsure.
+                var line: [CGPoint] = []
+                for index in [start] + (1 ... 4).map({ start + finger * 4 + $0 }) {
+                    guard let point = usable(index, edge: true) else { break }
+                    line.append(point)
+                }
+                if line.count >= 2 { person.hands.append(line) }
+            }
+        }
+    }
+
+    /// All 133 keypoints for the person in a box (window fractions), or nil without the model.
+    private func points(in image: CGImage, box: CGRect) -> [(at: CGPoint, score: Float)]? {
+        guard let model, box.width > 0, box.height > 0 else { return nil }
+        let W = CGFloat(image.width), H = CGFloat(image.height)
+        let width = CGFloat(Self.width), height = CGFloat(Self.height)
+        // As the model was trained: the box padded by a quarter and widened or heightened to 3:4.
+        var w = box.width * W * 1.25, h = box.height * H * 1.25
+        if w / h > width / height { h = w * height / width } else { w = h * width / height }
+        let left = box.midX * W - w / 2, top = box.midY * H - h / 2
+        let sx = width / w, sy = height / h
+
+        guard let context = CGContext(data: nil, width: Self.width, height: Self.height, bitsPerComponent: 8, bytesPerRow: Self.width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let pixels = context.data else { return nil }
+        context.setFillColor(CGColor(gray: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.interpolationQuality = .low
+        // Only the part of the window that lands in the crop is drawn.
+        let visible = CGRect(x: left, y: top, width: w, height: h).intersection(CGRect(x: 0, y: 0, width: W, height: H)).integral
+        guard !visible.isNull, let part = image.cropping(to: visible) else { return nil }
+        // Core Graphics counts up from the bottom; the crop's rows count down from its top.
+        context.draw(part, in: CGRect(x: (visible.minX - left) * sx, y: height - (visible.maxY - top) * sy,
+                                      width: visible.width * sx, height: visible.height * sy))
+
+        guard let input = try? MLMultiArray(shape: [1, 3, NSNumber(value: Self.height), NSNumber(value: Self.width)], dataType: .float32) else { return nil }
+        let rgba = pixels.assumingMemoryBound(to: UInt8.self)
+        let plane = Self.width * Self.height
+        let values = input.dataPointer.assumingMemoryBound(to: Float32.self)
+        for i in 0 ..< plane {
+            values[i] = Float32(rgba[i * 4]); values[plane + i] = Float32(rgba[i * 4 + 1]); values[2 * plane + i] = Float32(rgba[i * 4 + 2])
+        }
+        guard let output = try? model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["rgb": input])),
+              let found = output.featureValue(for: "points")?.multiArrayValue, found.count >= 133 * 3 else { return nil }
+        return (0 ..< 133).map { k in
+            let x = CGFloat(found[[0, k, 0] as [NSNumber]].floatValue), y = CGFloat(found[[0, k, 1] as [NSNumber]].floatValue)
+            return (CGPoint(x: (left + x / sx) / W, y: (top + y / sy) / H), found[[0, k, 2] as [NSNumber]].floatValue)
+        }
     }
 }

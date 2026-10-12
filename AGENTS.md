@@ -38,7 +38,10 @@ Vision, about 20-30 ms a frame, read on every stream frame. It reads inside `Des
 (the Program Monitor's picture, found from its tab, the timecode under it and the pixels) when found,
 which gives Vision about three times the detail of the whole window. `PeopleFollower` numbers faces across frames,
 re-reads a head the pose shows but the face model missed, and holds a lost face for 15 frames (Vision's
-object tracker, started only once a face is lost), marked "followed". Overlay only
+object tracker, started only once a face is lost), marked "followed". Where Vision's skeleton has fewer than 15 joints (a
+close-up), `WholeBodyPose` (DWPose RTMPose-m, Apache-2.0, `Resources/Models`, see its NOTICE.md) adds
+the joints it is confident about (0.5, body joints away from the picture's edge) and both hands, on
+the GPU: on the Neural Engine its float16 scores are wrong for some keypoints. Overlay only
 (Detection settings → Faces and bodies); no run decides anything from it yet. A function that starts
 acting on it adds a replay case and fixtures like any other decision.
 

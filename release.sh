@@ -20,6 +20,8 @@ lipo -create .build/release/EditAssist-arm64 .build/release/EditAssist-x86_64 -o
 lipo -create .build/release/CLIWorker-arm64 .build/release/CLIWorker-x86_64 -output "$STAGE/Contents/MacOS/CLIWorker"
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
+# The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.
+xcrun coremlcompiler compile Resources/Models/WholeBodyPose.mlpackage "$STAGE/Contents/Resources" >/dev/null
 # Ad-hoc signature: runs on any Mac without a developer account. macOS asks for Screen Recording and
 # Accessibility on first launch; each new version is a new signature, so it asks again after an update.
 codesign --force --sign - "$STAGE/Contents/MacOS/CLIWorker"

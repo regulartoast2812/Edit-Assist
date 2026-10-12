@@ -32,6 +32,8 @@ cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 # The app icon, drawn by Tools/MakeIcon.swift (rerun it, then iconutil, to change the design).
 mkdir -p "$STAGE/Contents/Resources"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
+# The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.
+xcrun coremlcompiler compile Resources/Models/WholeBodyPose.mlpackage "$STAGE/Contents/Resources" >/dev/null
 
 # A fixed identity keeps the designated requirement stable, so macOS permissions survive rebuilds.
 if security find-certificate -c "$IDENTITY" "$KC" >/dev/null 2>&1 &&

@@ -193,7 +193,7 @@ final class RunOverlay {
         for (index, body) in people.bodies.enumerated() {
             boxes.append(InspectionBox(rect: body.rect, label: "Person \(index + 1)", kind: .body, text: "Person \(index + 1)",
                                        detail: String(format: "Person %d · %d joints · x %.3f y %.3f w %.3f h %.3f", index + 1, body.joints.count, body.rect.minX, body.rect.minY, body.rect.width, body.rect.height),
-                                       lines: body.bones + (body.outline.isEmpty ? [] : [body.outline])))
+                                       lines: body.bones + body.hands + (body.outline.isEmpty ? [] : [body.outline])))
         }
         return boxes
     }
