@@ -32,6 +32,11 @@ seven type buttons, Font Size and its slider, the nine paragraph buttons with th
 tracking, leading). Reading only; a function that acts on a control looks it up by name there. Add new
 panels the same way, with a `textSection`-style replay case and a fixture checked by eye.
 
+**Faces and bodies**: `Desktop.people` (`Sources/PeopleReader.swift`) finds faces (box, tilt, turn,
+outlines) and people (box, body joints) with Apple's Vision, about 20 ms a window. Overlay only
+(Detection settings → Faces and bodies); no run decides anything from it yet. A function that starts
+acting on it adds a replay case and fixtures like any other decision.
+
 **Which panels are on screen**: `Desktop.panelTabs` finds Premiere's panels by their tab names (the
 Window menu's list in `premierePanels`, plus "Program: …", "Source: …", "Project: …" forms). A name
 counts as a tab only on a row of tabs or with the ≡ menu icon, so "Text" inside a panel is not one.

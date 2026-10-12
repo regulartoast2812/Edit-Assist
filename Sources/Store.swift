@@ -237,6 +237,10 @@ final class Store: ObservableObject {
     @Published var detectionDetails = (UserDefaults.standard.object(forKey: "detectionDetails") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(detectionDetails, forKey: "detectionDetails"); configureDetectionDisplay() }
     }
+    /// Faces and bodies on the overlay. Reading only; runs never use it.
+    @Published var detectPeople = (UserDefaults.standard.object(forKey: "detectPeople") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(detectPeople, forKey: "detectPeople"); textDirty = true }
+    }
     @Published var detectionStatus = "Off"
     private var inspectionTask: Task<Void, Never>?
     private var inspectionGeneration = UUID()
@@ -289,6 +293,14 @@ final class Store: ObservableObject {
                         let earlier = self.reading.flatMap { $0.window.id == look.window.id ? $0 : nil }
                         // A whole-window read now and then, so small errors from partial re-reads cannot build up.
                         let wholeDue = Date().timeIntervalSince(self.lastWholeRead) > 5
+                        let readPeople = self.detectPeople
+                        // Faces and bodies: one Vision pass over the window (about 20 ms), alongside the text.
+                        async let people = Task.detached(priority: .userInitiated) { () -> Desktop.People? in
+                            guard readPeople else { return nil }
+                            if let earlier, earlier.people != nil, earlier.image.width == image.width, earlier.image.height == image.height,
+                               Desktop.changedAreas(from: earlier.image, to: image).rects.isEmpty { return earlier.people }
+                            return Desktop.people(in: image)
+                        }.value
                         let result = await Task.detached(priority: .userInitiated) { () -> (text: [TextHit], section: Desktop.TextSection?, whole: Bool) in
                             guard !wholeDue, let earlier, earlier.image.width == image.width, earlier.image.height == image.height else {
                                 let text = Desktop.recognize(image)
@@ -324,6 +336,7 @@ final class Store: ObservableObject {
                         guard !Task.isCancelled, self.inspectionGeneration == token, self.liveActive,
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
                         var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
+                        read.people = await people
                         self.reading = read
                         let shown = latest.reusing(read)
                         self.lastLook = shown

@@ -46,6 +46,8 @@ struct Observation {
     var textTimestamp = Date()
     /// The Properties panel's Text section, read in the background together with the text.
     var section: Desktop.TextSection?
+    /// Faces and bodies, read in the background with the text when that is switched on.
+    var people: Desktop.People?
     /// Encoded only when asked for: the model path and debug dumps need it, OCR mode does not, and
     /// encoding a 2400-pixel window with its coordinate grid took 67 ms on every capture.
     @MainActor var png: Data { Desktop.gridded(image) ?? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) ?? Data() }
@@ -56,6 +58,7 @@ struct Observation {
         copy.text = earlier.text
         copy.textTimestamp = earlier.textTimestamp
         copy.section = earlier.section
+        copy.people = earlier.people
         return copy
     }
 }

@@ -71,7 +71,7 @@ final class RunOverlay {
     }
 
     func inspect(_ shot: Observation) {
-        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section)
+        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people)
         // The legend shows when the text was read; the grid boxes are redrawn from every look's pixels.
         inspection.stamp = shot.textTimestamp.formatted(date: .omitted, time: .standard)
         if inspectionPanel == nil {
@@ -173,6 +173,26 @@ final class RunOverlay {
         }
     }
 
+    /// Faces with their outlines, and bodies with their skeletons.
+    static func peopleBoxes(_ people: Desktop.People?) -> [InspectionBox] {
+        guard let people else { return [] }
+        var boxes: [InspectionBox] = []
+        for (index, face) in people.faces.enumerated() {
+            var angle = ""
+            if let yaw = face.yaw { angle += String(format: " · turned %.0f°", yaw) }
+            if let roll = face.roll { angle += String(format: " · tilted %.0f°", roll) }
+            boxes.append(InspectionBox(rect: face.rect, label: "Face \(index + 1)", kind: .face, text: "Face \(index + 1)",
+                                       detail: String(format: "Face %d%@ · x %.3f y %.3f w %.3f h %.3f", index + 1, angle, face.rect.minX, face.rect.minY, face.rect.width, face.rect.height),
+                                       lines: face.outlines))
+        }
+        for (index, body) in people.bodies.enumerated() {
+            boxes.append(InspectionBox(rect: body.rect, label: "Person \(index + 1)", kind: .body, text: "Person \(index + 1)",
+                                       detail: String(format: "Person %d · %d joints · x %.3f y %.3f w %.3f h %.3f", index + 1, body.joints.count, body.rect.minX, body.rect.minY, body.rect.width, body.rect.height),
+                                       lines: body.bones))
+        }
+        return boxes
+    }
+
     func inspectDecision(rect: CGRect, label: String, kind: InspectionBox.Kind) {
         guard inspectionPanel?.isVisible == true else { return }
         inspection.boxes.append(InspectionBox(rect: rect, label: label, kind: kind))
@@ -255,7 +275,7 @@ private struct OverlayView: View {
 }
 
 struct InspectionBox: Identifiable {
-    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab }
+    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab, face, body }
     let id = UUID()
     let rect: CGRect
     let label: String
@@ -264,8 +284,10 @@ struct InspectionBox: Identifiable {
     var detail: String = ""
     /// Drawn as a filled badge with its label centred, regardless of the text settings.
     var marker = false
-    init(rect: CGRect, label: String, kind: Kind, text: String = "", detail: String = "", marker: Bool = false) {
-        self.rect = rect; self.label = label; self.kind = kind; self.text = text; self.detail = detail; self.marker = marker
+    /// Lines drawn inside the box: a face's outlines, a body's bones.
+    var lines: [[CGPoint]] = []
+    init(rect: CGRect, label: String, kind: Kind, text: String = "", detail: String = "", marker: Bool = false, lines: [[CGPoint]] = []) {
+        self.rect = rect; self.label = label; self.kind = kind; self.text = text; self.detail = detail; self.marker = marker; self.lines = lines
     }
     func displayedLabel(text showText: Bool, details showDetails: Bool) -> String {
         var parts: [String] = []
@@ -281,6 +303,8 @@ struct InspectionBox: Identifiable {
         case .style: return .cyan
         case let .control(on): return on == true ? .green : .teal
         case .panelTab: return .blue
+        case .face: return Color(red: 1, green: 0.35, blue: 0.75)
+        case .body: return Color(red: 0.55, green: 0.95, blue: 0.3)
         case let .styleRow(row):
             guard row != 99 else { return .gray }
             let palette: [Color] = [.orange, .pink, .purple, .mint, .indigo, .brown]
@@ -312,6 +336,21 @@ private struct InspectionView: View {
                     context.draw(number, at: CGPoint(x: rect.midX, y: rect.midY))
                     continue
                 }
+                if model.showBoxes, !box.lines.isEmpty {
+                    var lines = Path()
+                    for line in box.lines {
+                        let points = line.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
+                        guard let first = points.first else { continue }
+                        lines.move(to: first); for point in points.dropFirst() { lines.addLine(to: point) }
+                    }
+                    context.stroke(lines, with: .color(box.color.opacity(0.9)), lineWidth: 2)
+                    for line in box.lines where box.kind == .body {
+                        for point in line {
+                            let dot = CGRect(x: point.x * size.width - 3, y: point.y * size.height - 3, width: 6, height: 6)
+                            context.fill(Path(ellipseIn: dot), with: .color(box.color))
+                        }
+                    }
+                }
                 if model.showBoxes {
                     context.stroke(Path(rect), with: .color(box.color.opacity(0.9)), lineWidth: { if case .excluded = box.kind { return 1 } else { return 2 } }())
                 }
@@ -327,7 +366,7 @@ private struct InspectionView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · other colours: style browser rows")
+            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · Pink: faces · Lime: people · other colours: style browser rows")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white).padding(7).background(.black.opacity(0.85)).padding(8) }
         }

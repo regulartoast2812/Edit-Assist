@@ -465,6 +465,9 @@ struct ContentView: View {
             Toggle("Boxes", isOn: $s.detectionBoxes)
             Toggle("Recognized text", isOn: $s.detectionText)
             Toggle("Details and coordinates", isOn: $s.detectionDetails)
+            Divider()
+            label("RECOGNIZE")
+            Toggle("Faces and bodies", isOn: $s.detectPeople)
             if !s.desktop.detectionHotkey.available { Text("F10 is unavailable. Use the header button.").font(.caption).foregroundStyle(.orange) }
         }.toggleStyle(.switch).controlSize(.small).padding(22).frame(width: 290)
     }
