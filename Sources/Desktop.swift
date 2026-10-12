@@ -1177,13 +1177,10 @@ final class Desktop {
         private var thumbFit: [(thumb: Double, scroll: Double)] = []
         /// Tiles per row and tile size (in 4-pixel steps) when the count was anchored.
         private var layout: (Int, Int)?
-        /// Where the thumb sits with the list at its top, and whether the browser was seen closed since.
-        private var topThumb: Double?
         /// Looks in a row where neither the text nor the pixels showed the list.
         private var goneFrames = 0
         /// Told each time the count restarts at R1, with why, so a wrong restart shows in the log.
         var onReset: ((String) -> Void)?
-        private var sawClosed = false
         private var closedSince: Date?
         /// How long the browser must be gone before it counts as closed.
         var closedAfter: TimeInterval = 1.5
@@ -1218,13 +1215,12 @@ final class Desktop {
                 closedSince = since
                 if Date().timeIntervalSince(since) >= closedAfter { fresh = true; strip = nil; scroll = nil; velocity = 0; offset = nil }
                 // Even a short close counts as a reopen if the next look clearly shows the top.
-                sawClosed = true
                 return offset
             }
             closedSince = nil; goneFrames = 0
             // Another window size moves everything the strip was measured on.
             // The scrollbar's measures belong to one window size; they survive the browser closing.
-            if imageSize != (image.width, image.height) { scroll = nil; offset = nil; strip = nil; thumbFit = []; topThumb = nil }
+            if imageSize != (image.width, image.height) { scroll = nil; offset = nil; strip = nil; thumbFit = [] }
             guard let firstRow = cells.first, let firstCell = firstRow.first, let lastCell = firstRow.last,
                   let bottomCell = cells.last?.first else {
                 follow(image)
@@ -1246,26 +1242,27 @@ final class Desktop {
                 widest > known.0 || (cells.count >= 2 && widest < known.0) || abs(currentLayout.1 - known.1) > max(1, known.1 / 12)
             } ?? false
             if let known = layout, reflowed, !forceTop, !fresh {
-                scroll = nil; offset = nil; thumbFit = []; topThumb = nil; layout = currentLayout
+                scroll = nil; offset = nil; thumbFit = []; layout = currentLayout
                 onReset?("the browser's layout changed (\(known.0) to \(currentLayout.0) tiles a row); the count is lost until the top")
             }
 
-            // Scrolled by exactly a whole number of rows, a view looks just like the top, so the tiles alone
-            // never reset a count. What does: the routine scrolling to the top; a freshly opened browser;
-            // the scrollbar thumb back where it sat at the top (a measurement, not a resemblance); and,
-            // until that is known, a browser just reopened that looks like the top, since it opens there.
+            // At the top, measured on this frame alone, whatever the panel's size: the scrollbar thumb's top
+            // is level with the first full row's top (within 8% of a tile), and no partly hidden row shows
+            // above it. Scrolled by whole rows, a row still starts at that line but the thumb has moved down;
+            // scrolled by part of a row, the thumb can line up by chance, but a cut-off row shows above.
+            // A list too short to scroll has no thumb and never needs this.
             let thumb = Desktop.scrollThumb(in: image, cells: cells)
-            let thumbAtTop = thumb.flatMap { now in topThumb.map { abs(now - $0) <= 2 } } ?? false
-            let reopenedAtTop = sawClosed && atTop == true && topThumb == nil
+            // Without a scrollbar there is no measurement: a scrollbar not seen on a long list would let a view
+            // scrolled by whole rows pass for the top, the very failure this avoids.
+            let measuredTop = thumb.map { abs($0 - rowTop) <= Double(firstCell.height) * height * 0.08 } == true
+                && Desktop.partialStyleRows(in: image, cells: cells).above.isEmpty
             let reason = forceTop ? "the list was scrolled to its top" : fresh && atTop != false ? "the browser has just opened"
-                : thumbAtTop && (scroll == nil || offset != 0) ? "the scrollbar is back at its top position"
-                : scroll == nil && reopenedAtTop ? "the browser was reopened at the top" : nil
+                : measuredTop && (scroll == nil || offset != 0) ? "the scrollbar shows the top of the list" : nil
             if let reason {
                 // Only resets known to be right may teach the scrollbar where the top is: a wrong one would
                 // otherwise teach a wrong top and make the next wrong reset likelier.
-                let trusted = forceTop || fresh
-                forceTop = false; sawClosed = false
-                if trusted, let thumb { topThumb = thumb }
+                let trusted = forceTop || fresh || measuredTop
+                forceTop = false
                 // Report restarts that replace a count or recover a lost one; a browser opening is normal.
                 if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1))") }
                 else if offset == nil, !fresh { onReset?("counting from R1: \(reason) (the count was lost)") }
@@ -1284,7 +1281,7 @@ final class Desktop {
                 layout = currentLayout
                 return 0
             }
-            fresh = false; sawClosed = false
+            fresh = false
             let followed = follow(image)
             if let thumb, let fromThumb = scrollFrom(thumb: thumb) {
                 if !followed || scroll == nil {

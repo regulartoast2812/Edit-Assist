@@ -565,7 +565,8 @@ struct Checks {
         let reopened = Desktop.StyleRowTracker()
         _ = reopened.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true)
         _ = reopened.observe([], image: blank)
-        _ = reopened.observe([], image: smoothView(scroll: 0).image, panelOpen: false)
+        // Closed: the tiles are gone from the screen as well as from the reading, for two looks.
+        _ = reopened.observe([], image: blank, panelOpen: false); _ = reopened.observe([], image: blank, panelOpen: false)
         check(reopened.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true) == 0,
               "A browser closed briefly and reopened at the top counts from row 1 again")
         // A reading that misses the panel's labels mid-scroll says "not open"; the list still on screen
@@ -640,6 +641,10 @@ struct Checks {
         let wider = reflowView(scroll: 450, columns: 9)
         let afterResize = resized.observe(wider.cells, image: wider.image)
         check(afterResize == nil, "After the panel is made wider mid-session, the row count is lost rather than made up")
+        // Back at the top in the new layout, the scrollbar beside the first row says so: counting restarts.
+        let backAtTop = reflowView(scroll: 0, columns: 9)
+        check(resized.observe(backAtTop.cells, image: backAtTop.image, atTop: true) == 0,
+              "After a resize, scrolling back to the top restores the count without reopening the browser")
         let barred = Desktop.StyleRowTracker()
         for position in stride(from: 0, through: 300, by: 25) {
             let view = smoothView(scroll: position, thumb: true)

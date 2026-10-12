@@ -61,7 +61,10 @@ clicking it applies the wrong style to the selected text (this happened).
   remembered row and column, accept same colour and shape under 30. Colour is a hard gate.
 - **The row counter is shared** by the routine, the teach step and the live overlay. A change for one
   must be checked in the others. It resets only on: the routine scrolling to the top, a fresh
-  browser, the scrollbar thumb back at its top position, or a reopened browser showing the top.
+  browser (two looks where text and pixels agree the list is gone, then it reappears), or the top
+  measured on the frame itself — the scrollbar thumb level with the first full row and no partly
+  hidden row above it. Panels are resizable: nothing may depend on geometry remembered from an
+  earlier layout; a mid-session layout change marks the count lost.
 - **One kind of image per tracker sequence.** Screenshots and stream frames of the same screen differ
   (about 8 levels); the tracker treats a change of kind as a new reference.
 - **Waits are tuned to Premiere's redraw.** Shortening one can make a capture land mid-redraw and
