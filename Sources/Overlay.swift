@@ -124,6 +124,23 @@ final class RunOverlay {
                                                         detail: String(format: "Style tile %@ C%d · x %.3f y %.3f", name, column + 1, cell.minX, cell.minY)))
                     }
                 }
+                // The rows cut off at the top and bottom of the view: still clickable, so shown and
+                // numbered too, marked as partly hidden. Counting itself stays on full rows.
+                let partial = Desktop.partialStyleRows(in: image, cells: cells)
+                for (tiles, absolute) in [(partial.above, offset.map { $0 - 1 }), (partial.below, offset.map { $0 + cells.count })] {
+                    guard !tiles.isEmpty, absolute.map({ $0 >= 0 }) ?? true else { continue }
+                    let name = absolute.map { "R\($0 + 1)" } ?? "R?"
+                    if let first = tiles.first, first.height > 0.012 {
+                        let width = first.width * 0.2, height = min(first.height * 0.8, first.width * 0.36)
+                        styleBoxes.append(InspectionBox(rect: CGRect(x: max(0, first.minX - width - first.width * 0.04), y: first.midY - height / 2, width: width, height: height),
+                                                        label: absolute.map { "\($0 + 1)" } ?? "?", kind: .styleRow(absolute ?? 99), marker: true))
+                    }
+                    for (column, cell) in tiles.enumerated() {
+                        styleBoxes.append(InspectionBox(rect: cell, label: "\(name) C\(column + 1) · partly hidden", kind: .styleRow(absolute ?? 99),
+                                                        text: "\(name) C\(column + 1)",
+                                                        detail: String(format: "Style tile %@ C%d, partly hidden · x %.3f y %.3f", name, column + 1, cell.minX, cell.minY)))
+                    }
+                }
             }
         } else if let image {
             _ = Desktop.styleRows.observe([], image: image, panelOpen: false)

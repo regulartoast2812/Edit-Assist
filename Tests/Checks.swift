@@ -597,6 +597,13 @@ struct Checks {
         // ...but on reopening it does not read the same (here: not at all), which must not leave it lost.
         check(reopening.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true) == 0,
               "Closed and reopened within a moment, the browser counts from R1 again")
+        // Rows cut off by the edges of the view are found too (they are clickable), tile by tile; at the
+        // top of the list there is nothing above the first row.
+        let halfway = smoothView(scroll: 330)
+        let cut = Desktop.partialStyleRows(in: halfway.image, cells: halfway.cells)
+        let topView = smoothView(scroll: 0)
+        check(cut.above.count == 4 && cut.below.count == 4 && Desktop.partialStyleRows(in: topView.image, cells: topView.cells).above.isEmpty,
+              "Style rows cut off at the top and bottom of the view are recognised, and none above the top of the list")
         let barred = Desktop.StyleRowTracker()
         for position in stride(from: 0, through: 300, by: 25) {
             let view = smoothView(scroll: position, thumb: true)

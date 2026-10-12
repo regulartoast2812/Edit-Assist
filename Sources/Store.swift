@@ -776,6 +776,15 @@ final class Store: ObservableObject {
         return nil
     }
 
+    /// The partly hidden tile under a click, as an absolute row and a column: the row cut off above the
+    /// first full row is `first - 1`, the one below the last is `first + rows`.
+    func partlyHiddenTile(at point: CGPoint, cells: [[CGRect]], image: CGImage, first: Int) -> (row: Int, column: Int)? {
+        let partial = Desktop.partialStyleRows(in: image, cells: cells)
+        if first >= 1, let column = partial.above.firstIndex(where: { $0.contains(point) }) { return (first - 1, column) }
+        if let column = partial.below.firstIndex(where: { $0.contains(point) }) { return (first + cells.count, column) }
+        return nil
+    }
+
     /// Records a decision when this run is being recorded (Diagnostics → Record the next run).
     func recordDecision(_ snapshot: Snapshot, image: CGImage? = nil) { recorder.note(snapshot, image: image) }
 
@@ -1697,8 +1706,26 @@ final class Store: ObservableObject {
                                 if let at = Desktop.slot(containing: point, in: latestCells) {
                                     let first = rows.offset
                                     picked = ((first ?? 0) + at.row, at.column, latestCells[at.row][at.column], first != nil)
+                                } else if let first = rows.offset, let hidden = partlyHiddenTile(at: point, cells: latestCells, image: latest.image, first: first) {
+                                    // A tile cut off by the edge of the view is clickable, so the click counts: its row
+                                    // and column are known now. The reference image must be the whole tile — a cut-off
+                                    // one never matches later — so bring the row into view and take it from there.
+                                    log("OCR: you picked R\(hidden.row + 1) C\(hidden.column + 1), partly hidden; bringing it into view to capture it")
+                                    var whole: CGRect?
+                                    for _ in 0 ..< 4 where whole == nil {
+                                        let step = try await scrollStyles(hidden.row < first ? 3 : -3, over: area)
+                                        latest = step.shot
+                                        latestCells = Desktop.styleCells(in: latest.text, image: latest.image, left: left)
+                                        if let now = rows.offset, hidden.row - now >= 0, hidden.row - now < latestCells.count,
+                                           hidden.column < latestCells[hidden.row - now].count {
+                                            whole = latestCells[hidden.row - now][hidden.column]
+                                        }
+                                        if !step.moved { break }
+                                    }
+                                    if let whole { picked = (hidden.row, hidden.column, whole, true) }
+                                    else { log("OCR: could not bring R\(hidden.row + 1) fully into view; click a fully visible copy of your style, or scroll it into view first") }
                                 } else {
-                                    log("OCR: that click was not on a fully visible style tile; waiting for another")
+                                    log("OCR: that click was not on a style tile; waiting for another")
                                 }
                             }
                             guard let choice = picked else { return false }

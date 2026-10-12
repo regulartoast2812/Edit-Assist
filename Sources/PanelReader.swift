@@ -292,6 +292,57 @@ extension Desktop {
         let centre = count > 0 ? (x: Double(sumX) / Double(count), y: Double(sumY) / Double(count)) : (x: Double(best.x), y: Double(best.y))
         return CGPoint(x: (pixels.minX + CGFloat(centre.x)) / CGFloat(image.width), y: (pixels.minY + CGFloat(centre.y)) / CGFloat(image.height))
     }
+    // MARK: Style tiles cut off at the top or bottom of the view
+
+    /// The partly hidden row above the first full row and below the last one, tile by tile: what is
+    /// visible of each. They are clickable, so a click on one is understood; the count and the clicks
+    /// the routine makes itself still use full rows only. A tile shows as its lighter fill continuing
+    /// past the full row's gap, followed in thin strips near its left and right edges, clear of the
+    /// glyph; at least 15% of the tile must show.
+    nonisolated static func partialStyleRows(in image: CGImage, cells: [[CGRect]]) -> (above: [CGRect], below: [CGRect]) {
+        guard let first = cells.first, let last = cells.last, let sample = first.first else { return ([], []) }
+        let width = CGFloat(image.width), height = CGFloat(image.height)
+        let tile = sample.height * height
+        // One column of pixels, top to bottom, as brightness.
+        func column(_ x: CGFloat, from top: CGFloat, to bottom: CGFloat) -> [Int] {
+            let y0 = max(0, top), y1 = min(height, bottom)
+            guard y1 - y0 >= 2 else { return [] }
+            let rgba = patch(of: image, rect: CGRect(x: x, y: y0, width: 1, height: y1 - y0), width: 1, height: Int(y1 - y0))
+            return stride(from: 0, to: rgba.count, by: 4).map { (Int(rgba[$0]) * 30 + Int(rgba[$0 + 1]) * 59 + Int(rgba[$0 + 2]) * 11) / 100 }
+        }
+        func visible(_ cell: CGRect, upward: Bool) -> CGRect? {
+            var reaches: [(start: CGFloat, length: CGFloat)] = []
+            for fraction in [0.08, 0.92] {
+                let x = (cell.minX + cell.width * fraction) * width
+                // The tile's own fill level, read inside the full tile near the edge we leave from.
+                let inside = upward ? column(x, from: cell.minY * height + tile * 0.04, to: cell.minY * height + tile * 0.2)
+                                    : column(x, from: cell.maxY * height - tile * 0.2, to: cell.maxY * height - tile * 0.04)
+                guard !inside.isEmpty else { return nil }
+                let fill = inside.sorted()[inside.count / 2]
+                // Outward from the edge: skip the darker gap, then follow pixels at the fill level.
+                let edge = upward ? cell.minY * height : cell.maxY * height
+                let path = upward ? Array(column(x, from: edge - tile * 1.4, to: edge).reversed()) : column(x, from: edge, to: edge + tile * 1.4)
+                var index = 0
+                while index < path.count, path[index] >= fill - 8 { index += 1 }               // the tile's own edge
+                let gapStart = index
+                while index < path.count, path[index] < fill - 8, index - gapStart < Int(tile * 0.35) { index += 1 }   // the gap
+                guard index > gapStart, index < path.count, path[index] >= fill - 8 else { return nil }
+                let runStart = index
+                while index < path.count, path[index] >= fill - 8, path[index] <= fill + 40 { index += 1 }
+                reaches.append((CGFloat(runStart), CGFloat(index - runStart)))
+            }
+            guard let shortest = reaches.min(by: { $0.length < $1.length }), shortest.length >= tile * 0.15 else { return nil }
+            let edge = upward ? cell.minY * height : cell.maxY * height
+            let near = upward ? edge - shortest.start : edge + shortest.start
+            let top = upward ? near - shortest.length : near
+            return CGRect(x: cell.minX, y: top / height, width: cell.width, height: shortest.length / height)
+        }
+        let above = first.compactMap { visible($0, upward: true) }
+        let below = last.compactMap { visible($0, upward: false) }
+        // A partial row is all-or-nothing per column order: keep it only when its tiles line up with the full row's.
+        return (above.count == first.count ? above : [], below.isEmpty ? [] : below)
+    }
+
     // MARK: Premiere's panels, by their tab names
 
     /// Every panel in Premiere's Window menu. Some tabs carry more than the name: "Program: <sequence>",
