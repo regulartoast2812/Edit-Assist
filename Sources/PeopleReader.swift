@@ -6,6 +6,10 @@ import Vision
 extension Desktop {
     struct Face {
         var rect: CGRect
+        /// The same number for the same face from frame to frame (see PeopleFollower); 0 until numbered.
+        var id = 0
+        /// Not found in this frame but followed from earlier ones (a turn, a hand in front, blur).
+        var followed = false
         /// Head tilt and turn in degrees, when Vision gives them.
         var roll: Double?
         var yaw: Double?
@@ -90,32 +94,18 @@ extension Desktop {
                       height: band.height * CGFloat(rows.count) / CGFloat(height))
     }
 
-    /// Every face and body in the image, or in one area of it (the Program Monitor's picture). One
-    /// Vision pass for all three requests, then an outline traced around each person's mask.
-    nonisolated static func people(in image: CGImage, area: CGRect? = nil) -> People {
-        var source = image
-        let area = area ?? CGRect(x: 0, y: 0, width: 1, height: 1)
-        if area != CGRect(x: 0, y: 0, width: 1, height: 1),
-           let cropped = image.cropping(to: CGRect(x: area.minX * CGFloat(image.width), y: area.minY * CGFloat(image.height),
-                                                   width: area.width * CGFloat(image.width), height: area.height * CGFloat(image.height)).integral) {
-            source = cropped
-        }
-        let faces = VNDetectFaceLandmarksRequest()
-        let poses = VNDetectHumanBodyPoseRequest()
-        let masks = VNGeneratePersonInstanceMaskRequest()
-        do { try VNImageRequestHandler(cgImage: source, options: [:]).perform([faces, poses, masks]) } catch { return People() }
-        // Vision's positions are fractions of what it was given, from the bottom left; ours are fractions
-        // of the window from the top left.
-        func flip(_ point: CGPoint) -> CGPoint {
-            CGPoint(x: area.minX + point.x * area.width, y: area.minY + (1 - point.y) * area.height)
-        }
-        func flip(_ rect: CGRect) -> CGRect {
-            let a = flip(CGPoint(x: rect.minX, y: rect.maxY)), b = flip(CGPoint(x: rect.maxX, y: rect.minY))
-            return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
-        }
+    /// The part of the image inside an area given as fractions of it; the whole image for the whole area.
+    nonisolated static func crop(_ image: CGImage, to area: CGRect) -> CGImage {
+        guard area != CGRect(x: 0, y: 0, width: 1, height: 1) else { return image }
+        let pixels = CGRect(x: area.minX * CGFloat(image.width), y: area.minY * CGFloat(image.height),
+                            width: area.width * CGFloat(image.width), height: area.height * CGFloat(image.height)).integral
+        return image.cropping(to: pixels) ?? image
+    }
 
-        var found = People()
-        for face in faces.results ?? [] {
+    /// Faces Vision found in an area of the window, in window fractions from the top left.
+    nonisolated static func faces(_ results: [VNFaceObservation], in area: CGRect) -> [Face] {
+        func flip(_ point: CGPoint) -> CGPoint { CGPoint(x: area.minX + point.x * area.width, y: area.minY + (1 - point.y) * area.height) }
+        return results.map { face in
             let box = face.boundingBox
             var outlines: [[CGPoint]] = []
             if let marks = face.landmarks {
@@ -132,8 +122,34 @@ extension Desktop {
                 }
             }
             func degrees(_ value: NSNumber?) -> Double? { value.map { $0.doubleValue * 180 / .pi } }
-            found.faces.append(Face(rect: flip(box), roll: degrees(face.roll), yaw: degrees(face.yaw), outlines: outlines))
+            let corner = flip(CGPoint(x: box.minX, y: box.maxY))
+            return Face(rect: CGRect(x: corner.x, y: corner.y, width: box.width * area.width, height: box.height * area.height),
+                        roll: degrees(face.roll), yaw: degrees(face.yaw), outlines: outlines)
         }
+    }
+
+    /// Every face and body in the image, or in one area of it (the Program Monitor's picture). One
+    /// Vision pass for all three requests, then an outline traced around each person's mask.
+    nonisolated static func people(in image: CGImage, area: CGRect? = nil) -> People {
+        let area = area ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+        let source = crop(image, to: area)
+        let faces = VNDetectFaceLandmarksRequest()
+        let poses = VNDetectHumanBodyPoseRequest()
+        let masks = VNGeneratePersonInstanceMaskRequest()
+        do { try VNImageRequestHandler(cgImage: source, options: [:]).perform([faces, poses, masks]) } catch { return People() }
+        // Vision's positions are fractions of what it was given, from the bottom left; ours are fractions
+        // of the window from the top left.
+        func flip(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: area.minX + point.x * area.width, y: area.minY + (1 - point.y) * area.height)
+        }
+        func flip(_ rect: CGRect) -> CGRect {
+            let a = flip(CGPoint(x: rect.minX, y: rect.maxY)), b = flip(CGPoint(x: rect.maxX, y: rect.minY))
+            return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+        }
+
+        var found = People()
+        found.faces = Self.faces(faces.results ?? [], in: area)
+
 
         // One outline per person in the mask: the largest contour around it, simplified.
         var outlines: [[CGPoint]] = []
@@ -176,5 +192,132 @@ extension Desktop {
         }
         for index in boxes.indices where !used.contains(index) { found.bodies.append(Body(rect: boxes[index], outline: outlines[index], joints: [:])) }
         return found
+    }
+}
+
+/// Follows faces from frame to frame of the live stream: numbers them so the same face keeps its
+/// number, re-reads a head the pose shows but the face model missed (at full detail, just that patch),
+/// and keeps following a face for a moment when the face model loses it (a turn, a hand in front,
+/// blur), marked as followed. Frames come one at a time, never two at once (Store.followPeople), so
+/// this needs no locking.
+final class PeopleFollower: @unchecked Sendable {
+    private struct Followed {
+        var face: Desktop.Face
+        /// Vision's object tracker, started only once the face model has lost the face: seeded on the
+        /// last frame it was found in, then run on each frame after. Nil while the face is being found.
+        var tracker: (request: VNTrackObjectRequest, handler: VNSequenceRequestHandler)?
+        /// Frames in a row it was only followed, not found.
+        var missed = 0
+    }
+    private var followed: [Followed] = []
+    private var nextID = 1
+    private var area: CGRect?
+    private var lastFrame = Date.distantPast
+    /// The previous frame's picture, where a face that is lost now was last found.
+    private var previous: CGImage?
+    /// About half a second at 30 fps: long enough to bridge a turn or a hand, short enough not to
+    /// leave a box behind when someone walks out of the shot.
+    private let holdFrames = 15
+
+    func read(_ image: CGImage, area: CGRect?) -> Desktop.People {
+        let whole = CGRect(x: 0, y: 0, width: 1, height: 1)
+        // A different picture area, or a pause (a run, the editor in the background): start over.
+        if area != self.area || Date().timeIntervalSince(lastFrame) > 0.5 { followed = []; previous = nil; self.area = area }
+        lastFrame = Date()
+        let region = area ?? whole
+        let source = Desktop.crop(image, to: region)
+        defer { previous = source }
+        var found = Desktop.people(in: image, area: area)
+        found.faces += heads(missedIn: found, image: image)
+
+        // Each face found now takes the number of the face from before that overlaps it most. A frame
+        // apart, a face moves only a little of its own size.
+        var taken = Set<Int>()
+        var next: [Followed] = []
+        for var face in found.faces {
+            let best = followed.indices.filter { !taken.contains($0) }.max { overlap(face.rect, followed[$0].face.rect) < overlap(face.rect, followed[$1].face.rect) }
+            if let best, overlap(face.rect, followed[best].face.rect) > 0.2 {
+                taken.insert(best); face.id = followed[best].face.id
+            } else { face.id = nextID; nextID += 1 }
+            next.append(Followed(face: face))
+        }
+        // Faces from before that were not found now: followed by the tracker where it still sees them, or
+        // held where they were last seen, for a moment, marked. One that comes back there keeps its number.
+        for index in followed.indices where !taken.contains(index) && followed[index].missed < holdFrames {
+            var entry = followed[index]
+            if entry.tracker == nil, let previous { entry.tracker = tracker(for: entry.face.rect, in: region, seededOn: previous) }
+            var rect = entry.face.rect
+            if let tracker = entry.tracker, (try? tracker.handler.perform([tracker.request], on: source)) != nil,
+               let result = tracker.request.results?.first as? VNDetectedObjectObservation, result.confidence > 0.3 {
+                tracker.request.inputObservation = result
+                rect = window(result.boundingBox, in: region)
+            }
+            entry.face = shifted(entry.face, to: rect); entry.face.followed = true; entry.missed += 1
+            next.append(entry)
+        }
+        followed = next
+        found.faces = next.map(\.face).sorted { $0.id < $1.id }
+        return found
+    }
+
+    /// A tracker for a face, seeded on the frame it was last found in.
+    private func tracker(for rect: CGRect, in region: CGRect, seededOn image: CGImage) -> (request: VNTrackObjectRequest, handler: VNSequenceRequestHandler)? {
+        let local = CGRect(x: (rect.minX - region.minX) / region.width, y: 1 - (rect.maxY - region.minY) / region.height,
+                           width: rect.width / region.width, height: rect.height / region.height)
+        guard local.width > 0, local.height > 0 else { return nil }
+        let request = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: local))
+        request.trackingLevel = .accurate
+        let handler = VNSequenceRequestHandler()
+        guard (try? handler.perform([request], on: image)) != nil else { return nil }
+        if let result = request.results?.first as? VNDetectedObjectObservation { request.inputObservation = result }
+        return (request, handler)
+    }
+
+    private func window(_ box: CGRect, in region: CGRect) -> CGRect {
+        CGRect(x: region.minX + box.minX * region.width, y: region.minY + (1 - box.maxY) * region.height,
+               width: box.width * region.width, height: box.height * region.height)
+    }
+
+    private func overlap(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let shared = a.intersection(b)
+        guard !shared.isNull else { return 0 }
+        return shared.width * shared.height / (a.union(b).width * a.union(b).height)
+    }
+
+    /// The face's outlines moved and scaled with its box.
+    private func shifted(_ face: Desktop.Face, to rect: CGRect) -> Desktop.Face {
+        var copy = face
+        let old = face.rect
+        guard old.width > 0, old.height > 0 else { copy.rect = rect; return copy }
+        copy.outlines = face.outlines.map { line in line.map {
+            CGPoint(x: rect.minX + ($0.x - old.minX) / old.width * rect.width, y: rect.minY + ($0.y - old.minY) / old.height * rect.height)
+        } }
+        copy.rect = rect
+        return copy
+    }
+
+    /// Heads the pose shows (nose, eyes, ears) with no face found on them: the face model again, on
+    /// just that patch of the full-size window, where a distant face has many more pixels.
+    private func heads(missedIn found: Desktop.People, image: CGImage) -> [Desktop.Face] {
+        var extra: [Desktop.Face] = []
+        for body in found.bodies {
+            let names: [VNHumanBodyPoseObservation.JointName] = [.nose, .leftEye, .rightEye, .leftEar, .rightEar]
+            let points = names.compactMap { body.joints[$0.rawValue.rawValue] }
+            guard points.count >= 2 else { continue }
+            let xs = points.map(\.x), ys = points.map(\.y)
+            let centre = CGPoint(x: (xs.min()! + xs.max()!) / 2, y: (ys.min()! + ys.max()!) / 2)
+            // The head is a few times the spread of its eyes and ears, and wider still with the neck.
+            var size = max(xs.max()! - xs.min()!, ys.max()! - ys.min()!) * 3
+            if let neck = body.joints[VNHumanBodyPoseObservation.JointName.neck.rawValue.rawValue] { size = max(size, abs(neck.y - centre.y) * 2.6) }
+            guard size > 0 else { continue }
+            let head = CGRect(x: centre.x - size / 2, y: centre.y - size / 2, width: size, height: size)
+                .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+            // Skipped when a face is already centred in it; a neighbour's face can reach into the square.
+            guard !head.isNull, !(found.faces + extra).contains(where: { head.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }) else { continue }
+            let request = VNDetectFaceLandmarksRequest()
+            guard (try? VNImageRequestHandler(cgImage: Desktop.crop(image, to: head), options: [:]).perform([request])) != nil else { continue }
+            extra += Desktop.faces(request.results ?? [], in: head)
+        }
+        return extra
     }
 }

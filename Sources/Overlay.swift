@@ -181,12 +181,13 @@ final class RunOverlay {
             boxes.append(InspectionBox(rect: picture, label: "Program picture", kind: .picture, text: "Program picture",
                                        detail: String(format: "Program Monitor picture · x %.3f y %.3f w %.3f h %.3f", picture.minX, picture.minY, picture.width, picture.height)))
         }
-        for (index, face) in people.faces.enumerated() {
+        for face in people.faces {
+            let name = "Face \(face.id)" + (face.followed ? " · followed" : "")
             var angle = ""
             if let yaw = face.yaw { angle += String(format: " · turned %.0f°", yaw) }
             if let roll = face.roll { angle += String(format: " · tilted %.0f°", roll) }
-            boxes.append(InspectionBox(rect: face.rect, label: "Face \(index + 1)", kind: .face, text: "Face \(index + 1)",
-                                       detail: String(format: "Face %d%@ · x %.3f y %.3f w %.3f h %.3f", index + 1, angle, face.rect.minX, face.rect.minY, face.rect.width, face.rect.height),
+            boxes.append(InspectionBox(rect: face.rect, label: name, kind: .face, text: name,
+                                       detail: String(format: "%@%@ · x %.3f y %.3f w %.3f h %.3f", name, angle, face.rect.minX, face.rect.minY, face.rect.width, face.rect.height),
                                        lines: face.outlines))
         }
         for (index, body) in people.bodies.enumerated() {

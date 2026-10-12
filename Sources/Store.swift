@@ -239,12 +239,14 @@ final class Store: ObservableObject {
     }
     /// Faces and bodies on the overlay. Reading only; runs never use it.
     @Published var detectPeople = (UserDefaults.standard.object(forKey: "detectPeople") as? Bool) ?? true {
-        didSet { UserDefaults.standard.set(detectPeople, forKey: "detectPeople"); people = nil; if let look = lastLook { followPeople(look.image) } }
+        didSet { UserDefaults.standard.set(detectPeople, forKey: "detectPeople"); people = nil; peopleFollower = PeopleFollower(); if let look = lastLook { followPeople(look.image) } }
     }
     /// The newest faces and bodies, read from the stream's frames as they arrive.
     private var people: Desktop.People?
     private var peopleReading = false
     private var peopleWaiting: CGImage?
+    /// Numbers faces and follows them between frames; replaced when the reading starts over.
+    private var peopleFollower = PeopleFollower()
     @Published var detectionStatus = "Off"
     private var inspectionTask: Task<Void, Never>?
     private var inspectionGeneration = UUID()
@@ -470,8 +472,9 @@ final class Store: ObservableObject {
         peopleReading = true
         // Inside the Program Monitor's picture when it has been found: about three times the detail.
         let picture = reading.flatMap { $0.image.width == image.width && $0.image.height == image.height ? $0.picture : nil }
+        let follower = peopleFollower
         Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) { Desktop.people(in: image, area: picture) }.value
+            let found = await Task.detached(priority: .userInitiated) { follower.read(image, area: picture) }.value
             guard let self else { return }
             self.peopleReading = false
             guard self.detectPeople, self.liveActive, !self.busy else { self.peopleWaiting = nil; return }
