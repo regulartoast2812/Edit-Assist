@@ -193,6 +193,12 @@ final class RunOverlay {
         return boxes
     }
 
+    /// Replaces only the face and body boxes, for people read between text readings.
+    func updatePeople(_ people: Desktop.People?) {
+        guard inspectionPanel?.isVisible == true else { return }
+        inspection.boxes = inspection.boxes.filter { $0.kind != .face && $0.kind != .body } + Self.peopleBoxes(people)
+    }
+
     func inspectDecision(rect: CGRect, label: String, kind: InspectionBox.Kind) {
         guard inspectionPanel?.isVisible == true else { return }
         inspection.boxes.append(InspectionBox(rect: rect, label: label, kind: kind))

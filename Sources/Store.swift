@@ -239,8 +239,12 @@ final class Store: ObservableObject {
     }
     /// Faces and bodies on the overlay. Reading only; runs never use it.
     @Published var detectPeople = (UserDefaults.standard.object(forKey: "detectPeople") as? Bool) ?? true {
-        didSet { UserDefaults.standard.set(detectPeople, forKey: "detectPeople"); textDirty = true }
+        didSet { UserDefaults.standard.set(detectPeople, forKey: "detectPeople"); people = nil; if let look = lastLook { followPeople(look.image) } }
     }
+    /// The newest faces and bodies, read from the stream's frames as they arrive.
+    private var people: Desktop.People?
+    private var peopleReading = false
+    private var peopleWaiting: CGImage?
     @Published var detectionStatus = "Off"
     private var inspectionTask: Task<Void, Never>?
     private var inspectionGeneration = UUID()
@@ -293,14 +297,6 @@ final class Store: ObservableObject {
                         let earlier = self.reading.flatMap { $0.window.id == look.window.id ? $0 : nil }
                         // A whole-window read now and then, so small errors from partial re-reads cannot build up.
                         let wholeDue = Date().timeIntervalSince(self.lastWholeRead) > 5
-                        let readPeople = self.detectPeople
-                        // Faces and bodies: one Vision pass over the window (about 20 ms), alongside the text.
-                        async let people = Task.detached(priority: .userInitiated) { () -> Desktop.People? in
-                            guard readPeople else { return nil }
-                            if let earlier, earlier.people != nil, earlier.image.width == image.width, earlier.image.height == image.height,
-                               Desktop.changedAreas(from: earlier.image, to: image).rects.isEmpty { return earlier.people }
-                            return Desktop.people(in: image)
-                        }.value
                         let result = await Task.detached(priority: .userInitiated) { () -> (text: [TextHit], section: Desktop.TextSection?, whole: Bool) in
                             guard !wholeDue, let earlier, earlier.image.width == image.width, earlier.image.height == image.height else {
                                 let text = Desktop.recognize(image)
@@ -336,9 +332,8 @@ final class Store: ObservableObject {
                         guard !Task.isCancelled, self.inspectionGeneration == token, self.liveActive,
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
                         var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
-                        read.people = await people
                         self.reading = read
-                        let shown = latest.reusing(read)
+                        var shown = latest.reusing(read); shown.people = self.people
                         self.lastLook = shown
                         self.presentInspection(shown)
                         self.setDetectionStatus(self.liveStatus)
@@ -456,10 +451,34 @@ final class Store: ObservableObject {
         guard Self.sameSize(window.frame.size, liveSize) else { updateLiveFeed(); return }
         var shot = Observation(image: image, window: window)
         if let reading, reading.window.id == window.id { shot = shot.reusing(reading) }
+        shot.people = people
         lastLook = shot
         textDirty = true
         presentInspection(shot)
         setDetectionStatus(liveStatus)
+        followPeople(image)
+    }
+
+    /// Faces and bodies at the stream's pace: each frame is read as it arrives (about 20 ms, under a
+    /// frame at 30 fps). One reading at a time; frames that arrive meanwhile wait, and only the newest
+    /// is read next, so a slow moment skips frames instead of falling behind.
+    private func followPeople(_ image: CGImage) {
+        guard detectPeople else { if people != nil { people = nil }; return }
+        guard !peopleReading else { peopleWaiting = image; return }
+        peopleReading = true
+        Task { [weak self] in
+            let found = await Task.detached(priority: .userInitiated) { Desktop.people(in: image) }.value
+            guard let self else { return }
+            self.peopleReading = false
+            guard self.detectPeople, self.liveActive, !self.busy else { self.peopleWaiting = nil; return }
+            self.people = found
+            if var look = self.lastLook {
+                look.people = found; self.lastLook = look
+                // Only the face and body boxes: a full redraw would show the style row tracker this frame again.
+                if self.editorFrontmost, self.detectionEnabled { self.overlay.updatePeople(found) }
+            }
+            if let next = self.peopleWaiting { self.peopleWaiting = nil; self.followPeople(next) }
+        }
     }
 
     private func watchActivation() {
