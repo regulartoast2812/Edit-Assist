@@ -902,7 +902,9 @@ final class Desktop {
         // "ag", or tiles merged without a space ("agag"); serif presets read as "aơ", "ad", "aa".
         let letters = Array(token)
         guard letters.count >= 2, letters.count % 2 == 0 else { return false }
-        return stride(from: 0, to: letters.count, by: 2).allSatisfy { letters[$0] == "a" }
+        // The second of each pair is a letter: timeline track names "A1".."A5" also start with an "a", and
+        // taking them for tiles stretched the grid's area over the whole timeline.
+        return stride(from: 0, to: letters.count, by: 2).allSatisfy { letters[$0] == "a" && letters[$0 + 1].isLetter }
     }
 
     /// Whether an OCR line is only style-tile labels ("Ag", or a merged "Ag Ag") inside the browser.
@@ -952,14 +954,50 @@ final class Desktop {
         styleGrid(in: hits, image: image, left: left).cells
     }
 
+    /// The tile labels that sit together as one grid. Tiles are spaced about a tile apart, so a
+    /// label much further from every other one is not a tile but text elsewhere that reads like
+    /// one (a timeline track "A5" read as "AS"); left in, it stretches the grid's area over the
+    /// timeline and no grid is found. Works at any panel size: the spacing is measured, not fixed.
+    nonisolated static func tileLabelCluster(_ labels: [TextHit]) -> [TextHit] {
+        guard labels.count > 2 else { return labels }
+        func centre(_ hit: TextHit) -> CGPoint { CGPoint(x: hit.rect.midX, y: hit.rect.midY) }
+        func distance(_ a: TextHit, _ b: TextHit) -> CGFloat {
+            // Between box edges, so a merged "Ag Ag Ag" box is as near as its closest tile.
+            let dx = max(0, max(a.rect.minX, b.rect.minX) - min(a.rect.maxX, b.rect.maxX))
+            let dy = max(0, max(a.rect.minY, b.rect.minY) - min(a.rect.maxY, b.rect.maxY))
+            return hypot(dx, dy)
+        }
+        let nearest = labels.indices.map { i in labels.indices.filter { $0 != i }.map { distance(labels[i], labels[$0]) }.min() ?? 0 }
+        let typical = nearest.sorted()[nearest.count / 2]
+        let height = labels.map(\.rect.height).sorted()[labels.count / 2]
+        // Distances are between box edges, so the gap to the next row is about a tile less a label's
+        // height; three times the larger of the two covers it at any tile size.
+        let reach = max(typical, height) * 3
+        var group = [Int](repeating: -1, count: labels.count)
+        var groups = 0
+        for start in labels.indices where group[start] < 0 {
+            group[start] = groups
+            var queue = [start]
+            while let i = queue.popLast() {
+                for j in labels.indices where group[j] < 0 && distance(labels[i], labels[j]) <= reach {
+                    group[j] = groups; queue.append(j)
+                }
+            }
+            groups += 1
+        }
+        let size = { (g: Int) in labels.indices.filter { group[$0] == g }.reduce(0) { $0 + normalized(labels[$1].text).count } }
+        guard groups > 1, let best = (0 ..< groups).max(by: { size($0) < size($1) }) else { return labels }
+        return labels.indices.filter { group[$0] == best }.map { labels[$0] }
+    }
+
     /// The grid plus whether the browser is scrolled to the top, judged from this one look: scrolled,
     /// a cut-off row of tiles sits between the Open Projects box and the first full row; at the top
     /// that strip holds only the box edge, a separator and flat background. Nil when it cannot tell.
     nonisolated static func styleGrid(in hits: [TextHit], image: CGImage, left: CGFloat) -> (cells: [[CGRect]], atTop: Bool?) {
-        let labels = hits.filter { hit in
+        let labels = tileLabelCluster(hits.filter { hit in
             let tokens = normalized(hit.text)
             return hit.rect.minX >= left - 0.08 && !tokens.isEmpty && tokens.allSatisfy(isTileLabel)
-        }
+        })
         guard let first = labels.first else { return ([], nil) }
         let seed = labels.dropFirst().reduce(first.rect) { $0.union($1.rect) }
         let boxHeight = labels.map(\.rect.height).sorted()[labels.count / 2]
