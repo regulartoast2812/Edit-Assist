@@ -133,7 +133,8 @@ extension Desktop {
         }
     }
 
-    private static let maskContext = CIContext(options: [.cacheIntermediates: false])
+    /// Core Image contexts are safe to share between threads; people are read off the main thread.
+    nonisolated(unsafe) private static let maskContext = CIContext(options: [.cacheIntermediates: false])
 
     /// A person mask blurred by a few of its pixels, as 8-bit levels: edges become smooth curves and
     /// specks and thin strands fall under the halfway level the outline is cut at.
