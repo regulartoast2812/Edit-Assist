@@ -579,7 +579,7 @@ struct Checks {
         // says otherwise. The count must hold, and no later look may restart it at R1.
         let missed = Desktop.StyleRowTracker()
         var resets: [String] = []
-        missed.onReset = { resets.append($0) }
+        missed.onReset = { why, _, _ in resets.append(why) }
         missed.closedAfter = 0   // the bad reading persists, as a reading of unchanged areas can
         _ = missed.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true)
         var missedHeld = true

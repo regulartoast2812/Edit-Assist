@@ -369,7 +369,9 @@ final class Store: ObservableObject {
 
     /// Saves a screen where the style browser shows but its grid is not found, with what was read on it,
     /// to recordings/diagnostics, so the failure can be studied instead of guessed at.
-    private func saveGridDiagnostic(image: CGImage, text: [TextHit], note: String = "live overlay: style browser shown, no grid found") {
+    /// The style browser's last text reading in a run, for diagnostics saved while the overlay is not reading.
+    var styleTextForDiagnostics: Observation?
+    private func saveGridDiagnostic(image: CGImage, text: [TextHit], note: String = "live overlay: style browser shown, no grid found", before: CGImage? = nil) {
         let directory = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -377,6 +379,9 @@ final class Store: ObservableObject {
                                 hits: text.map(RecordedHit.init), left: Desktop.stylePanelLeft(in: text).map(Double.init))
         if let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
             try? png.write(to: directory.appendingPathComponent("\(stamp).png"))
+        }
+        if let before, let png = NSBitmapImageRep(cgImage: before).representation(using: .png, properties: [:]) {
+            try? png.write(to: directory.appendingPathComponent("\(stamp)-before.png"))
         }
         if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: directory.appendingPathComponent("\(stamp).json")) }
         log("Overlay: \(note); saved the screen to \(directory.path) for diagnosis")
@@ -534,13 +539,16 @@ final class Store: ObservableObject {
         if projects.isEmpty { projects = [Project()] }
         selected = projects.first?.id
         desktop.detectionHotkey.action = { [weak self] in self?.toggleDetection() }
-        Desktop.styleRows.onReset = { [weak self] why in
+        Desktop.styleRows.onReset = { [weak self] why, frame, before in
             guard let self else { return }
             self.log("Style rows: \(why)")
-            // A followed count being replaced is the failure worth seeing: keep the frame and its reading.
-            if why.contains("a count being followed"), let look = self.lastLook, Date().timeIntervalSince(self.lastGridDiagnostic) > 10 {
+            // A followed count being replaced is the failure worth seeing: keep the very frame that made it, and
+            // the one before, during a run as in the overlay. The text is the newest reading of the same window size.
+            if why.contains("a count being followed"), Date().timeIntervalSince(self.lastGridDiagnostic) > 10 {
                 self.lastGridDiagnostic = Date()
-                self.saveGridDiagnostic(image: look.image, text: look.text, note: "row count replaced: \(why)")
+                let reading = [self.styleTextForDiagnostics, self.reading, self.lastLook].compactMap { $0 }
+                    .first { $0.image.width == frame.width && $0.image.height == frame.height }
+                self.saveGridDiagnostic(image: frame, text: reading?.text ?? [], note: "row count replaced: \(why)", before: before)
             }
         }
         desktop.onInterrupt = { [weak self] in
@@ -1427,7 +1435,9 @@ final class Store: ObservableObject {
                                 }
                                 return false
                             }
-                            try await send(.openStylePanel, AgentAction(kind: "click", x: point.x, y: point.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: OCRStep.openStylePanel.label), pause: 50)
+                            // Graphics: the panel has just been scrolled, and an instant click there was ignored every time in
+                            // the first run; the hover click (move, settle, press) is what the retry used, and it worked.
+                            try await send(.openStylePanel, AgentAction(kind: "click", x: point.x, y: point.y, endX: 0, endY: 0, keys: graphics ? ["hover"] : [], scroll: 0, purpose: OCRStep.openStylePanel.label), pause: 50)
                             // Did it open? Read the panel: the style browser has Back and My Styles. A busy machine
                             // can be slow to draw it, or miss the click. Only when the panel still reads as the caption
                             // panel is the four-square clicked again — found again under its Track Style header, never
@@ -1495,6 +1505,7 @@ final class Store: ObservableObject {
                             // looks while scrolling are pixel-only and reuse this read's text (~50 ms, not ~400).
                             var layout = panel
                             styleLayoutReading = panel
+                            styleTextForDiagnostics = panel
                             // One live stream for the whole step: every frame of a scroll, yours or the routine's,
                             // is counted and drawn. Separate screenshots come ~0.1 s apart, too far apart to keep
                             // count of look-alike rows.

@@ -1227,8 +1227,11 @@ final class Desktop {
         private var topFrames = 0
         /// Looks in a row where neither the text nor the pixels showed the list.
         private var goneFrames = 0
-        /// Told each time the count restarts at R1, with why, so a wrong restart shows in the log.
-        var onReset: ((String) -> Void)?
+        /// Told each time the count restarts at R1, with why and the frame that made it (and the one before),
+        /// so a wrong restart shows in the log and can be looked at afterwards, in a run as in the overlay.
+        var onReset: ((String, CGImage, CGImage?) -> Void)?
+        /// The frame seen before the current one.
+        private var previousImage: CGImage?
         private var closedSince: Date?
         /// How long the browser must be gone before it counts as closed.
         var closedAfter: TimeInterval = 1.5
@@ -1240,6 +1243,7 @@ final class Desktop {
         /// open is only a look where the grid could not be made out, often mid-scroll: the scroll is
         /// still followed from its pixels, and the count is kept.
         func observe(_ cells: [[CGRect]], image: CGImage, atTop: Bool? = nil, panelOpen: Bool = true) -> Int? {
+            defer { previousImage = image }
             guard panelOpen else {
                 // "Not open" comes from the text reading, which can miss the panel's labels for a moment.
                 // The pixels decide: while the list being followed is still on screen, moving as expected,
@@ -1296,7 +1300,7 @@ final class Desktop {
             if let known = layout, let pending = pendingLayout, pending.frames >= 6, !forceTop, !fresh {
                 pendingLayout = nil
                 scroll = nil; offset = nil; thumbFit = []; layout = currentLayout
-                onReset?("the browser's layout changed (\(known.0) to \(currentLayout.0) tiles a row); the count is lost until the top")
+                onReset?("the browser's layout changed (\(known.0) to \(currentLayout.0) tiles a row); the count is lost until the top", image, previousImage)
             }
 
             // At the top, measured on this frame alone, whatever the panel's size: the scrollbar thumb's top
@@ -1319,8 +1323,8 @@ final class Desktop {
                 let trusted = forceTop || fresh || measuredTop
                 forceTop = false
                 // Report restarts that replace a count or recover a lost one; a browser opening is normal.
-                if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1), a count being followed)") }
-                else if offset == nil, !fresh { onReset?("counting from R1: \(reason) (the count was lost)") }
+                if let was = offset, was != 0 { onReset?("counting from R1: \(reason) (was R\(was + 1), a count being followed)", image, previousImage) }
+                else if offset == nil, !fresh { onReset?("counting from R1: \(reason) (the count was lost)", image, previousImage) }
                 // At the top: the first full row is row 1. Sample within the visible rows, which sit
                 // inside the scrolling viewport, so nothing that stays still is compared.
                 let gap = pitch - Double(firstCell.height) * height
