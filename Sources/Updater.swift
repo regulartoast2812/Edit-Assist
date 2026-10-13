@@ -3,8 +3,7 @@ import Foundation
 /// Finds newer builds of Edit Assist on GitHub and installs one with the same installer as the terminal
 /// command. Each channel has a small file in the repository, updates/stable.json and updates/beta.json,
 /// written by release.sh when it publishes: the version, its build number and where to download it.
-/// A stable build follows the stable file; a beta build follows both, so testers also get a stable
-/// release that is newer than their beta.
+/// Every copy follows both and takes the newest build, as the install command does.
 struct AvailableUpdate: Equatable {
     var version: String
     var build: Int
@@ -22,7 +21,8 @@ enum Updater {
     /// The newest build on this app's channels, if it is newer than this one.
     static func check() async throws -> AvailableUpdate? {
         var found: [AvailableUpdate] = []
-        for name in channel == "beta" ? ["stable", "beta"] : ["stable"] {
+        // Always the newest build, beta or stable (the one install command installs the same).
+        for name in ["stable", "beta"] {
             // A query string past GitHub's raw-file cache, so a release shows up within moments.
             guard let url = URL(string: "https://raw.githubusercontent.com/\(repo)/main/updates/\(name).json?t=\(Int(Date().timeIntervalSince1970))") else { continue }
             var request = URLRequest(url: url); request.timeoutInterval = 15; request.cachePolicy = .reloadIgnoringLocalCacheData

@@ -10,17 +10,11 @@ Your editing companion for Premiere Pro. 🎬 It reads the screen and does repet
 curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash
 ```
 
-Needs macOS 14.2+.
-
-🧪 **Beta testers**, get the newest beta instead:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash -s -- --beta
-```
+Always installs the newest build. Needs macOS 14.2+.
 
 ## 🔄 Updates
 
-The app checks for you. When a newer build is out, an **Update** button appears at the top: one click installs it and reopens the app. (Diagnostics → **Check for updates** to look right away.) Betas get newer betas and stable releases; stable gets stable.
+The app checks for you. When a newer build is out, an **Update** button appears at the top: one click installs it and reopens the app. (Diagnostics → **Check for updates** to look right away.) It always offers the newest build.
 
 ## 🔐 Setup (once)
 
