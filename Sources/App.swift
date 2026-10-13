@@ -253,7 +253,7 @@ struct ContentView: View {
 
     var script: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Paste formatted text from your script, or use **double asterisks** around phrases. Bold marks the range; your chosen style controls its appearance.").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+            Text("Paste formatted text from your script: its bold becomes the phrases to highlight, shown here in green. Select words and press ⌘B to mark or unmark one; ⌘Z undoes.").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
             HStack {
                 Button("Paste formatted text", systemImage: "doc.on.clipboard") { s.pasteScript() }
                 Button("Import…") { importScript() }
@@ -261,11 +261,11 @@ struct ContentView: View {
                 if s.project.script.isEmpty { Button("Use your example") { s.sample() }.buttonStyle(.plain).foregroundStyle(accent) }
             }.font(.system(size: 11)).disabled(s.busy)
             HStack {
-                Button("B · Mark selection") { (NSApp.keyWindow?.firstResponder as? ScriptTextView)?.markSelection() }
+                Button("B · Mark selection") { (NSApp.keyWindow?.firstResponder as? RichScriptTextView)?.toggleHighlight() }
                 Text("Select words and press ⌘B").font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer()
             }.disabled(s.busy)
-            ScriptEditor(text: binding(\.script), editable: !s.busy, onPasteImage: { s.addScreenshot($0) })
+            RichScriptEditor(text: binding(\.script), editable: !s.busy, onPasteImage: { s.addScreenshot($0) })
                 .padding(10).background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 10)).frame(minHeight: 160).disabled(s.busy)
             if !s.project.script.isEmpty && s.targetCount == 0 {
                 Text("No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.").font(.system(size: 11)).foregroundStyle(.orange)

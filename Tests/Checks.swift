@@ -990,6 +990,22 @@ struct Checks {
                   && project.styledWords(graphics: true).isEmpty, "Projects saved by older versions load, with graphics progress apart")
             check(Project().fontSizeStep == 0, "A new project's font size step is 0 (size left as it is)")
         }
+        // The script editor shows highlights instead of ** marks and saves the marks back: shown and saved,
+        // a script must come back the same and give the same phrases.
+        do {
+            let scripts = [
+                "**After 65**, I thought **tummy control **meant squeezing my waist - until I found **these jeans.**\nThe **high-rise, ultra-stretch waistband **gently smooths",
+                "No highlights here at all", "", "a literal \\* star and a \\\\ backslash, then **bold \\* star**",
+                "**whole line**", "**one** **two**\n\n**three**",
+            ]
+            var same = true
+            for script in scripts {
+                let back = ScriptText.marked(ScriptText.attributed(script))
+                let before = (try? ScriptParser.parse(script))?.map { $0.highlights.map(\.text) }, after = (try? ScriptParser.parse(back))?.map { $0.highlights.map(\.text) }
+                if back != script || before != after { same = false; print("  differs: \(script.debugDescription) -> \(back.debugDescription)") }
+            }
+            check(same, "The script editor shows highlights and saves the same script back")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.
