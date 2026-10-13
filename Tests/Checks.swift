@@ -1005,6 +1005,14 @@ struct Checks {
                 if back != script || before != after { same = false; print("  differs: \(script.debugDescription) -> \(back.debugDescription)") }
             }
             check(same, "The script editor shows highlights and saves the same script back")
+            // Pasting over a selection that starts on a highlight: the pasted plain text must stay plain (it once
+            // took the highlight from the text it replaced, and a whole pasted sheet turned bold and green).
+            let editor = RichScriptTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+            editor.isRichText = true; editor.isEditable = true
+            editor.textStorage?.setAttributedString(ScriptText.attributed("**After 65**, I thought"))
+            editor.selectAll(nil)
+            editor.insertText(ScriptText.attributed("I can just **pull on** and look"), replacementRange: editor.selectedRange())
+            check(ScriptText.marked(editor.textStorage!) == "I can just **pull on** and look", "Pasting over a highlight keeps the pasted plain text plain")
         }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main

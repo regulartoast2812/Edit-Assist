@@ -68,7 +68,9 @@ struct ScriptEditor: NSViewRepresentable {
 // MARK: The script, shown as it reads
 
 extension NSAttributedString.Key {
-    /// Marks a highlighted phrase in the script editor; saved as **…** around it.
+    /// Marks a highlighted phrase in the script editor (true), or plain text (false); saved as **…** around a
+    /// highlight. Every run carries it, true or false: text pasted over a highlight takes any attribute it does
+    /// not carry from the text it replaces, and a plain run without it turned into a highlight.
     static let scriptHighlight = NSAttributedString.Key("EditAssistScriptHighlight")
 }
 
@@ -81,12 +83,11 @@ enum ScriptText {
     static let green = NSColor(red: 0.43, green: 0.88, blue: 0.73, alpha: 1)
     static var paragraph: NSParagraphStyle { let style = NSMutableParagraphStyle(); style.lineSpacing = 4; return style }
 
+    static func isHighlight(_ value: Any?) -> Bool { (value as? Bool) == true }
+
     static func attributes(highlighted: Bool) -> [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [.font: highlighted ? bold : font,
-                                                         .foregroundColor: highlighted ? green : NSColor.labelColor,
-                                                         .paragraphStyle: paragraph]
-        if highlighted { attributes[.scriptHighlight] = true }
-        return attributes
+        [.font: highlighted ? bold : font, .foregroundColor: highlighted ? green : NSColor.labelColor,
+         .paragraphStyle: paragraph, .scriptHighlight: highlighted]
     }
 
     static func attributed(_ marked: String) -> NSAttributedString {
@@ -109,7 +110,7 @@ enum ScriptText {
         attributed.enumerateAttribute(.scriptHighlight, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
             let text = (attributed.string as NSString).substring(with: range)
                 .replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "*", with: "\\*")
-            result += value != nil ? "**\(text)**" : text
+            result += isHighlight(value) ? "**\(text)**" : text
         }
         return result
     }
@@ -147,12 +148,12 @@ final class RichScriptTextView: NSTextView {
         let range = selectedRange()
         guard let storage = textStorage else { return }
         guard range.length > 0 else {
-            let on = typingAttributes[.scriptHighlight] != nil
+            let on = ScriptText.isHighlight(typingAttributes[.scriptHighlight])
             typingAttributes = ScriptText.attributes(highlighted: !on)
             return
         }
         var all = true
-        storage.enumerateAttribute(.scriptHighlight, in: range) { value, _, _ in if value == nil { all = false } }
+        storage.enumerateAttribute(.scriptHighlight, in: range) { value, _, _ in if !ScriptText.isHighlight(value) { all = false } }
         guard shouldChangeText(in: range, replacementString: nil) else { return }
         storage.beginEditing()
         storage.setAttributes(ScriptText.attributes(highlighted: !all), range: range)
@@ -213,7 +214,7 @@ struct RichScriptEditor: NSViewRepresentable {
             // Whatever arrived (typed, dropped, pasted), it reads as plain text or a highlight, nothing else.
             storage.beginEditing()
             storage.enumerateAttribute(.scriptHighlight, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-                storage.setAttributes(ScriptText.attributes(highlighted: value != nil), range: range)
+                storage.setAttributes(ScriptText.attributes(highlighted: ScriptText.isHighlight(value)), range: range)
             }
             storage.endEditing()
             parent.text = ScriptText.marked(storage)
