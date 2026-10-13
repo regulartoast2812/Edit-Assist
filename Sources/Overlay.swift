@@ -54,9 +54,10 @@ final class RunOverlay {
 
     /// Turns the circle into a Continue button while the run is paused. Only then does the overlay take
     /// clicks at all; the rest of the time they pass straight through to the editor beneath it.
-    func setContinue(_ available: Bool, action: (() -> Void)?) {
+    func setContinue(_ available: Bool, action: (() -> Void)?, stop: (() -> Void)? = nil) {
         model.canContinue = available
         model.onContinue = available ? action : nil
+        model.onStop = available ? stop : nil
         panel?.ignoresMouseEvents = !available
     }
 
@@ -237,6 +238,9 @@ private final class OverlayModel: ObservableObject {
     /// The run is paused and the circle continues it when clicked.
     @Published var canContinue = false
     var onContinue: (() -> Void)?
+    /// The ✕ in the corner: stops the run. Clickable while paused, like Continue; moving the mouse to it
+    /// pauses the run on the way.
+    var onStop: (() -> Void)?
     @Published var referenceLabel = ""
 }
 
@@ -294,6 +298,18 @@ private struct OverlayView: View {
         .frame(width: 460, height: 96, alignment: .leading)
         .background(Color(red: 0.07, green: 0.09, blue: 0.11).opacity(0.96), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.14)))
+        .overlay(alignment: .topLeading) {
+            // Stop: the run ends, as Escape or Stop in Edit Assist would.
+            Button { model.onStop?() } label: {
+                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(model.canContinue ? Color.red.opacity(0.85) : .white.opacity(0.14)))
+                    .foregroundStyle(.white.opacity(model.canContinue ? 1 : 0.6))
+            }
+            .buttonStyle(.plain).disabled(!model.canContinue)
+            .help("Stop this run")
+            .padding(6)
+        }
     }
 }
 

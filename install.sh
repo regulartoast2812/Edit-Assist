@@ -1,11 +1,19 @@
 #!/bin/bash
 # Installs or updates Edit Assist from the latest GitHub release:
 #   curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash
+# The newest beta for testers instead:
+#   curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash -s -- --beta
 set -euo pipefail
 REPO="regulartoast2812/Edit-Assist"
 APP="Edit Assist.app"
 DEST="$HOME/Applications"
 URL="https://github.com/$REPO/releases/latest/download/Edit-Assist.zip"
+if [[ "${1-}" == "--beta" ]]; then
+  # The beta channel file names the download (a beta is a pre-release, which "latest" skips).
+  URL=$(curl -fsSL "https://raw.githubusercontent.com/$REPO/main/updates/beta.json" | sed -n 's/.*"url": *"\([^"]*\)".*/\1/p')
+  [[ -n "$URL" ]] || { echo "No beta is published right now." >&2; exit 1; }
+  echo "Installing the beta."
+fi
 
 [[ "$(uname)" == "Darwin" ]] || { echo "Edit Assist runs on macOS only." >&2; exit 1; }
 major=$(sw_vers -productVersion | cut -d. -f1); minor=$(sw_vers -productVersion | cut -d. -f2)

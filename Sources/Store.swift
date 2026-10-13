@@ -52,7 +52,10 @@ final class Store: ObservableObject {
     @Published var running = false { didSet { if !running { activeFunction = nil; runStarted = nil } } }
     @Published var runPaused = false {
         // The overlay's circle continues a paused run; it takes no clicks otherwise.
-        didSet { overlay.setContinue(running && runPaused) { [weak self] in if self?.runPaused == true { self?.toggleRunPause() } } }
+        didSet {
+            overlay.setContinue(running && runPaused, action: { [weak self] in if self?.runPaused == true { self?.toggleRunPause() } },
+                                stop: { [weak self] in self?.stop("Stopped from the overlay") })
+        }
     }
     /// The page showing, and the job running (at most one).
     @Published var function: EditFunction = .highlight
@@ -569,6 +572,10 @@ final class Store: ObservableObject {
         restartDetectionMode()
         refreshPermissions()
         detect()
+        checkForUpdates()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForUpdates() }
+        }
         detectTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.detect() }
         }
@@ -633,6 +640,34 @@ final class Store: ObservableObject {
             _ = try? file.seekToEnd(); try? file.write(contentsOf: Data((entry + "\n").utf8))
         }
     }
+    /// A newer build on this app's channel, and what the last check found.
+    @Published var update: AvailableUpdate?
+    @Published var updateStatus = ""
+    private var updateTimer: Timer?
+
+    func checkForUpdates(manual: Bool = false) {
+        if manual { updateStatus = "Checking…" }
+        Task {
+            do {
+                update = try await Updater.check()
+                updateStatus = update.map { "Edit Assist \($0.label) is available." } ?? "Edit Assist \(Updater.current) is the newest."
+            } catch {
+                // Offline or GitHub unreachable: say so when asked, stay quiet otherwise.
+                if manual { updateStatus = "Could not check for updates: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    /// Downloads and installs the update; the installer quits this app and opens the new one.
+    func installUpdate() {
+        guard let update, !busy else { return }
+        do {
+            try Updater.install(update)
+            updateStatus = "Installing \(update.label)… Edit Assist will reopen by itself."
+            log("Update: installing \(update.label) (log: ~/Library/Logs/Edit Assist update.log)")
+        } catch { self.error = "Could not start the update: \(error.localizedDescription)" }
+    }
+
     func stop(_ reason: String = "Stopped") {
         generation = UUID(); task?.cancel(); task = nil; desktop.armed = false
         // Hide now rather than waiting for the cancelled task to unwind through a running CLI call.

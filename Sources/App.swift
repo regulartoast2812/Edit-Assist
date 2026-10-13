@@ -169,6 +169,13 @@ struct ContentView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 20)
+            if let update = s.update {
+                // A newer build is out: one click installs it and reopens the app.
+                Button { s.installUpdate() } label: { Label("Update to \(update.label)", systemImage: "arrow.down.circle.fill") }
+                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(s.busy)
+                    .help(s.busy ? "Finish or stop the run first" : "Download and install, then reopen Edit Assist")
+                    .padding(.trailing, 12)
+            }
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 0) {
                     Button { s.toggleDetection() } label: {
@@ -434,6 +441,14 @@ struct ContentView: View {
             }
             Text("\(s.keptRecordings) recorded run\(s.keptRecordings == 1 ? "" : "s") kept as tests. Every build replays them and refuses to install if a decision changes.")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
+            Divider()
+            HStack(spacing: 10) {
+                Text("Edit Assist \(Updater.current)").font(.system(size: 11))
+                Spacer()
+                if s.update != nil { Button("Update now") { s.installUpdate() }.font(.system(size: 11)).disabled(s.busy) }
+                Button("Check for updates") { s.checkForUpdates(manual: true) }.font(.system(size: 11))
+            }
+            if !s.updateStatus.isEmpty { Text(s.updateStatus).font(.system(size: 10)).foregroundStyle(.secondary) }
             ForEach(Array(s.activity.suffix(30).enumerated()), id: \.offset) { _, entry in
                 Text(entry).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             }

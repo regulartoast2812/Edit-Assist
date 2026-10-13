@@ -2,7 +2,7 @@
 
 Your editing companion for Premiere Pro. 🎬 It reads the screen and does repetitive edits for you — one **function** at a time.
 
-🧪 Early days: one function so far, with more on the way.
+🧪 Early days: two functions so far, with more on the way.
 
 ## 🚀 Install
 
@@ -10,7 +10,17 @@ Your editing companion for Premiere Pro. 🎬 It reads the screen and does repet
 curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash
 ```
 
-Run it again any time to update. Needs macOS 14.2+.
+Needs macOS 14.2+.
+
+🧪 **Beta testers**, get the newest beta instead:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/regulartoast2812/Edit-Assist/main/install.sh | bash -s -- --beta
+```
+
+## 🔄 Updates
+
+The app checks for you. When a newer build is out, an **Update** button appears at the top: one click installs it and reopens the app. (Diagnostics → **Check for updates** to look right away.) Betas get newer betas and stable releases; stable gets stable.
 
 ## 🔐 Setup (once)
 
@@ -21,6 +31,7 @@ When macOS asks, allow **Screen Recording** and **Accessibility** (System Settin
 | | Function | What it does |
 |---|---|---|
 | 🖍️ | **Highlight phrases** | Finds your script's **bold** phrases in the captions, applies your style and bumps the font size, clip by clip. |
+| 🔤 | **Highlight graphics** | The same for graphic text on the video tracks, using Linked style. Hide the caption track first if it shows the same words. |
 | ➕ | *More coming* | Each new function gets its own page and shares the same run bar. |
 
 ## ▶️ Using a function
@@ -30,7 +41,7 @@ When macOS asks, allow **Screen Recording** and **Accessibility** (System Settin
 3. ⏯️ Put the Premiere playhead where it should start.
 4. ▶️ Press **Run** — the bar at the top shows progress.
 
-⏸️ Move the mouse to pause · ⎋ Escape to stop.
+⏸️ Move the mouse to pause · ▶️ or ✕ on the overlay to continue or stop · ⎋ Escape to stop.
 
 ---
 
