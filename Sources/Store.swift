@@ -1211,6 +1211,14 @@ final class Store: ObservableObject {
                             try? await Task.sleep(for: .seconds(4))
                             if generation == token { status = why }
                         }
+                        /// Several scroll steps in quick succession, each within the per-step limit (8 lines, or 8 x 24
+                        /// pixels): a long way through a panel in one move, read once at the end.
+                        @MainActor func scrollBurst(_ at: CGPoint, steps: Int, pixels: Int, purpose: String, on shot: Observation) async throws {
+                            for _ in 0 ..< steps {
+                                try await perform(AgentAction(kind: "scroll", x: at.x, y: at.y, endX: 0, endY: 0, keys: ["pixels"], scroll: pixels, purpose: purpose), on: shot)
+                                try await Task.sleep(for: .milliseconds(15))
+                            }
+                        }
                         /// Reads whether a clip with editable text is selected now, and records the decision.
                         @MainActor func selectedNow() async throws -> Bool {
                             let now = try await desktop.capture(window, readText: true)
@@ -1302,11 +1310,10 @@ final class Store: ObservableObject {
                             var lifts = 0
                             while graphics, find("font size", in: outer.text) == nil, lifts < 8,
                                   case .graphic = Desktop.propertiesState(in: outer.text, image: outer.image),
-                                  let area = Desktop.propertiesArea(in: outer.text) {
+                                  let at = Desktop.graphicScrollPoint(in: outer.text) {
                                 lifts += 1
                                 log("OCR: graphic text — Font Size is above the view; scrolling the Properties panel up")
-                                try await perform(AgentAction(kind: "scroll", x: min(0.99, area.minX + 0.012), y: area.midY, endX: 0, endY: 0, keys: [], scroll: 12,
-                                                              purpose: "Scroll the Properties panel up to Font Size"), on: outer)
+                                try await scrollBurst(at, steps: 8, pixels: 192, purpose: "Scroll the Properties panel up to Font Size", on: outer)
                                 try await Task.sleep(for: .milliseconds(150))
                                 outer = try await desktop.capture(window, readText: true); outerReading = outer
                             }
@@ -1384,18 +1391,24 @@ final class Store: ObservableObject {
                             var button: CGPoint?
                             if graphics { button = state.styleButton } else if case let .caption(found) = state { button = found }
                             var shown = state, seen = panel
-                            // A graphic's text layer: the four-square is on the Linked style row, several sections
-                            // below the text. Scroll down until that header shows; the button is found under it.
+                            // A graphic's text layer: the four-square is on the Linked style row, near the bottom of
+                            // its settings (only Responsive Design follows). Every new graphic opens at the top, so
+                            // jump to the bottom in one scroll, whatever the panel's size, and read once. A panel too
+                            // short to show Linked style down there is stepped back up until it does.
                             var lowers = 0
-                            while graphics, button == nil, lowers < 8, case .graphic = shown, let area = Desktop.propertiesArea(in: seen.text) {
+                            var bottom = false
+                            while graphics, button == nil, lowers < 8, case .graphic = shown, let at = Desktop.graphicScrollPoint(in: seen.text) {
                                 lowers += 1
-                                log("OCR: graphic text — Linked style is below the view; scrolling the Properties panel down")
-                                try await perform(AgentAction(kind: "scroll", x: min(0.99, area.minX + 0.012), y: area.midY, endX: 0, endY: 0, keys: [], scroll: -12,
-                                                              purpose: "Scroll the Properties panel down to Linked style"), on: seen)
+                                log(bottom ? "OCR: graphic text — at the bottom without Linked style in view; scrolling up a little"
+                                           : "OCR: graphic text — jumping to the bottom of the Properties panel for Linked style")
+                                try await scrollBurst(at, steps: bottom ? 1 : 8, pixels: bottom ? 96 : -192, purpose: "Scroll the Properties panel to Linked style", on: seen)
                                 try await Task.sleep(for: .milliseconds(150))
+                                let before = seen.text.map(\.text)
                                 seen = try await desktop.capture(window, readText: true)
                                 shown = Desktop.propertiesState(in: seen.text, image: seen.image)
                                 button = shown.styleButton
+                                // The same text after a jump down: already at the bottom.
+                                if !bottom, seen.text.map(\.text) == before || lowers >= 2 { bottom = true }
                             }
                             recordDecision(Snapshot(kind: "styleButton", note: "Properties shows \(shown.name)", hits: seen.text.map(RecordedHit.init),
                                             graphics: graphics ? true : nil, location: button.map { [Double($0.x), Double($0.y)] }), image: seen.image)

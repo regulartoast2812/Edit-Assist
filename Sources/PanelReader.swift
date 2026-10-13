@@ -485,6 +485,18 @@ extension Desktop {
         return .unknown
     }
 
+    /// Where to scroll a graphic's Properties: in the left margin beside the lowest section heading on
+    /// screen (Appearance, Shadow, Linked style…), which is certainly inside the panel, away from sliders
+    /// and fields. Not the middle of the area under the tab: in most layouts the timeline is down there.
+    nonisolated static func graphicScrollPoint(in hits: [TextHit]) -> CGPoint? {
+        guard let area = propertiesArea(in: hits) else { return nil }
+        let headings = ["text", "font size", "appearance", "fill", "stroke", "background", "shadow", "mask with text",
+                        "align and transform", "linked style"]
+        guard let lowest = hits.filter({ $0.rect.intersects(area) && headings.contains(normalized($0.text).filter { $0 != "v" && $0 != ">" }.joined(separator: " ")) })
+            .max(by: { $0.rect.midY < $1.rect.midY }) else { return nil }
+        return CGPoint(x: area.minX + max(0.004, (lowest.rect.minX - area.minX) / 2), y: lowest.rect.midY)
+    }
+
     // MARK: The four-square style button, by its shape
 
     /// Premiere's style-browser button: four light squares in a 2x2 grid with a dark cross between them.

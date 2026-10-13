@@ -33,6 +33,11 @@ struct Checks {
         try ActionPolicy.validate(action("key", keys: ["shift", "option", "right"]))
         count += 1; print("PASS: Allow text-range navigation")
         check(rejects(action(x: -0.01)), "Reject out-of-window actions")
+        // Highlight graphics scrolls the Properties panel in bursts of these steps (Store.scrollBurst); a step
+        // the policy refuses would stop every graphics run at its first phrase.
+        check(!rejects(action("scroll", keys: ["pixels"], scroll: -192)) && !rejects(action("scroll", keys: ["pixels"], scroll: 192))
+              && !rejects(action("scroll", keys: ["pixels"], scroll: 96)), "Allow the graphics scroll steps")
+        check(rejects(action("scroll", scroll: 12)), "Refuse a scroll beyond eight lines a step")
         check(rejects(action(x: Double.nan)), "Reject nonfinite coordinates")
         check(rejects(action("shell")), "Reject arbitrary execution")
         check(rejects(action("key", keys: ["delete"])), "Reject deletion")
