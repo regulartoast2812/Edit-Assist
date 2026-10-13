@@ -64,7 +64,7 @@ final class Store: ObservableObject {
     /// Progress of a job, counted in words for highlighting so a phrase split across clips moves the bar.
     func progress(of job: EditFunction) -> (done: Int, total: Int, fraction: Double) {
         switch job {
-        case .highlight:
+        case .highlight, .highlightGraphics:
             let total = targets.reduce(0) { $0 + words(of: $1).count }
             let done = targets.reduce(0) { $0 + min(styled($1), words(of: $1).count) }
             return (done, total, total == 0 ? 0 : Double(done) / Double(total))
@@ -85,6 +85,9 @@ final class Store: ObservableObject {
         switch job {
         case .highlight:
             if ocrOnly { runOCR(all: true) } else { run(limit: 40) }
+        case .highlightGraphics:
+            // Screen reading only: the graphics steps exist in the OCR routine.
+            runOCR(all: true, graphics: true)
         }
     }
     /// Marks a job as the one running, for the sidebar and the run bar.
@@ -939,7 +942,9 @@ final class Store: ObservableObject {
 
     /// Selects the next script phrase using measured OCR boxes only. No CLI, no model, no network.
     /// One phrase is roughly a capture plus half a second of recognition.
-    func runOCR(all: Bool, record: Bool = true, anyTarget: Bool = false, countdown: Int = 3, only: Set<String>? = nil) {
+    /// `graphics`: work on graphic text instead of captions (Highlight graphics). Every graphics rule below is
+    /// behind it, so a caption run decides exactly as it did before graphics were added.
+    func runOCR(all: Bool, record: Bool = true, anyTarget: Bool = false, countdown: Int = 3, only: Set<String>? = nil, graphics: Bool = false) {
         guard !busy else { return }
         do {
             guard !targets.isEmpty else { throw AssistError.message("Paste a script with bold phrases first.") }
@@ -953,7 +958,7 @@ final class Store: ObservableObject {
                 log("Recording this run's decisions to \(recorder.folder?.path ?? "")")
             }
             busy = true; running = true; runPaused = false; proposal = nil
-            began(.highlight)
+            began(graphics ? .highlightGraphics : .highlight)
             let id = selected; let token = UUID(); generation = token
             task = Task {
                 defer {
@@ -1209,8 +1214,8 @@ final class Store: ObservableObject {
                         /// Reads whether a clip with editable text is selected now, and records the decision.
                         @MainActor func selectedNow() async throws -> Bool {
                             let now = try await desktop.capture(window, readText: true)
-                            let selected = Desktop.clipIsSelected(in: now.text)
-                            recordDecision(Snapshot(kind: "selected", hits: now.text.map(RecordedHit.init), bool: selected))
+                            let selected = Desktop.clipIsSelected(in: now.text, graphics: graphics)
+                            recordDecision(Snapshot(kind: "selected", hits: now.text.map(RecordedHit.init), graphics: graphics ? true : nil, bool: selected))
                             return selected
                         }
                         @MainActor func send(_ step: OCRStep, _ action: AgentAction, pause: Int = 40) async throws {
@@ -1236,6 +1241,11 @@ final class Store: ObservableObject {
                             selected = (try await selectedNow())
                             log("OCR: clicked the caption in the Program Monitor — \(selected ? "selected" : "not selected")")
 
+                            // The fallbacks select the caption clip under the playhead: captions only.
+                            if graphics, !selected {
+                                try await stop(OCRStep.clickClip, "Clicking the words did not select a graphic. If the caption track shows the same words on top, hide it (its eye in the timeline) so clicks land on the graphics, then run again.")
+                                return
+                            }
                             if !selected, let point = Desktop.clipAtPlayhead(in: shot.text, image: shot.image) {
                                 try await send(.clickClip, AgentAction(kind: "click", x: point.x, y: point.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Select the caption clip under the playhead"))
                                 selected = (try await selectedNow())
@@ -1290,7 +1300,7 @@ final class Store: ObservableObject {
                             // style for the last phrase left the panel scrolled far below it. Scroll up to it.
                             // (A caption's panel never reads as a graphic, so its path below is unchanged.)
                             var lifts = 0
-                            while find("font size", in: outer.text) == nil, lifts < 8,
+                            while graphics, find("font size", in: outer.text) == nil, lifts < 8,
                                   case .graphic = Desktop.propertiesState(in: outer.text, image: outer.image),
                                   let area = Desktop.propertiesArea(in: outer.text) {
                                 lifts += 1
@@ -1300,7 +1310,7 @@ final class Store: ObservableObject {
                                 try await Task.sleep(for: .milliseconds(150))
                                 outer = try await desktop.capture(window, readText: true); outerReading = outer
                             }
-                            if find("font size", in: outer.text) == nil, case .graphicLayers = Desktop.propertiesState(in: outer.text, image: outer.image) {
+                            if graphics, find("font size", in: outer.text) == nil, case .graphicLayers = Desktop.propertiesState(in: outer.text, image: outer.image) {
                                 try await stop(OCRStep.increaseSize, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Font Size. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
                                 return false
                             }
@@ -1370,12 +1380,14 @@ final class Store: ObservableObject {
                             // and the four-square icon found by its shape wherever it is.
                             let state = Desktop.propertiesState(in: panel.text, image: panel.image)
                             if state.isStyleBrowser { log("OCR skip: \(OCRStep.openStylePanel.label) — already open"); return true }
-                            var button = state.styleButton
+                            // Captions: only the four-square under Track Style, as always. Graphics: under Linked style.
+                            var button: CGPoint?
+                            if graphics { button = state.styleButton } else if case let .caption(found) = state { button = found }
                             var shown = state, seen = panel
                             // A graphic's text layer: the four-square is on the Linked style row, several sections
                             // below the text. Scroll down until that header shows; the button is found under it.
                             var lowers = 0
-                            while button == nil, lowers < 8, case .graphic = shown, let area = Desktop.propertiesArea(in: seen.text) {
+                            while graphics, button == nil, lowers < 8, case .graphic = shown, let area = Desktop.propertiesArea(in: seen.text) {
                                 lowers += 1
                                 log("OCR: graphic text — Linked style is below the view; scrolling the Properties panel down")
                                 try await perform(AgentAction(kind: "scroll", x: min(0.99, area.minX + 0.012), y: area.midY, endX: 0, endY: 0, keys: [], scroll: -12,
@@ -1386,14 +1398,16 @@ final class Store: ObservableObject {
                                 button = shown.styleButton
                             }
                             recordDecision(Snapshot(kind: "styleButton", note: "Properties shows \(shown.name)", hits: seen.text.map(RecordedHit.init),
-                                            location: button.map { [Double($0.x), Double($0.y)] }), image: seen.image)
+                                            graphics: graphics ? true : nil, location: button.map { [Double($0.x), Double($0.y)] }), image: seen.image)
                             guard let point = button else {
                                 switch shown {
                                 case .nothingSelected:
                                     try await stop(OCRStep.openStylePanel, "Properties shows no clip selected (\"Select a clip in the timeline\"), so there is no style button to open. The selection was lost; run again from this phrase.")
+                                case .graphic where !graphics:
+                                    try await stop(OCRStep.openStylePanel, "This text item has no Track Style row (a graphic, or a caption upgraded to one), so there is no four-square style button to open. Its font size was set; apply the style by hand, use Highlight graphics, or untick the style steps for it.")
                                 case .graphic:
                                     try await stop(OCRStep.openStylePanel, "Scrolled the graphic's Properties down \(lowers) times without finding Linked style and its four-square button. Its font size was set; apply the style by hand, or open Linked style and run again.")
-                                case .graphicLayers:
+                                case .graphicLayers where graphics:
                                     try await stop(OCRStep.openStylePanel, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Linked style row. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
                                 default:
                                     try await stop(OCRStep.openStylePanel, "The Properties panel shows \(state.name), and the four-square style button is not in it.")
@@ -1413,7 +1427,7 @@ final class Store: ObservableObject {
                                 let read = try await desktop.capture(window, readText: true, notifyOCR: false)
                                 let now = Desktop.propertiesState(in: read.text, image: read.image)
                                 if now.isStyleBrowser { opened = true; break }
-                                guard let again = now.styleButton, clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
+                                guard let again = graphics ? now.styleButton : { if case let .caption(b) = now { return b } else { return nil } }(), clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
                                 clicks += 1
                                 log("OCR: Properties still shows the \(now.name) panel (click \(clicks - 1)); clicking the four-square again")
                                 try await perform(AgentAction(kind: "click", x: again.x, y: again.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: read)
@@ -1446,7 +1460,8 @@ final class Store: ObservableObject {
                             var reopened = false
                             while Desktop.stylePanelLeft(in: panel.text) == nil, waited < 12 {
                                 try await Task.sleep(for: .milliseconds(500)); waited += 1
-                                if !reopened, waited == 4, let button = Desktop.propertiesState(in: panel.text, image: panel.image).styleButton {
+                                let outer = Desktop.propertiesState(in: panel.text, image: panel.image)
+                                if !reopened, waited == 4, let button = graphics ? outer.styleButton : { if case let .caption(b) = outer { return b } else { return nil } }() {
                                     reopened = true
                                     log("OCR: Properties still shows the outer panel; clicking the four-square again")
                                     try await perform(AgentAction(kind: "click", x: button.x, y: button.y, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.openStylePanel.label), on: panel)

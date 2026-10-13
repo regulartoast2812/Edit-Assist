@@ -62,7 +62,10 @@ whole, Properties shows the layer list and Transform (`graphicLayers`); with its
 text layer (`graphic`): Text, Appearance, Align and Transform, then **Linked style** far below, whose row
 holds the four-square. The routine scrolls the panel down to Linked style to open the browser, and back up
 to Font Size on the next phrase; it does not click a layer row (that could drop the word selection).
-Fixtures 33-37.
+All of this belongs to **Highlight graphics** (`runOCR(graphics: true)`); every graphics rule in the
+routine is behind that flag, so **Highlight phrases (captions) decides exactly as before**: a graphic is
+not a selected caption (its fallback then selects the caption clip under the playhead), and it only clicks
+the four-square under Track Style. Fixtures 33-37 (graphics), 38-39 (captions must ignore graphics).
 
 ## Invariants — each one was learned from a real failure
 

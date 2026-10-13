@@ -1809,10 +1809,21 @@ final class Desktop {
 
     /// Whether a clip is selected, read from the Properties panel: with nothing selected Premiere
     /// shows "Select a clip in the timeline to view properties."
-    static func clipIsSelected(in hits: [TextHit]) -> Bool {
+    /// `graphics`: Highlight graphics asks instead whether a graphic is selected, and a caption is not one.
+    static func clipIsSelected(in hits: [TextHit], graphics: Bool = false) -> Bool {
         let joined = hits.map { normalized($0.text).joined(separator: " ") }
         if joined.contains(where: { $0.contains("select clip in the timeline") || $0.contains("select a clip in the timeline") }) {
             return false
+        }
+        if graphics {
+            // Clicking words that a caption and a graphic both show selects whichever is on top; a caption
+            // selected here is the wrong item. A graphic shows Responsive Design when selected as a whole,
+            // and its text layer the Text section, Align and Transform and Linked style.
+            if joined.contains(where: { $0.contains("track style") || $0.contains("subtitle") && $0.contains("c1") }) { return false }
+            return joined.contains { line in
+                line.hasPrefix("responsive design") || line == "linked style" || line == "align and transform"
+                    || line == "font size" || line == "v text" || line.contains("my styles")
+            }
         }
         // A caption shows "C1: Subtitle" and a Track Style row; a graphic, or a caption upgraded to one,
         // shows its own name and goes straight to Text and Appearance. Any of these means a clip with
@@ -1820,8 +1831,6 @@ final class Desktop {
         return joined.contains { line in
             line.contains("track style") || line.contains("subtitle") && line.contains("c1")
                 || line == "font size" || line == "v text" || line.contains("my styles")
-                // A graphic: as a whole (Responsive Design under its Transform) or its text layer scrolled down.
-                || line.hasPrefix("responsive design") || line == "linked style" || line == "align and transform"
         }
     }
 

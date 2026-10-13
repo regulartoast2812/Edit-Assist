@@ -69,7 +69,7 @@ struct Replay {
             if found != s.found || matched != s.matched { return "matched candidate \(found.map(String.init) ?? "none") with \(matched.map(String.init) ?? "-") words, recorded \(s.found.map(String.init) ?? "none") with \(s.matched.map(String.init) ?? "-")" }
             if !close(span, s.span) { return "span \(span ?? []) differs from \(s.span ?? [])" }
         case "selected":
-            let now = Desktop.clipIsSelected(in: hits)
+            let now = Desktop.clipIsSelected(in: hits, graphics: s.graphics ?? false)
             if now != s.bool { return "selected is \(now), recorded \(s.bool.map(String.init) ?? "-")" }
         case "panel":
             let now = Desktop.button(labelled: "Back", in: hits) != nil
@@ -82,7 +82,9 @@ struct Replay {
             guard let image else { return "image missing" }
             // As the routine decides it: the panel's state, and the four-square found in it by shape.
             var found: CGPoint?
-            found = Desktop.propertiesState(in: hits, image: image).styleButton
+            // Captions only ever click the four-square under Track Style; graphics the one under Linked style.
+            let state = Desktop.propertiesState(in: hits, image: image)
+            if s.graphics == true { found = state.styleButton } else if case let .caption(button) = state { found = button }
             let now = found.map { [Double($0.x), Double($0.y)] }
             if !close(now, s.location) { return "style button at \(now ?? []), recorded \(s.location ?? [])" }
         case "styleGrid", "tile":

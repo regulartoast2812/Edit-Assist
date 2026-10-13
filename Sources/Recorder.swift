@@ -22,6 +22,8 @@ struct Snapshot: Codable {
     /// tile: your picked tile's appearance, and the cell that was clicked.
     var appearance: [UInt8]?
     var cell: [Double]?
+    /// selected / styleButton: decided for Highlight graphics, not captions.
+    var graphics: Bool?
 
     // Results
     var bool: Bool?

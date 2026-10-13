@@ -17,21 +17,31 @@ struct ScriptLine: Codable, Identifiable, Equatable {
 /// page in ContentView and a case in Store.start(_:).
 enum EditFunction: String, CaseIterable, Identifiable {
     case highlight
+    /// The same task on graphic text (Essential Graphics on a video track). Kept apart from captions so
+    /// nothing learned for graphics can change how a caption run decides.
+    case highlightGraphics
     var id: String { rawValue }
     var title: String {
-        switch self { case .highlight: return "Highlight phrases" }
+        switch self {
+        case .highlight: return "Highlight phrases"
+        case .highlightGraphics: return "Highlight graphics"
+        }
     }
     var summary: String {
         switch self {
         case .highlight: return "Finds the bold phrases of your script in the captions, applies your style and enlarges the text, clip by clip from the playhead."
+        case .highlightGraphics: return "Finds the bold phrases of your script in graphic text on the video tracks, applies your style from Linked style and enlarges the text, clip by clip from the playhead. Hide the caption track if it shows the same words, so clicks land on the graphics."
         }
     }
     var icon: String {
-        switch self { case .highlight: return "highlighter" }
+        switch self {
+        case .highlight: return "highlighter"
+        case .highlightGraphics: return "textformat"
+        }
     }
-    var runLabel: String {
-        switch self { case .highlight: return "Run from playhead" }
-    }
+    var runLabel: String { "Run from playhead" }
+    /// Works through the script's bold phrases (both highlight functions).
+    var highlightsPhrases: Bool { self == .highlight || self == .highlightGraphics }
 }
 
 struct Message: Codable, Identifiable {

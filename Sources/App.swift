@@ -499,7 +499,7 @@ struct ContentView: View {
                     Image(systemName: "play.fill").font(.system(size: 10))
                         .frame(width: 26, height: 26).background(accent.opacity(s.busy ? 0.06 : 0.2), in: Circle())
                         .foregroundStyle(s.busy ? Color.secondary : accent)
-                }.buttonStyle(.plain).disabled(s.busy || (job == .highlight && s.ocrOnly && s.targets.isEmpty))
+                }.buttonStyle(.plain).disabled(s.busy || (job.highlightsPhrases && s.ocrOnly && s.targets.isEmpty))
                     .help(s.busy ? "Another function is running" : "\(job.runLabel) — start \(job.title.lowercased()) now")
             }
         }.padding(.leading, 12).padding(.trailing, 8).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: .infinity, alignment: .leading)
@@ -519,7 +519,7 @@ struct ContentView: View {
 
     @ViewBuilder func page(for job: EditFunction) -> some View {
         switch job {
-        case .highlight: highlightPage
+        case .highlight, .highlightGraphics: highlightPage
         }
     }
 
@@ -548,7 +548,7 @@ struct ContentView: View {
                 Button { s.stop() } label: { Label("Stop", systemImage: "stop.fill") }.disabled(!s.busy).tint(.orange)
                 Button { s.start(s.function) } label: { Label(s.function.runLabel, systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
-                    .disabled(s.busy || (s.function == .highlight && s.ocrOnly && s.targets.isEmpty))
+                    .disabled(s.busy || (s.function.highlightsPhrases && s.ocrOnly && s.targets.isEmpty))
                     .help(s.busy ? "\((s.activeFunction ?? s.function).title) is running; one function runs at a time" : "Start \(s.function.title.lowercased()) at the current playhead")
             }
             HStack(spacing: 10) {
@@ -570,7 +570,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     columnTitle("TASK")
-                    Text(EditFunction.highlight.summary).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+                    Text(s.function.summary).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
                     if s.targets.isEmpty {
                         card("To do") {
                             VStack(alignment: .leading, spacing: 10) {
