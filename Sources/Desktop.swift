@@ -202,6 +202,35 @@ final class Desktop {
     }
 
     /// The largest ordinary window of that app, which is the one being edited in.
+    static func isPremiere(_ app: NSRunningApplication) -> Bool {
+        (app.bundleIdentifier ?? "").lowercased().contains("premierepro") || (app.localizedName ?? "").lowercased().contains("premiere")
+    }
+
+    /// Premiere's main window for a job that only exists in Premiere (both highlight functions): the window
+    /// being followed if it is Premiere's, otherwise Premiere's largest window on screen. The window followed
+    /// can be After Effects' (the last Adobe app used); a run there would click into the wrong app.
+    func premiereWindow(preferring current: WindowChoice?) throws -> WindowChoice {
+        if let current, let app = NSRunningApplication(processIdentifier: current.pid), Self.isPremiere(app) { return current }
+        let premiere = NSWorkspace.shared.runningApplications.filter { Self.isPremiere($0) && !$0.isTerminated }.map(\.processIdentifier)
+        let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var best: WindowChoice?
+        for row in rows {
+            guard (row[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, premiere.contains(pid),
+                  let number = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let bounds = row[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds), frame.width > 300, frame.height > 200 else { continue }
+            if best.map({ frame.width * frame.height > $0.frame.width * $0.frame.height }) ?? true {
+                let app = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Adobe Premiere Pro"
+                best = WindowChoice(id: number, pid: pid, title: row[kCGWindowName as String] as? String ?? app, app: app, frame: frame)
+            }
+        }
+        guard let best else {
+            throw AssistError.message("Highlighting works in Premiere Pro, and no Premiere window is open on screen\(current.map { " (the editor followed now is \($0.app))" } ?? ""). Open your sequence in Premiere, then run again.")
+        }
+        return best
+    }
+
     func detectTarget() async throws -> WindowChoice? {
         guard canCapture else { throw AssistError.message("Enable Screen Recording so Edit Assist can see your editor. macOS may require quitting and reopening the app.") }
         guard let active = activeApp() else { return nil }

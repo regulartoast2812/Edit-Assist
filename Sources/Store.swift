@@ -731,7 +731,10 @@ final class Store: ObservableObject {
             let lines = try ScriptParser.parse(project.script)
             guard lines.contains(where: { !$0.highlights.isEmpty }) else { throw AssistError.message("Paste a script with bold phrases first. Use **phrase** or Paste formatted text.") }
             guard !project.style.isEmpty || project.styleImage != nil else { throw AssistError.message("Tell the assistant which style to use, or capture the style browser and drag over the chosen tile.") }
-            guard let window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window, then start again.") }
+            guard let followed = self.window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window, then start again.") }
+            // Highlighting is Premiere's: never run in After Effects because it was the last Adobe app used.
+            let window = try desktop.premiereWindow(preferring: followed)
+            if window.id != followed.id { log("Run: the editor followed was \(followed.app); highlighting runs in Premiere, so using its window"); target = window }
             if !preview && !desktop.canControl { throw AssistError.message("Enable Accessibility in Setup before running actions.") }
             busy = true; running = !preview; proposal = nil
             if !preview { began(.highlight) }
@@ -957,7 +960,13 @@ final class Store: ObservableObject {
         do {
             guard !targets.isEmpty else { throw AssistError.message("Paste a script with bold phrases first.") }
             guard all || anyTarget || !remaining.isEmpty else { throw AssistError.message("All \(targets.count) phrases are done. Reset progress to start again.") }
-            guard let window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window.") }
+            guard let followed = self.window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window.") }
+            // Highlighting is Premiere's: never run in After Effects because it was the last Adobe app used.
+            let window = try desktop.premiereWindow(preferring: followed)
+            if window.id != followed.id {
+                log("Run: the editor followed was \(followed.app); highlighting runs in Premiere, so using its window")
+                target = window
+            }
             guard desktop.canControl else { throw AssistError.message("Enable Accessibility in Permissions before running actions.") }
             // Run all starts a fresh pass at the current playhead, regardless of prior progress.
             if all && record { resetProgress() }
