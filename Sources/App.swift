@@ -172,7 +172,7 @@ struct ContentView: View {
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 0) {
                     Button { s.toggleDetection() } label: {
-                        Label("Detection \(s.detectionEnabled ? "on" : "off") · F10", systemImage: s.detectionEnabled ? "eye" : "eye.slash")
+                        Label("Detection \(s.detectionEnabled ? "on" : "off")", systemImage: s.detectionEnabled ? "eye" : "eye.slash")
                     }.tint(s.detectionEnabled ? accent : .secondary)
                     Button { detectionSettingsOpen.toggle() } label: { Image(systemName: "chevron.down") }
                         .help("Detection settings").popover(isPresented: $detectionSettingsOpen) { detectionControls }
@@ -457,7 +457,6 @@ struct ContentView: View {
     var detectionControls: some View {
         VStack(alignment: .leading, spacing: 15) {
             Text("Detection settings").font(.system(size: 16, weight: .semibold))
-            Text("F10 switches all detection off or on.").font(.system(size: 11)).foregroundStyle(.secondary)
             Toggle("Continuous observation", isOn: $s.detectionMode)
             Toggle("Show during runs", isOn: $s.showOCRBoxes)
             Divider()
@@ -468,7 +467,6 @@ struct ContentView: View {
             Divider()
             label("RECOGNIZE")
             Toggle("Faces and bodies", isOn: $s.detectPeople)
-            if !s.desktop.detectionHotkey.available { Text("F10 is unavailable. Use the header button.").font(.caption).foregroundStyle(.orange) }
         }.toggleStyle(.switch).controlSize(.small).padding(22).frame(width: 290)
     }
 

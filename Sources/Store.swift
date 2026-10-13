@@ -541,7 +541,6 @@ final class Store: ObservableObject {
         } catch { self.error = "Could not load saved projects: \(error.localizedDescription). Your existing file has not been overwritten." }
         if projects.isEmpty { projects = [Project()] }
         selected = projects.first?.id
-        desktop.detectionHotkey.action = { [weak self] in self?.toggleDetection() }
         Desktop.styleRows.onReset = { [weak self] why, frame, before in
             guard let self else { return }
             self.log("Style rows: \(why)")

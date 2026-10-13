@@ -298,8 +298,9 @@ extension Desktop {
     /// visible of each. They are clickable, so a click on one is understood; the count and the clicks
     /// the routine makes itself still use full rows only. A tile shows as its lighter fill continuing
     /// past the full row's gap, followed in thin strips near its left and right edges, clear of the
-    /// glyph; at least 15% of the tile must show.
-    nonisolated static func partialStyleRows(in image: CGImage, cells: [[CGRect]]) -> (above: [CGRect], below: [CGRect]) {
+    /// glyph; at least `minimum` of the tile must show: 15% for a row you could click, less when only asking
+    /// whether any of a row shows at all (see listAtTop).
+    nonisolated static func partialStyleRows(in image: CGImage, cells: [[CGRect]], minimum: CGFloat = 0.15) -> (above: [CGRect], below: [CGRect]) {
         guard let first = cells.first, let last = cells.last, let sample = first.first else { return ([], []) }
         let width = CGFloat(image.width), height = CGFloat(image.height)
         let tile = sample.height * height
@@ -331,7 +332,7 @@ extension Desktop {
                 while index < path.count, path[index] >= fill - 8, path[index] <= fill + 40 { index += 1 }
                 reaches.append((CGFloat(runStart), CGFloat(index - runStart)))
             }
-            guard let shortest = reaches.min(by: { $0.length < $1.length }), shortest.length >= tile * 0.15 else { return nil }
+            guard let shortest = reaches.min(by: { $0.length < $1.length }), shortest.length >= tile * minimum else { return nil }
             let edge = upward ? cell.minY * height : cell.maxY * height
             let near = upward ? edge - shortest.start : edge + shortest.start
             let top = upward ? near - shortest.length : near

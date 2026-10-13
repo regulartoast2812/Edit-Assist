@@ -73,7 +73,6 @@ struct Observation {
 final class Desktop {
     static let eventTag: Int64 = 0x45444954415353
     private var monitors: [Any] = []
-    let detectionHotkey = DetectionHotkey()
     private var lastActivePID: pid_t = 0
     /// Our own click-through run overlay, which must not count as a window covering the target.
     var overlayWindowID: CGWindowID = 0
@@ -90,8 +89,6 @@ final class Desktop {
     init() {
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel, .mouseMoved], handler: { [weak self] event in
             guard let self, event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Self.eventTag else { return }
-            if self.detectionHotkey.available, event.type == .keyDown, event.keyCode == 109,
-               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty { return }
             if let window = self.recordingFor, event.type == .leftMouseDown {
                 self.recordingFor = nil
                 let screen = NSEvent.mouseLocation
@@ -109,12 +106,6 @@ final class Desktop {
             self.onInterrupt?()
         }) { monitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            // Some event sources deliver directly to the app instead of through Carbon's hotkey
-            // dispatcher. Consume that local path as well; registered global events never reach it.
-            if event.keyCode == 109, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
-                if !event.isARepeat { self?.detectionHotkey.action?() }
-                return nil
-            }
             if event.keyCode == 53, self?.armed == true {
                 self?.armed = false; self?.onStop?(); return nil
             }
@@ -1540,13 +1531,17 @@ final class Desktop {
     }
 
     /// Whether the style list is at its top, measured on this frame alone at any panel size: the scrollbar
-    /// thumb's top is level with the first full row's top (within 12% of a tile) and no partly hidden row
-    /// shows above it. Without a scrollbar there is no measurement and the answer is no.
+    /// thumb's top is level with the first full row's top (within 12% of a tile) and no part of a row shows
+    /// above it. A sliver counts here from 10% of a tile, not the 15% a clickable partial row needs: a list
+    /// scrolled by most of a row leaves only the bottoms of the tiles above (13.5%, fixture 41), and on a short
+    /// list the thumb barely moves, so it lined up by chance and R2 became R1 (2026-10-13 13:59). At the true
+    /// top the Open Projects box's edge reads as 6.5% (fixture 27), so the line sits between the two.
+    /// Without a scrollbar there is no measurement and the answer is no.
     static func listAtTop(in image: CGImage, cells: [[CGRect]], thumb: Double? = nil) -> Bool {
         guard let first = cells.first?.first, let thumb = thumb ?? scrollThumb(in: image, cells: cells) else { return false }
         let height = Double(image.height)
         return abs(thumb - Double(first.minY) * height) <= Double(first.height) * height * 0.12
-            && partialStyleRows(in: image, cells: cells).above.isEmpty
+            && partialStyleRows(in: image, cells: cells, minimum: 0.10).above.isEmpty
     }
 
     /// The tile's appearance, inset so the rounded edge and hover tint matter less than the glyph.
@@ -2052,39 +2047,3 @@ final class Desktop {
     }
 }
 
-/// A registered shortcut consumes F10 before the editor can use it, including while Edit Assist
-/// is in the background. Release tracking prevents a held key from repeatedly toggling detection.
-@MainActor
-final class DetectionHotkey {
-    var action: (() -> Void)?
-    private var hotkey: EventHotKeyRef?
-    private var handler: EventHandlerRef?
-    private var held = false
-    private(set) var available = false
-
-    init() {
-        var types = [EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-                     EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))]
-        let installed = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
-            guard let event, let context else { return OSStatus(eventNotHandledErr) }
-            var identifier = EventHotKeyID()
-            let read = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
-                                         MemoryLayout<EventHotKeyID>.size, nil, &identifier)
-            guard read == noErr, identifier.signature == 0x45414454, identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
-            MainActor.assumeIsolated {
-                let owner = Unmanaged<DetectionHotkey>.fromOpaque(context).takeUnretainedValue()
-                if GetEventKind(event) == UInt32(kEventHotKeyReleased) { owner.held = false }
-                else if !owner.held { owner.held = true; owner.action?() }
-            }
-            return noErr
-        }, types.count, &types, Unmanaged.passUnretained(self).toOpaque(), &handler)
-        guard installed == noErr else { return }
-        let registered = RegisterEventHotKey(UInt32(kVK_F10), 0, EventHotKeyID(signature: 0x45414454, id: 1), GetApplicationEventTarget(), 0, &hotkey)
-        available = registered == noErr
-    }
-
-    deinit {
-        if let hotkey { UnregisterEventHotKey(hotkey) }
-        if let handler { RemoveEventHandler(handler) }
-    }
-}

@@ -201,7 +201,7 @@ The **Detection** bar is always visible above the bottom run controls, on every 
 
 ### Detection master switch
 
-Click **Detection: On/Off · F10** or press **F10** from any app while Edit Assist is running. This master switch stops passive captures and hides all inspection boxes and labels, including during routines. It retains Always on, During runs, Boxes, Text, and Details preferences. Turning it back on restores the configured mode; it does not start an editing routine. The shortcut is registered globally and consumed rather than forwarded to Premiere. Holding it toggles only once until released. If F10 is already reserved, the Detection bar reports that and the button still works. On keyboards using media keys by default, use Fn/Globe–F10.
+Click **Detection: On/Off** in the header. This master switch stops passive captures and hides all inspection boxes and labels, including during routines. It retains Always on, During runs, Boxes, Text, and Details preferences. Turning it back on restores the configured mode; it does not start an editing routine.
 
 ### Workspace layout
 
@@ -209,4 +209,4 @@ Edit Assist is a set of **functions**, each a job it can do in your editor; **Hi
 
 Only one function runs at a time, so one **run bar**, just under the header, serves them all: the running function and its live status, a progress bar (counted in words, so a phrase split across clips moves it), the phrase count and, once something is done, the time left at this run's pace, then Pause/Continue, Stop and Run for the function on screen. Run is unavailable while any function is busy. To add a function: a case in `EditFunction` (Models.swift), a page in `ContentView.page(for:)`, a branch in `Store.start(_:)` and in `Store.progress(of:)`.
 
-The header shows the connected editor and a compact Detection/F10 master control; its adjacent chevron opens observation and display settings. Pause keeps the same in-memory task and style lock, waiting at capture/input boundaries; a short in-flight gesture may complete first. Continue restores editor focus and continues that task without clearing progress. Keep the editor selection in place during a pause. Escape or Stop cancels the pass; manual input requests a pause. A validation error during a gesture can still stop the pass.
+The header shows the connected editor and a compact Detection master control; its adjacent chevron opens observation and display settings. Pause keeps the same in-memory task and style lock, waiting at capture/input boundaries; a short in-flight gesture may complete first. Continue restores editor focus and continues that task without clearing progress. Keep the editor selection in place during a pause. Escape or Stop cancels the pass; manual input requests a pause. A validation error during a gesture can still stop the pass.
