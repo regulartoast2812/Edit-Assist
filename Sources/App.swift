@@ -10,6 +10,7 @@ struct EditAssistApp: App {
             ContentView().environmentObject(store)
                 .frame(minWidth: 1120, minHeight: 760)
                 .preferredColorScheme(.dark)
+                .onAppear { ClickOutsideEndsEditing.install() }
         }
         .defaultSize(width: 1360, height: 880)
         .commands {
@@ -19,6 +20,25 @@ struct EditAssistApp: App {
                 Button("Connection settings") { store.openConnection() }.keyboardShortcut(",")
                 Button("Permissions…") { store.openPermissions() }.keyboardShortcut("p", modifiers: [.command, .shift])
             }
+        }
+    }
+}
+
+/// A click anywhere outside the text field being edited ends the edit and keeps what was typed. macOS
+/// leaves a field in edit mode when you click empty space, which left the font size step box stuck with
+/// its cursor; Return ends it too. Only one-line fields: the script and message editors keep their focus.
+@MainActor
+enum ClickOutsideEndsEditing {
+    private static var monitor: Any?
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if let window = event.window, let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+               let field = editor.delegate as? NSView {
+                let point = field.convert(event.locationInWindow, from: nil)
+                if !field.bounds.contains(point) { window.makeFirstResponder(nil) }
+            }
+            return event
         }
     }
 }
@@ -632,6 +652,7 @@ struct ContentView: View {
                             let step = Binding(get: { s.project.fontSizeStep }, set: { s.update(\.fontSizeStep, min(200, max(-100, $0))) })
                             HStack(spacing: 4) {
                                 TextField("0", value: step, format: .number)
+                                    .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
                                     .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
                                     .font(.system(size: 12, design: .monospaced)).frame(width: 56)
                                     .help("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller.")
