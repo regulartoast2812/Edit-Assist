@@ -1266,6 +1266,16 @@ final class Store: ObservableObject {
                             selected = (try await selectedNow())
                             log("OCR: clicked the caption in the Program Monitor — \(selected ? "selected" : "not selected")")
 
+                            // Premiere can take a moment to show the graphic in Properties (the first read came 0.3 s after
+                            // the click and still showed the old panel); look again for up to two seconds before deciding.
+                            if graphics, !selected {
+                                let began = Date()
+                                while !selected, Date().timeIntervalSince(began) < 2 {
+                                    try await Task.sleep(for: .milliseconds(250))
+                                    selected = try await selectedNow()
+                                }
+                                if selected { log(String(format: "OCR: the graphic showed as selected after %.1f s", Date().timeIntervalSince(began))) }
+                            }
                             // The fallbacks select the caption clip under the playhead: captions only.
                             if graphics, !selected {
                                 try await stop(OCRStep.clickClip, "Clicking the words did not select a graphic. If the caption track shows the same words on top, hide it (its eye in the timeline) so clicks land on the graphics, then run again.")
