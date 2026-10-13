@@ -482,7 +482,7 @@ struct Checks {
 
         // Live scrolling: frames a few pixels apart, rows that look nearly alike, and some frames where
         // the grid cannot be made out. The count must hold all the way down and back.
-        func smoothView(scroll: Int, thumb: Bool = false) -> (cells: [[CGRect]], image: CGImage) {
+        func smoothView(scroll: Int, thumb: Bool = false, thumbAt: Int? = nil) -> (cells: [[CGRect]], image: CGImage) {
             let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 900, pixelsHigh: 500, bitsPerSample: 8,
                                        samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -508,7 +508,7 @@ struct Checks {
             if thumb {
                 // a scrollbar thumb right of the tiles, moving a third as far as the list
                 pen.setFillColor(CGColor(gray: 0.5, alpha: 1))
-                pen.fill(CGRect(x: 872, y: 500 - (20 + scroll / 3) - 120, width: 6, height: 120))
+                pen.fill(CGRect(x: 872, y: 500 - (20 + (thumbAt ?? scroll / 3)) - 120, width: 6, height: 120))
             }
             NSGraphicsContext.restoreGraphicsState()
             return (cells, rep.cgImage!)
@@ -568,6 +568,19 @@ struct Checks {
         _ = browsing.observe(smoothView(scroll: 0, thumb: true).cells, image: smoothView(scroll: 0, thumb: true).image, atTop: false)
         check(browsing.observe(smoothView(scroll: 0, thumb: true).cells, image: smoothView(scroll: 0, thumb: true).image, atTop: false) == 0,
               "Scrolled back to the top, the scrollbar thumb at its top position restores the count")
+        // A count being followed is never replaced by a frame that merely reads as the top. A short list's
+        // thumb barely moves (here 1 px per 40 of scroll), so scrolled by whole rows to R3 the thumb is still level
+        // with the first full row and no row shows above: the old rule took that for the top and restarted at R1
+        // (2026-10-13, four times). The count stays R3.
+        let followed = Desktop.StyleRowTracker()
+        for scroll in stride(from: 0, through: 440, by: 20) {
+            let view = smoothView(scroll: scroll, thumb: true, thumbAt: scroll / 40)
+            _ = followed.observe(view.cells, image: view.image, atTop: scroll == 0)
+        }
+        let followedBefore = followed.offset
+        let falseTop = smoothView(scroll: 440, thumb: true, thumbAt: 11)
+        for _ in 0 ..< 8 { _ = followed.observe(falseTop.cells, image: falseTop.image) }
+        check(followedBefore == 2 && followed.offset == 2, "A followed count is not replaced by a frame that reads as the top (R\((followedBefore ?? -1) + 1) stays, now R\((followed.offset ?? -1) + 1))")
         let reopened = Desktop.StyleRowTracker()
         _ = reopened.observe(smoothView(scroll: 0).cells, image: smoothView(scroll: 0).image, atTop: true)
         _ = reopened.observe([], image: blank)

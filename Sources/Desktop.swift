@@ -1338,8 +1338,13 @@ final class Desktop {
             // A count being followed is only overruled by a top that holds: one odd frame's reading must
             // not undo frame-by-frame tracking that is working.
             topFrames = measuredTop ? topFrames + 1 : 0
+            // The scrollbar's top only restarts a count that is lost (nil). A count being followed frame by frame
+            // is never replaced by it: on 2026-10-13 it replaced correct counts four times (R4 at 11:02, R2 at
+            // 13:59, R2 and R4 at 16:12, the last while the routine was scrolling down), each a frame of a list
+            // scrolled by part of a row that read as the top, and each sent a style click to the wrong row.
+            // A followed count restarts only when the routine scrolls to the top or the browser reopens.
             let reason = forceTop ? "the list was scrolled to its top" : fresh && atTop != false ? "the browser has just opened"
-                : measuredTop && (scroll == nil ? topFrames >= 2 : offset != 0 && topFrames >= 4) ? "the scrollbar shows the top of the list" : nil
+                : measuredTop && offset == nil && topFrames >= 2 ? "the scrollbar shows the top of the list" : nil
             if let reason {
                 // Only resets known to be right may teach the scrollbar where the top is: a wrong one would
                 // otherwise teach a wrong top and make the next wrong reset likelier.
