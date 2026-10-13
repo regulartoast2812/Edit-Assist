@@ -232,6 +232,20 @@ final class Store: ObservableObject {
     }
     func toggleDetection() { detectionEnabled.toggle() }
 
+    /// The header's three-way switch over the settings below: Off, During runs (boxes only while a function
+    /// runs, nothing read in between), Always (the live overlay as well).
+    enum DetectionLevel: String, CaseIterable { case off = "Off", runs = "During runs", always = "Always" }
+    var detectionLevel: DetectionLevel {
+        get { !detectionEnabled ? .off : detectionMode ? .always : .runs }
+        set {
+            switch newValue {
+            case .off: detectionEnabled = false
+            case .runs: detectionEnabled = true; showOCRBoxes = true; if detectionMode { detectionMode = false }
+            case .always: detectionEnabled = true; showOCRBoxes = true; if !detectionMode { detectionMode = true }
+            }
+        }
+    }
+
     @Published var detectionMode = UserDefaults.standard.bool(forKey: "detectionMode") {
         didSet { UserDefaults.standard.set(detectionMode, forKey: "detectionMode"); restartDetectionMode() }
     }

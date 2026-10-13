@@ -197,14 +197,17 @@ struct ContentView: View {
                     .padding(.trailing, 12)
             }
             VStack(alignment: .trailing, spacing: 5) {
-                HStack(spacing: 0) {
-                    Button { s.toggleDetection() } label: {
-                        Label("Detection \(s.detectionEnabled ? "on" : "off")", systemImage: s.detectionEnabled ? "eye" : "eye.slash")
-                    }.tint(s.detectionEnabled ? accent : .secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: s.detectionLevel == .off ? "eye.slash" : "eye").foregroundStyle(s.detectionLevel == .off ? Color.secondary : accent)
+                    // Off · During runs (only while a function runs) · Always (the live overlay too).
+                    Picker("Detection", selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
+                        ForEach(Store.DetectionLevel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                        .help("Off: no boxes. During runs: boxes only while a function runs. Always: the live overlay as well.")
                     Button { detectionSettingsOpen.toggle() } label: { Image(systemName: "chevron.down") }
                         .help("Detection settings").popover(isPresented: $detectionSettingsOpen) { detectionControls }
                 }.controlSize(.small)
-                Text(!s.detectionEnabled ? "Detection off" : s.detectionMode ? s.detectionStatus : "During runs")
+                Text(!s.detectionEnabled ? "Detection off" : s.detectionMode ? s.detectionStatus : s.running ? "Showing this run's detection" : "Shows while a function runs")
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
         }.padding(.horizontal, 26).padding(.vertical, 22)
