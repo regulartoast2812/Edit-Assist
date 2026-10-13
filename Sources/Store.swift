@@ -326,7 +326,9 @@ final class Store: ObservableObject {
                             return (text, panelChanged ? Desktop.textSection(in: text, image: image) : earlier.section, false)
                         }.value
                         if result.whole { self.lastWholeRead = Date() }
-                        let picture = await Task.detached(priority: .userInitiated) { Desktop.programPicture(in: result.text, image: image) }.value
+                        let (picture, panels) = await Task.detached(priority: .userInitiated) {
+                            (Desktop.programPicture(in: result.text, image: image), Desktop.panels(in: result.text, image: image))
+                        }.value
                         // Evidence for a failure that would otherwise only show as "the boxes went away": the browser
                         // is on screen but no grid is found even in a whole reading. Saved at most every 30 s.
                         if result.whole, let left = Desktop.stylePanelLeft(in: result.text),
@@ -339,6 +341,7 @@ final class Store: ObservableObject {
                               let latest = self.lastLook, latest.window.id == look.window.id else { continue }
                         var read = look; read.text = result.text; read.section = result.section; read.textTimestamp = Date()
                         read.picture = picture
+                        read.panels = panels
                         self.reading = read
                         var shown = latest.reusing(read); shown.people = self.people
                         self.lastLook = shown

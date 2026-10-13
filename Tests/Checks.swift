@@ -958,6 +958,29 @@ struct Checks {
         try await Task.sleep(for: .milliseconds(150)); pending.cancel()
         do { _ = try await pending.value; fatalError("Cancellation did not stop process") } catch is CancellationError { count += 1; print("PASS: CLI cancellation stops process") }
         check(CLIProcess.loginRequired("Opening authentication page in your browser. Do you want to continue? [Y/n]: "), "Detect interactive CLI login instead of hanging")
+        // Panels as rectangles: a 1200x800 window, grey panels (30) split by black lines (0) four pixels
+        // thick: a title bar, a left panel full height, two stacked on the right. The left panel holds a big
+        // black "video" with a thin gap through it, and black beside a line that continues the right-hand
+        // divider; neither may cut it in two.
+        do {
+            let layout = CGContext(data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            func fill(_ gray: CGFloat, _ x: CGFloat, _ yTop: CGFloat, _ w: CGFloat, _ h: CGFloat) {
+                layout.setFillColor(CGColor(gray: gray, alpha: 1)); layout.fill(CGRect(x: x, y: 800 - yTop - h, width: w, height: h))
+            }
+            fill(30 / 255, 0, 0, 1200, 800)
+            fill(0, 0, 40, 1200, 4)          // under the title bar
+            fill(0, 400, 44, 4, 756)         // left | right
+            fill(0, 404, 420, 796, 4)        // right: top / bottom
+            fill(0, 20, 120, 360, 560)       // black video in the left panel...
+            fill(30 / 255, 20, 400, 360, 3)  // ...with a thin grey stripe through it, and black meeting y 420 there
+            let rects = Desktop.panelRects(in: layout.makeImage()!)
+            func has(_ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat) -> Bool {
+                rects.contains { abs($0.minX - x0) < 0.01 && abs($0.minY - y0) < 0.01 && abs($0.maxX - x1) < 0.01 && abs($0.maxY - y1) < 0.01 }
+            }
+            check(rects.count == 4 && has(0, 0, 1, 0.05) && has(0, 0.055, 0.333, 1) && has(0.337, 0.055, 1, 0.525) && has(0.337, 0.53, 1, 1),
+                  "Panels: cut along thin black lines with grey on both sides, not through black video (\(rects.map { String(format: "%.3f,%.3f-%.3f,%.3f", $0.minX, $0.minY, $0.maxX, $0.maxY) }))")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

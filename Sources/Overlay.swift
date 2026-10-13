@@ -71,7 +71,7 @@ final class RunOverlay {
     }
 
     func inspect(_ shot: Observation) {
-        inspection.boxes = Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people, picture: shot.picture)
+        inspection.boxes = Self.panelBoxes(shot.panels) + Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people, picture: shot.picture)
         // The legend shows when the text was read; the grid boxes are redrawn from every look's pixels.
         inspection.stamp = shot.textTimestamp.formatted(date: .omitted, time: .standard)
         if inspectionPanel == nil {
@@ -170,6 +170,18 @@ final class RunOverlay {
                                  kind: candidate ? .candidate : .excluded,
                                  text: hit.text,
                                  detail: String(format: "%@ · x %.3f y %.3f w %.3f h %.3f", candidate ? "Caption candidate" : "Excluded by size filter", hit.rect.minX, hit.rect.minY, hit.rect.width, hit.rect.height))
+        }
+    }
+
+    /// Premiere's panels: each rectangle, named by the tab in front.
+    static func panelBoxes(_ panels: [Desktop.Panel]?) -> [InspectionBox] {
+        (panels ?? []).compactMap { panel in
+            guard !panel.tabs.isEmpty else { return nil }
+            let name = panel.name.map { "\($0) panel" } ?? "Panel"
+            let others = panel.tabs.filter { $0 != panel.front }.map(\.panel)
+            return InspectionBox(rect: panel.rect.insetBy(dx: 0.002, dy: 0.002), label: name, kind: .panel, text: name,
+                                 detail: "\(name)" + (panel.front == nil ? " (tab in front not read)" : "") + (others.isEmpty ? "" : " · other tabs: \(others.joined(separator: ", "))")
+                                    + String(format: " · x %.3f-%.3f y %.3f-%.3f", panel.rect.minX, panel.rect.maxX, panel.rect.minY, panel.rect.maxY))
         }
     }
 
@@ -286,7 +298,7 @@ private struct OverlayView: View {
 }
 
 struct InspectionBox: Identifiable {
-    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab, face, body, picture }
+    enum Kind: Equatable { case candidate, excluded, selected, style, styleRow(Int), control(on: Bool?), panelTab, panel, face, body, picture }
     let id = UUID()
     let rect: CGRect
     let label: String
@@ -314,6 +326,7 @@ struct InspectionBox: Identifiable {
         case .style: return .cyan
         case let .control(on): return on == true ? .green : .teal
         case .panelTab: return .blue
+        case .panel: return Color(red: 0.45, green: 0.75, blue: 1)
         case .face: return Color(red: 1, green: 0.35, blue: 0.75)
         case .body: return Color(red: 0.55, green: 0.95, blue: 0.3)
         case .picture: return .blue
@@ -365,7 +378,12 @@ private struct InspectionView: View {
                     }
                 }
                 if model.showBoxes {
-                    context.stroke(Path(rect), with: .color(box.color.opacity(0.9)), lineWidth: { if case .excluded = box.kind { return 1 } else { return 2 } }())
+                    if box.kind == .panel {
+                        // A panel: its whole rectangle, rounded like Premiere's panels.
+                        context.stroke(Path(roundedRect: rect, cornerRadius: 6), with: .color(box.color.opacity(0.85)), lineWidth: 2.5)
+                    } else {
+                        context.stroke(Path(rect), with: .color(box.color.opacity(0.9)), lineWidth: { if case .excluded = box.kind { return 1 } else { return 2 } }())
+                    }
                 }
                 let label = box.displayedLabel(text: model.showText, details: model.showDetails)
                 guard !label.isEmpty else { continue }
@@ -379,7 +397,7 @@ private struct InspectionView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · Pink: faces · Lime: people, their joints and outline · other colours: style browser rows")
+            if model.showDetails { Text("OCR snapshot \(model.stamp) · Yellow: caption candidate · Gray: filtered out · Green: phrase match · Cyan: your style · Teal: panel controls (green when on) · Blue: panel tabs · Light blue: panels · Pink: faces · Lime: people, their joints and outline · other colours: style browser rows")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white).padding(7).background(.black.opacity(0.85)).padding(8) }
         }

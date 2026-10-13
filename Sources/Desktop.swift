@@ -50,6 +50,8 @@ struct Observation {
     var people: Desktop.People?
     /// The Program Monitor's picture, found with the text; faces and bodies are read inside it.
     var picture: CGRect?
+    /// Premiere's panels as rectangles with their tabs, found with the text.
+    var panels: [Desktop.Panel]?
     /// Encoded only when asked for: the model path and debug dumps need it, OCR mode does not, and
     /// encoding a 2400-pixel window with its coordinate grid took 67 ms on every capture.
     @MainActor var png: Data { Desktop.gridded(image) ?? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) ?? Data() }
@@ -62,6 +64,7 @@ struct Observation {
         copy.section = earlier.section
         copy.people = earlier.people
         copy.picture = earlier.picture
+        copy.panels = earlier.panels
         return copy
     }
 }

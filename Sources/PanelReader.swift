@@ -412,6 +412,115 @@ extension Desktop {
         }.map { PanelTab(panel: $0.name, label: $0.hit.text, rect: $0.hit.rect) }
     }
 
+    // MARK: Panels as rectangles
+
+    /// One of Premiere's panels: its rectangle (inside the black lines around it), the tabs in its tab row,
+    /// and the tab in front (underlined), whose content the panel is showing.
+    struct Panel: Equatable {
+        var rect: CGRect
+        var tabs: [PanelTab]
+        var front: PanelTab?
+        /// The panel by the tab in front, or its only tab.
+        var name: String? { front?.panel ?? (tabs.count == 1 ? tabs.first?.panel : nil) }
+    }
+
+    /// Every panel on screen, found as the big rectangles the window is divided into. Premiere lays panels
+    /// out in rows and columns separated by black lines (brightness near 0, against a panel background
+    /// near 30), so cutting the window along every line that runs the whole width or height of a region,
+    /// and again inside each piece, leaves exactly the panels. Then each panel's tab row is read.
+    nonisolated static func panels(in hits: [TextHit], image: CGImage) -> [Panel] {
+        let tabs = panelTabs(in: hits)
+        return panelRects(in: image).map { rect in
+            // Its tabs: tab names in the top strip of the rectangle.
+            let own = tabs.filter { rect.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) && $0.rect.minY - rect.minY < 0.08 }
+                .sorted { $0.rect.minX < $1.rect.minX }
+            // Where no line divides it from the app's title bar above, the panel starts at its tab row.
+            var bounds = rect
+            if let row = own.map(\.rect.minY).min(), row - rect.minY > 0.02 {
+                bounds = CGRect(x: rect.minX, y: row - 0.008, width: rect.width, height: rect.maxY - (row - 0.008))
+            }
+            return Panel(rect: bounds, tabs: own, front: own.first { tabIsFront($0.rect, image: image) })
+        }
+    }
+
+    /// The rectangles between the black lines, as fractions of the window.
+    nonisolated static func panelRects(in image: CGImage) -> [CGRect] {
+        // Half size keeps a line of 3-4 pixels at 1-2, still black.
+        let w = max(16, image.width / 2), h = max(16, image.height / 2)
+        let rgba = patch(of: image, rect: CGRect(x: 0, y: 0, width: image.width, height: image.height), width: w, height: h)
+        var black = [Bool](repeating: false, count: w * h)
+        for i in 0 ..< w * h { black[i] = (Int(rgba[i * 4]) * 30 + Int(rgba[i * 4 + 1]) * 59 + Int(rgba[i * 4 + 2]) * 11) / 100 <= 18 }
+        // How much of a row or column of the region is black, in percent. A line is black across 90% of it: a
+        // focus outline or a sash handle can cross it, and the app's title bar runs over the top of the columns
+        // between the top panels without a line under it.
+        func rowShare(_ y: Int, _ x0: Int, _ x1: Int) -> Int { (x0 ..< x1).filter { black[y * w + $0] }.count * 100 / max(1, x1 - x0) }
+        func columnShare(_ x: Int, _ y0: Int, _ y1: Int) -> Int { (y0 ..< y1).filter { black[$0 * w + x] }.count * 100 / max(1, y1 - y0) }
+        func blackRow(_ y: Int, _ x0: Int, _ x1: Int) -> Bool { rowShare(y, x0, x1) >= 90 }
+        func blackColumn(_ x: Int, _ y0: Int, _ y1: Int) -> Bool { columnShare(x, y0, y1) >= 90 }
+        let minW = max(12, w / 40), minH = max(12, h / 40)
+        var found: [CGRect] = []
+        func cut(_ x0: Int, _ y0: Int, _ x1: Int, _ y1: Int, depth: Int) {
+            var x0 = x0, y0 = y0, x1 = x1, y1 = y1
+            // Trim the lines along its own edges.
+            while y0 < y1, blackRow(y0, x0, x1) { y0 += 1 }
+            while y1 > y0, blackRow(y1 - 1, x0, x1) { y1 -= 1 }
+            while x0 < x1, blackColumn(x0, y0, y1) { x0 += 1 }
+            while x1 > x0, blackColumn(x1 - 1, y0, y1) { x1 -= 1 }
+            guard x1 - x0 >= minW, y1 - y0 >= minH else { return }
+            // A divider is a thin black line between two grey panels: at most a few pixels thick, with grey on
+            // both sides of it along nearly its whole length. A thick black band is content (black video, a layer
+            // list box); so is a thin one with black beside it (a ruler's gaps next to black video, or a divider
+            // that lines up with the edge of black video further along, which is only a divider where grey
+            // lies on both sides).
+            let thickest = 4
+            func pieces(_ share: (Int) -> Int, _ across: (Int, Int, Int) -> Bool, _ from: Int, _ to: Int, _ length: Int) -> [(Int, Int)] {
+                var result: [(Int, Int)] = [], start = from
+                var index = from
+                while index < to {
+                    guard share(index) >= 90 else { index += 1; continue }
+                    let runStart = index
+                    while index < to, share(index) >= 90 { index += 1 }
+                    guard index - runStart <= thickest, runStart - 2 >= from, index + 1 < to else { continue }
+                    // Along the line: black through the band, grey just before and just after it.
+                    let along = (0 ..< length).filter { across($0, runStart, index) }.count
+                    guard along * 100 >= length * 85 else { continue }
+                    if runStart > start { result.append((start, runStart)) }
+                    start = index
+                }
+                if to > start { result.append((start, to)) }
+                return result
+            }
+            func isBlack(_ x: Int, _ y: Int) -> Bool { black[y * w + x] }
+            if depth < 12 {
+                let rows = pieces({ rowShare($0, x0, x1) }, { i, a, b in
+                    let x = x0 + i
+                    return (a ..< b).allSatisfy { isBlack(x, $0) } && !isBlack(x, a - 2) && !isBlack(x, b + 1)
+                }, y0, y1, x1 - x0)
+                if rows.count > 1 { for (a, b) in rows { cut(x0, a, x1, b, depth: depth + 1) }; return }
+                let columns = pieces({ columnShare($0, y0, y1) }, { i, a, b in
+                    let y = y0 + i
+                    return (a ..< b).allSatisfy { isBlack($0, y) } && !isBlack(a - 2, y) && !isBlack(b + 1, y)
+                }, x0, x1, y1 - y0)
+                if columns.count > 1 { for (a, b) in columns { cut(a, y0, b, y1, depth: depth + 1) }; return }
+            }
+            found.append(CGRect(x: CGFloat(x0) / CGFloat(w), y: CGFloat(y0) / CGFloat(h),
+                                width: CGFloat(x1 - x0) / CGFloat(w), height: CGFloat(y1 - y0) / CGFloat(h)))
+        }
+        cut(0, 0, w, h, depth: 0)
+        return found
+    }
+
+    /// The tab in front of its panel is underlined: a bright line under its name.
+    nonisolated static func tabIsFront(_ tab: CGRect, image: CGImage) -> Bool {
+        let H = CGFloat(image.height), W = CGFloat(image.width)
+        let band = CGRect(x: tab.minX * W, y: tab.maxY * H, width: tab.width * W, height: max(4, tab.height * H * 0.9))
+        let bw = max(4, Int(band.width)), bh = max(4, Int(band.height))
+        let rgba = patch(of: image, rect: band, width: bw, height: bh)
+        return (0 ..< bh).contains { y in
+            (0 ..< bw).filter { x in let i = (y * bw + x) * 4; return (Int(rgba[i]) * 30 + Int(rgba[i + 1]) * 59 + Int(rgba[i + 2]) * 11) / 100 >= 140 }.count * 100 >= bw * 60
+        }
+    }
+
     // MARK: Which state the Properties panel is in
 
     /// What the Properties panel is showing. Recognised from the panel as a whole — its text and the
@@ -460,6 +569,11 @@ extension Desktop {
     /// old bounds: from the tab's left edge to the window's right and bottom.
     nonisolated static func propertiesArea(in hits: [TextHit], image: CGImage? = nil) -> CGRect? {
         guard let tab = hits.first(where: { normalized($0.text).first == "properties" && $0.rect.minY < 0.2 }) else { return nil }
+        // The panel rectangle holding the tab: the most reliable bounds.
+        if let image, let panel = panelRects(in: image).first(where: { $0.contains(CGPoint(x: tab.rect.midX, y: tab.rect.midY)) }),
+           panel.width > 0.08, panel.maxY - tab.rect.maxY > 0.05 {
+            return CGRect(x: panel.minX, y: tab.rect.maxY, width: panel.width, height: panel.maxY - tab.rect.maxY)
+        }
         var left = max(0, tab.rect.minX - 0.01), right: CGFloat = 1, bottom: CGFloat = 1
         if let image, let edges = panelEdges(around: tab.rect, image: image) {
             left = edges.left; right = edges.right; bottom = edges.bottom
