@@ -37,6 +37,9 @@ cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 # The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.
 xcrun coremlcompiler compile Resources/Models/WholeBodyPose.mlpackage "$STAGE/Contents/Resources" >/dev/null
+# Its licence travels with it (Apache-2.0 asks for the licence and the notice of changes).
+cp Resources/Models/NOTICE.md "$STAGE/Contents/Resources/WholeBodyPose-NOTICE.md"
+cp Resources/Models/LICENSE-Apache-2.0.txt "$STAGE/Contents/Resources/WholeBodyPose-LICENSE.txt"
 # Ad-hoc signature: runs on any Mac without a developer account. macOS asks for Screen Recording and
 # Accessibility on first launch; each new version is a new signature, so it asks again after an update.
 codesign --force --sign - "$STAGE/Contents/MacOS/CLIWorker"

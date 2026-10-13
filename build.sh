@@ -34,6 +34,9 @@ mkdir -p "$STAGE/Contents/Resources"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 # The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.
 xcrun coremlcompiler compile Resources/Models/WholeBodyPose.mlpackage "$STAGE/Contents/Resources" >/dev/null
+# Its licence travels with it (Apache-2.0 asks for the licence and the notice of changes).
+cp Resources/Models/NOTICE.md "$STAGE/Contents/Resources/WholeBodyPose-NOTICE.md"
+cp Resources/Models/LICENSE-Apache-2.0.txt "$STAGE/Contents/Resources/WholeBodyPose-LICENSE.txt"
 
 # A fixed identity keeps the designated requirement stable, so macOS permissions survive rebuilds.
 if security find-certificate -c "$IDENTITY" "$KC" >/dev/null 2>&1 &&
