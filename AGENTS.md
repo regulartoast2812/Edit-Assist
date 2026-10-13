@@ -49,6 +49,11 @@ acting on it adds a replay case and fixtures like any other decision.
 Window menu's list in `premierePanels`, plus "Program: …", "Source: …", "Project: …" forms). A name
 counts as a tab only on a row of tabs or with the ≡ menu icon, so "Text" inside a panel is not one.
 
+**Where the Properties panel is**: `propertiesArea(in:image:)` bounds it by Premiere's black divider
+lines around its tab (left, right, below), so it holds wherever the tab sits in its group and however the
+panels are sized. Without the image it falls back to "from the tab to the window's edges", which once left
+the whole panel out when Properties was the sixth tab (fixture 40).
+
 **Know the panel, not a position.** `Desktop.propertiesState` says what the Properties panel shows
 (nothing selected, caption, graphic text, style browser, unknown) from its text and the four-square
 icon's shape right under its Track Style header. After a click that should change the panel, read

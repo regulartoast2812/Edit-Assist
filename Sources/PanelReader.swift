@@ -452,14 +452,48 @@ extension Desktop {
         }
     }
 
-    /// The Properties panel's area: below its tab, from the tab's left edge to the window's right.
-    nonisolated static func propertiesArea(in hits: [TextHit]) -> CGRect? {
+    /// The Properties panel's area: below its tab, between the panel's own edges. Premiere separates panels
+    /// with black lines (brightness near 0 against a background near 30); the nearest such line left and
+    /// right of the tab, and below it, bound the panel wherever the tab sits in its group. The tab is not
+    /// always the group's first: after Captioneer, Text and others, the area "from the tab to the window's
+    /// right" was a strip that left the whole panel out. Without the image, or with no line found, the
+    /// old bounds: from the tab's left edge to the window's right and bottom.
+    nonisolated static func propertiesArea(in hits: [TextHit], image: CGImage? = nil) -> CGRect? {
         guard let tab = hits.first(where: { normalized($0.text).first == "properties" && $0.rect.minY < 0.2 }) else { return nil }
-        return CGRect(x: max(0, tab.rect.minX - 0.01), y: tab.rect.maxY, width: 1 - max(0, tab.rect.minX - 0.01), height: 1 - tab.rect.maxY)
+        var left = max(0, tab.rect.minX - 0.01), right: CGFloat = 1, bottom: CGFloat = 1
+        if let image, let edges = panelEdges(around: tab.rect, image: image) {
+            left = edges.left; right = edges.right; bottom = edges.bottom
+        }
+        return CGRect(x: left, y: tab.rect.maxY, width: right - left, height: bottom - tab.rect.maxY)
+    }
+
+    /// The black divider lines around the panel whose tab is at `tab`: columns that are near-black for
+    /// most of a band below the tab (left and right), and the first row below that is near-black across
+    /// the panel's whole width (bottom; dark controls inside the panel stop short of its margins).
+    nonisolated static func panelEdges(around tab: CGRect, image: CGImage) -> (left: CGFloat, right: CGFloat, bottom: CGFloat)? {
+        let W = CGFloat(image.width), H = CGFloat(image.height)
+        func luma(_ rgba: [UInt8], _ i: Int) -> Int { (Int(rgba[i * 4]) * 30 + Int(rgba[i * 4 + 1]) * 59 + Int(rgba[i * 4 + 2]) * 11) / 100 }
+        // Columns, across the window, over a band from the tab down.
+        let band = CGRect(x: 0, y: tab.midY, width: 1, height: min(0.25, 1 - tab.midY))
+        let cw = max(8, Int(W / 2)), ch = 48
+        let columns = patch(of: image, rect: CGRect(x: 0, y: band.minY * H, width: W, height: band.height * H), width: cw, height: ch)
+        func darkColumn(_ x: Int) -> Bool { (0 ..< ch).filter { luma(columns, $0 * cw + x) <= 15 }.count * 100 >= ch * 85 }
+        let tabLeft = Int(tab.minX * CGFloat(cw)), tabRight = min(cw - 1, Int(tab.maxX * CGFloat(cw)))
+        guard let leftLine = stride(from: tabLeft, through: 0, by: -1).first(where: darkColumn) else { return nil }
+        let rightLine = (tabRight ..< cw).first(where: darkColumn) ?? cw
+        let left = CGFloat(leftLine + 1) / CGFloat(cw), right = CGFloat(rightLine) / CGFloat(cw)
+        guard right - left > 0.08 else { return nil }
+        // Rows, between those edges, from a little below the tab to the window's bottom.
+        let top = tab.maxY + 0.05
+        let rw = max(8, Int((right - left) * W / 2)), rh = max(8, Int((1 - top) * H / 2))
+        let rows = patch(of: image, rect: CGRect(x: left * W, y: top * H, width: (right - left) * W, height: (1 - top) * H), width: rw, height: rh)
+        let bottomRow = (0 ..< rh).first { y in (0 ..< rw).filter { luma(rows, y * rw + $0) <= 15 }.count * 100 >= rw * 97 }
+        let bottom = bottomRow.map { top + (1 - top) * CGFloat($0) / CGFloat(rh) } ?? 1
+        return (left, right, bottom)
     }
 
     nonisolated static func propertiesState(in hits: [TextHit], image: CGImage) -> PropertiesState {
-        let area = propertiesArea(in: hits)
+        let area = propertiesArea(in: hits, image: image)
         let panel = area.map { area in hits.filter { $0.rect.intersects(area) } } ?? hits
         let lines = panel.map { normalized($0.text).filter { $0 != "v" && $0 != ">" }.joined(separator: " ") }
         if lines.contains(where: { $0.contains("select a clip in the timeline") || $0.contains("select clip in the timeline") }) { return .nothingSelected }
@@ -488,8 +522,8 @@ extension Desktop {
     /// Where to scroll a graphic's Properties: in the left margin beside the lowest section heading on
     /// screen (Appearance, Shadow, Linked style…), which is certainly inside the panel, away from sliders
     /// and fields. Not the middle of the area under the tab: in most layouts the timeline is down there.
-    nonisolated static func graphicScrollPoint(in hits: [TextHit]) -> CGPoint? {
-        guard let area = propertiesArea(in: hits) else { return nil }
+    nonisolated static func graphicScrollPoint(in hits: [TextHit], image: CGImage) -> CGPoint? {
+        guard let area = propertiesArea(in: hits, image: image) else { return nil }
         let headings = ["text", "font size", "appearance", "fill", "stroke", "background", "shadow", "mask with text",
                         "align and transform", "linked style"]
         guard let lowest = hits.filter({ $0.rect.intersects(area) && headings.contains(normalized($0.text).filter { $0 != "v" && $0 != ">" }.joined(separator: " ")) })

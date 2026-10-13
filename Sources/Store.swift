@@ -1024,6 +1024,9 @@ final class Store: ObservableObject {
                     /// Where the Font Size value sat, beside its label, and the sizes typed so far this pass.
                     var fontField: (value: CGRect, label: CGRect)?
                     var sizesTyped: [Int] = []
+                    /// Highlight graphics: how far down (pixels, negative) the Properties panel was scrolled from its
+                    /// top to show Linked style, for a panel of this size. Tried first on the next phrase, then checked.
+                    var linkedStyleScroll: (pixels: Int, panel: CGSize)?
                     overlay.setReference(nil, label: "")
                     var advances = 0
                     var stalled = 0
@@ -1337,7 +1340,7 @@ final class Store: ObservableObject {
                             var lifts = 0
                             while graphics, find("font size", in: outer.text) == nil, lifts < 8,
                                   case .graphic = Desktop.propertiesState(in: outer.text, image: outer.image),
-                                  let at = Desktop.graphicScrollPoint(in: outer.text) {
+                                  let at = Desktop.graphicScrollPoint(in: outer.text, image: outer.image) {
                                 lifts += 1
                                 log("OCR: graphic text — Font Size is above the view; scrolling the Properties panel up")
                                 try await scrollBurst(at, steps: 8, pixels: 192, purpose: "Scroll the Properties panel up to Font Size", on: outer)
@@ -1424,11 +1427,27 @@ final class Store: ObservableObject {
                             // short to show Linked style down there is stepped back up until it does.
                             var lowers = 0
                             var bottom = false
-                            while graphics, button == nil, lowers < 8, case .graphic = shown, let at = Desktop.graphicScrollPoint(in: seen.text) {
+                            var scrolled = 0
+                            let panelSize = Desktop.propertiesArea(in: seen.text, image: seen.image).map { CGSize(width: $0.width, height: $0.height) }
+                            // The distance that found Linked style last time, for this panel size: one move, then a read.
+                            if graphics, button == nil, case .graphic = shown, let known = linkedStyleScroll, let panelSize,
+                               abs(known.panel.width - panelSize.width) < 0.01, abs(known.panel.height - panelSize.height) < 0.01,
+                               let at = Desktop.graphicScrollPoint(in: seen.text, image: seen.image) {
+                                log("OCR: graphic text — scrolling the distance that found Linked style last time (\(-known.pixels) px)")
+                                var left = known.pixels
+                                while left < 0 { let step = max(-192, left); try await scrollBurst(at, steps: 1, pixels: step, purpose: "Scroll the Properties panel to Linked style", on: seen); left -= step; scrolled += step }
+                                try await Task.sleep(for: .milliseconds(150))
+                                seen = try await desktop.capture(window, readText: true)
+                                shown = Desktop.propertiesState(in: seen.text, image: seen.image)
+                                button = shown.styleButton
+                                if button == nil { log("OCR: Linked style was not there after that distance; looking for it") }
+                            }
+                            while graphics, button == nil, lowers < 8, case .graphic = shown, let at = Desktop.graphicScrollPoint(in: seen.text, image: seen.image) {
                                 lowers += 1
                                 log(bottom ? "OCR: graphic text — at the bottom without Linked style in view; scrolling up a little"
                                            : "OCR: graphic text — jumping to the bottom of the Properties panel for Linked style")
                                 try await scrollBurst(at, steps: bottom ? 1 : 8, pixels: bottom ? 96 : -192, purpose: "Scroll the Properties panel to Linked style", on: seen)
+                                scrolled += bottom ? 96 : -8 * 192
                                 try await Task.sleep(for: .milliseconds(150))
                                 let before = seen.text.map(\.text)
                                 seen = try await desktop.capture(window, readText: true)
@@ -1436,6 +1455,12 @@ final class Store: ObservableObject {
                                 button = shown.styleButton
                                 // The same text after a jump down: already at the bottom.
                                 if !bottom, seen.text.map(\.text) == before || lowers >= 2 { bottom = true }
+                            }
+                            // Remember how far it took from the top (a jump past the bottom stops there; the next try is
+                            // still checked). Kept only for a panel of this size: resizing it changes the distance.
+                            if graphics, button != nil, scrolled < 0, let panelSize {
+                                linkedStyleScroll = (scrolled, panelSize)
+                                log("OCR: Linked style found \(-scrolled) px down; trying that distance first next time")
                             }
                             recordDecision(Snapshot(kind: "styleButton", note: "Properties shows \(shown.name)", hits: seen.text.map(RecordedHit.init),
                                             graphics: graphics ? true : nil, location: button.map { [Double($0.x), Double($0.y)] }), image: seen.image)
