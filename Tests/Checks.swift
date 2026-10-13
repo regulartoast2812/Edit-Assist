@@ -981,6 +981,15 @@ struct Checks {
             check(rects.count == 4 && has(0, 0, 1, 0.05) && has(0, 0.055, 0.333, 1) && has(0.337, 0.055, 1, 0.525) && has(0.337, 0.53, 1, 1),
                   "Panels: cut along thin black lines with grey on both sides, not through black video (\(rects.map { String(format: "%.3f,%.3f-%.3f,%.3f", $0.minX, $0.minY, $0.maxX, $0.maxY) }))")
         }
+        // A project saved before graphics had their own progress (no graphics keys) still loads, keeps its
+        // font size step, and starts graphics progress at nothing.
+        do {
+            let old = #"{"id":"6F1B2A1E-0000-4000-8000-000000000001","name":"Old","app":"Premiere Pro","script":"","style":"","instruction":"","routine":"","messages":[],"fontSizeStep":5,"completed":[0,1],"styledWords":{"a":1}}"#
+            let project = try JSONDecoder().decode(Project.self, from: Data(old.utf8))
+            check(project.fontSizeStep == 5 && project.completed(graphics: false) == [0, 1] && project.completed(graphics: true).isEmpty
+                  && project.styledWords(graphics: true).isEmpty, "Projects saved by older versions load, with graphics progress apart")
+            check(Project().fontSizeStep == 0, "A new project's font size step is 0 (size left as it is)")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

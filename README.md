@@ -30,13 +30,13 @@ When macOS asks, allow **Screen Recording** and **Accessibility** (System Settin
 
 | | Function | What it does |
 |---|---|---|
-| 🖍️ | **Highlight phrases** | Finds your script's **bold** phrases in the captions, applies your style and bumps the font size, clip by clip. |
-| 🔤 | **Highlight graphics** | The same for graphic text on the video tracks, using Linked style. Hide the caption track first if it shows the same words. |
+| 🖍️ | **Highlight - Subtitle Layers** | Finds your script's **bold** phrases in the captions, applies your style and bumps the font size, clip by clip. |
+| 🔤 | **Highlight - Graphic Layers** | The same for graphic text on the video tracks, using Linked style. Hide the caption track first if it shows the same words. |
 | ➕ | *More coming* | Each new function gets its own page and shares the same run bar. |
 
 ## ▶️ Using a function
 
-1. 📄 Click your project and add what it needs (for Highlight phrases: your script, **bold** = highlight).
+1. 📄 Click your project and add what it needs (for highlighting: your script, **bold** = highlight; both highlight functions share it and the style settings, and each keeps its own progress).
 2. 🧰 Pick a function in the sidebar.
 3. ⏯️ Put the Premiere playhead where it should start.
 4. ▶️ Press **Run** — the bar at the top shows progress.

@@ -23,8 +23,8 @@ enum EditFunction: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .highlight: return "Highlight phrases"
-        case .highlightGraphics: return "Highlight graphics"
+        case .highlight: return "Highlight - Subtitle Layers"
+        case .highlightGraphics: return "Highlight - Graphic Layers"
         }
     }
     var summary: String {
@@ -71,8 +71,8 @@ struct Project: Codable, Identifiable {
     var messages: [Message] = []
     /// OCR mode: where to click to apply the style, recorded once by demonstration,
     /// and how many script phrases have been handled so far.
-    /// How much the font size grows for a highlighted phrase.
-    var fontSizeStep: Int = 5
+    /// How much the font size changes for a highlighted phrase; 0 leaves it as it is, below 0 shrinks it.
+    var fontSizeStep: Int = 0
     // Optional fields let projects saved by older versions decode unchanged.
     var keepStyle: Bool? = nil
     var rememberedStyle: RememberedStyle? = nil
@@ -83,6 +83,16 @@ struct Project: Codable, Identifiable {
     /// Words of each phrase already styled. Premiere splits long phrases across caption clips, so a
     /// phrase can be finished over several clips; keyed by the phrase so edits to the script are safe.
     var styledWords: [String: Int] = [:]
+    /// The same for Highlight - Graphic Layers, which keeps its own progress (settings are shared).
+    /// Optional, so projects saved before it existed decode unchanged.
+    var graphicsCompleted: [Int]? = nil
+    var graphicsStyledWords: [String: Int]? = nil
+
+    func completed(graphics: Bool) -> [Int] { graphics ? graphicsCompleted ?? [] : completed }
+    func styledWords(graphics: Bool) -> [String: Int] { graphics ? graphicsStyledWords ?? [:] : styledWords }
+    mutating func setProgress(graphics: Bool, completed done: [Int], styledWords words: [String: Int]) {
+        if graphics { graphicsCompleted = done; graphicsStyledWords = words } else { completed = done; styledWords = words }
+    }
 }
 
 struct AgentAction: Codable, Equatable {

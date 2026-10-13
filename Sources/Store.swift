@@ -68,8 +68,9 @@ final class Store: ObservableObject {
     func progress(of job: EditFunction) -> (done: Int, total: Int, fraction: Double) {
         switch job {
         case .highlight, .highlightGraphics:
+            let styledWords = project.styledWords(graphics: job == .highlightGraphics)
             let total = targets.reduce(0) { $0 + words(of: $1).count }
-            let done = targets.reduce(0) { $0 + min(styled($1), words(of: $1).count) }
+            let done = targets.reduce(0) { $0 + min(styledWords[$1] ?? 0, words(of: $1).count) }
             return (done, total, total == 0 ? 0 : Double(done) / Double(total))
         }
     }
@@ -171,7 +172,7 @@ final class Store: ObservableObject {
         let token = generation
         desktop.armed = false
         status = "Paused · Keep the editor selection in place, then Continue"
-        overlay.update(step: project.completed.count, limit: targets.count, headline: "Paused",
+        overlay.update(step: doneCount, limit: targets.count, headline: "Paused",
                        detail: "Click ▶ here or Continue in Edit Assist to resume; Stop ends it", confidence: nil, paused: true)
         while runPaused {
             try Task.checkCancellation()
@@ -875,7 +876,10 @@ final class Store: ObservableObject {
     /// Every bold phrase in script order. OCR mode walks this list.
     var targets: [String] { parsed.flatMap { $0.highlights.map(\.text) } }
     func words(of phrase: String) -> [String] { Desktop.normalized(phrase) }
-    func styled(_ phrase: String) -> Int { project.styledWords[phrase] ?? 0 }
+    /// Progress belongs to the function: the one running, else the one on screen.
+    var progressGraphics: Bool { (activeFunction ?? function) == .highlightGraphics }
+    var doneCount: Int { project.completed(graphics: progressGraphics).count }
+    func styled(_ phrase: String) -> Int { project.styledWords(graphics: progressGraphics)[phrase] ?? 0 }
     func isDone(_ index: Int) -> Bool {
         let phrase = targets[index]
         return styled(phrase) >= words(of: phrase).count
@@ -920,14 +924,17 @@ final class Store: ObservableObject {
     /// everything to fix one of them throws away the rest of a long pass.
     func clearProgress(of phrase: String) {
         guard !running else { return }
-        projects[index].styledWords[phrase] = nil
-        if let at = targets.firstIndex(of: phrase) {
-            projects[index].completed.removeAll { $0 == at }
-        }
+        var words = project.styledWords(graphics: progressGraphics), done = project.completed(graphics: progressGraphics)
+        words[phrase] = nil
+        if let at = targets.firstIndex(of: phrase) { done.removeAll { $0 == at } }
+        projects[index].setProgress(graphics: progressGraphics, completed: done, styledWords: words)
         save()
     }
 
-    func resetProgress() { guard !running else { return }; projects[index].completed = []; projects[index].styledWords = [:]; save(); status = "OCR progress reset" }
+    func resetProgress() {
+        guard !running else { return }
+        projects[index].setProgress(graphics: progressGraphics, completed: [], styledWords: [:]); save(); status = "Progress reset"
+    }
 
     /// Select the caption clip, enter text editing and select the script phrase. Then stop.
     /// Nothing is styled and no progress is recorded, so it can be run repeatedly while tuning.
@@ -1071,7 +1078,7 @@ final class Store: ObservableObject {
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
-                        let doneSoFar = project.completed.count
+                        let doneSoFar = doneCount
                         overlay.update(step: doneSoFar + 1, limit: targets.count, headline: "Reading the screen…", detail: "", confidence: nil, paused: false)
                         let began = Date()
                         var shot = try await desktop.capture(window, readText: true)
@@ -1180,7 +1187,7 @@ final class Store: ObservableObject {
                                         let message = focused
                                             ? "Reached the end of the sequence. \(remaining.count) phrase\(remaining.count == 1 ? "" : "s") not found: \(left)\(remaining.count > 3 ? ", …" : "")."
                                             : "The playhead will not move. The timeline could not be given keyboard focus, so Down does nothing — click once in the timeline and run again."
-                                        overlay.update(step: project.completed.count, limit: targets.count, headline: remaining.isEmpty ? "Finished the sequence" : "Stopped: \(remaining.count) not found", detail: message, confidence: nil, paused: true)
+                                        overlay.update(step: doneCount, limit: targets.count, headline: remaining.isEmpty ? "Finished the sequence" : "Stopped: \(remaining.count) not found", detail: message, confidence: nil, paused: true)
                                         log("OCR: \(message)")
                                         try? await Task.sleep(for: .seconds(4))
                                         if generation == token { status = message }
@@ -1191,9 +1198,9 @@ final class Store: ObservableObject {
                                     advances += 1
                                     mustAdvance = false   // on the next clip now: the rest of a split phrase may show
                                 }
-                                overlay.update(step: project.completed.count, limit: targets.count,
+                                overlay.update(step: doneCount, limit: targets.count,
                                                headline: "Looking for the next caption…",
-                                               detail: now.map { String(format: "playhead at %.1fs, %d of %d done", $0, project.completed.count, targets.count) } ?? "",
+                                               detail: now.map { String(format: "playhead at %.1fs, %d of %d done", $0, doneCount, targets.count) } ?? "",
                                                confidence: nil, paused: false)
                                 continue
                             }
@@ -1201,7 +1208,7 @@ final class Store: ObservableObject {
                             let pending = pool.prefix(3).map { "“\(targets[$0])”" }.joined(separator: ", ")
                             let message = pool.isEmpty ? "All phrases are done."
                                 : "No script phrase is readable on screen. Move the playhead to a caption containing one of: \(pending)."
-                            overlay.update(step: project.completed.count, limit: targets.count, headline: "Paused", detail: message, confidence: nil, paused: true)
+                            overlay.update(step: doneCount, limit: targets.count, headline: "Paused", detail: message, confidence: nil, paused: true)
                             log("Paused: \(message)")
                             try? await Task.sleep(for: .seconds(4))
                             if generation == token { status = message }
@@ -1239,7 +1246,7 @@ final class Store: ObservableObject {
                                     while true {
                                         try Task.checkCancellation()
                                         let waited = Int(Date().timeIntervalSince(since))
-                                        overlay.update(step: project.completed.count, limit: targets.count,
+                                        overlay.update(step: doneCount, limit: targets.count,
                                                        headline: "Waiting for \(what)",
                                                        detail: "Move it off the editor and this carries on by itself. \(waited)s",
                                                        confidence: nil, paused: true)
@@ -1263,7 +1270,7 @@ final class Store: ObservableObject {
                             if let now = try? await desktop.capture(window, readText: true) {
                                 writeDump(now, reason: "\(step.label) — \(why)")
                             }
-                            overlay.update(step: project.completed.count, limit: targets.count, headline: "Paused", detail: why, confidence: nil, paused: true)
+                            overlay.update(step: doneCount, limit: targets.count, headline: "Paused", detail: why, confidence: nil, paused: true)
                             log("OCR fail: \(step.label) — \(why)")
                             try? await Task.sleep(for: .seconds(4))
                             if generation == token { status = why }
@@ -1363,6 +1370,8 @@ final class Store: ObservableObject {
                         var outerReading: Observation?
                         @MainActor func doSize() async throws -> Bool {
                             guard gestures.contains(OCRStep.increaseSize.rawValue) else { log("OCR skip: \(OCRStep.increaseSize.label)"); return true }
+                            // A step of 0 leaves the size as it is: nothing is read, clicked or typed.
+                            guard project.fontSizeStep != 0 else { log("OCR skip: \(OCRStep.increaseSize.label) — the font size step is 0"); return true }
                             var outer: Observation
                             if let reading = outerReading { outer = reading } else { outer = try await desktop.capture(window, readText: true); outerReading = outer }
                             func find(_ label: String, in hits: [TextHit], below: CGFloat = 0) -> TextHit? {
@@ -1421,7 +1430,7 @@ final class Store: ObservableObject {
                                                         points: section.all.map { [Double($0.point.x), Double($0.point.y)] }), image: outer.image)
                             }
                             if let field = reading {
-                                target = max(1, field.value + max(1, project.fontSizeStep)); at = field.rect; was = "\(field.value)"
+                                target = max(1, field.value + project.fontSizeStep); at = field.rect; was = "\(field.value)"
                                 fontField = (field.rect, label.rect)
                             } else if let known = fontField,
                                       let usual = Dictionary(grouping: sizesTyped, by: { $0 }).max(by: { $0.value.count < $1.value.count || ($0.value.count == $1.value.count && sizesTyped.lastIndex(of: $0.key)! < sizesTyped.lastIndex(of: $1.key)!) })?.key {
@@ -1886,7 +1895,7 @@ final class Store: ObservableObject {
                                 pendingStyleClick = nil
                                 desktop.onRecordedClick = { [weak self] point in self?.pendingStyleClick = point }
                                 desktop.recordNextClick(in: window)
-                                overlay.update(step: project.completed.count, limit: targets.count, headline: "Click your style",
+                                overlay.update(step: doneCount, limit: targets.count, headline: "Click your style",
                                                detail: "The same row and column is used for every remaining phrase", confidence: nil, paused: true)
                                 status = "Waiting for you to click a style in the browser"
                                 var lastLook = Date.distantPast
@@ -2052,15 +2061,15 @@ final class Store: ObservableObject {
                         if record {
                             let all = words(of: hit.phrase)
                             let covered = min(all.count, hit.from + hit.matched)
-                            projects[index].styledWords[hit.phrase] = covered
-                            if covered >= all.count, !projects[index].completed.contains(hit.index) {
-                                projects[index].completed.append(hit.index)
-                            }
+                            var words = project.styledWords(graphics: graphics), done = project.completed(graphics: graphics)
+                            words[hit.phrase] = covered
+                            if covered >= all.count, !done.contains(hit.index) { done.append(hit.index) }
+                            projects[index].setProgress(graphics: graphics, completed: done, styledWords: words)
                             save()
                         }
                         try await Task.sleep(for: .milliseconds(30))
                         observation = try await desktop.capture(window)
-                        status = "\(project.completed.count) of \(targets.count) phrases done"
+                        status = "\(doneCount) of \(targets.count) phrases done"
                     } while all && !remaining.isEmpty && advances < 400 && !Task.isCancelled
                     if remaining.isEmpty { status = "All \(targets.count) phrases done · review your sequence" }
                 } catch is CancellationError { log("Stopped by you") }

@@ -315,7 +315,7 @@ struct ContentView: View {
                 Text("Words count separately, so a phrase split across caption clips shows partial progress. Redo clears one phrase.")
                     .font(.system(size: 9)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Reset progress") { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords.isEmpty)
+                Button("Reset progress") { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords(graphics: s.progressGraphics).isEmpty)
             }.padding(.top, 4)
         }
     }
@@ -495,7 +495,7 @@ struct ContentView: View {
                     Image(systemName: job.icon).frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(job.title).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                        Text(s.activeFunction == job ? (s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? "No script yet" : "\(s.project.completed.count) of \(s.targets.count) done")
+                        Text(s.activeFunction == job ? (s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? "No script yet" : "\(s.project.completed(graphics: job == .highlightGraphics).count) of \(s.targets.count) done")
                             .font(.system(size: 9)).foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
                     }
                     Spacer(minLength: 0)
@@ -566,7 +566,7 @@ struct ContentView: View {
             }
             HStack(spacing: 10) {
                 ProgressView(value: progress.fraction).tint(s.runPaused ? .orange : accent)
-                Text("\(s.project.completed.count) of \(s.targets.count) phrases")
+                Text("\(s.doneCount) of \(s.targets.count) phrases")
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).fixedSize()
                 if let left = s.timeLeft(of: job) {
                     Text("· about \(left < 60 ? "\(Int(left.rounded())) s" : "\(Int((left / 60).rounded())) min") left")
@@ -593,7 +593,7 @@ struct ContentView: View {
                             }
                         }
                     } else {
-                        card("To do", trailing: "\(s.project.completed.count) of \(s.targets.count) done") { phraseList }
+                        card("To do", trailing: "\(s.doneCount) of \(s.targets.count) done") { phraseList }
                     }
                 }.padding(.bottom, 10)
             }.frame(minWidth: 380, maxWidth: .infinity)
@@ -628,8 +628,14 @@ struct ContentView: View {
                         HStack(spacing: 10) {
                             label("FONT SIZE STEP")
                             Spacer()
-                            Stepper(value: Binding(get: { s.project.fontSizeStep }, set: { s.update(\.fontSizeStep, $0) }), in: 1...40) {
-                                Text("+\(s.project.fontSizeStep)").font(.system(size: 12, design: .monospaced)).foregroundStyle(accent)
+                            // Type a number or use the arrows: 0 leaves the size as it is, below 0 makes it smaller.
+                            let step = Binding(get: { s.project.fontSizeStep }, set: { s.update(\.fontSizeStep, min(200, max(-100, $0))) })
+                            HStack(spacing: 4) {
+                                TextField("0", value: step, format: .number)
+                                    .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
+                                    .font(.system(size: 12, design: .monospaced)).frame(width: 56)
+                                    .help("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller.")
+                                Stepper("Font size step", value: step, in: -100...200).labelsHidden()
                             }.disabled(s.busy)
                         }
                         if !s.ocrOnly { legacyStyle }
