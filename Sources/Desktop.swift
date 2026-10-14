@@ -1949,14 +1949,28 @@ final class Desktop {
     /// Window-server order is front to back.
     func covering(_ p: CGPoint, of window: WindowChoice) -> String? {
         let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        for row in all {
+        return Self.blocker(at: p, of: window.id, in: all, ignoring: [overlayWindowID, inspectionWindowID].filter { $0 != 0 })
+    }
+
+    /// macOS's own overlays, not windows in the way. With the Dock always shown, the Dock draws into a window
+    /// as large as the screen; taken for a window in front, a tester's run waited "for Dock" without end.
+    static let systemOverlays: Set<String> = ["Dock", "Window Server", "Control Center", "SystemUIServer", "Notification Center",
+                                              "Spotlight", "TextInputMenuAgent", "Wallpaper", "WindowManager"]
+
+    /// What is in front of the target window at a point, from the window list front to back: nil when the
+    /// target is the first window there. Our own overlays and macOS's overlays are looked through; the
+    /// login window (a locked screen) is not.
+    nonisolated static func blocker(at p: CGPoint, of target: CGWindowID, in rows: [[String: Any]], ignoring ours: [CGWindowID]) -> String? {
+        for row in rows {
             guard let bounds = row[kCGWindowBounds as String] as? NSDictionary,
                   let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(p),
-                  (row[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  (row[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,
                   let id = row[kCGWindowNumber as String] as? NSNumber else { continue }
-            if id.uint32Value == window.id { return nil }
-            if (overlayWindowID != 0 && id.uint32Value == overlayWindowID) || (inspectionWindowID != 0 && id.uint32Value == inspectionWindowID) { continue }
-            return (row[kCGWindowOwnerName as String] as? String) ?? "Another window"
+            if id.uint32Value == target { return nil }
+            if ours.contains(id.uint32Value) { continue }
+            let owner = (row[kCGWindowOwnerName as String] as? String) ?? "Another window"
+            if systemOverlays.contains(owner) { continue }
+            return owner
         }
         return "Nothing on screen"
     }

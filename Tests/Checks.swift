@@ -1027,6 +1027,21 @@ struct Checks {
             editor.insertText(ScriptText.attributed("I can just **pull on** and look"), replacementRange: editor.selectedRange())
             check(ScriptText.marked(editor.textStorage!) == "I can just **pull on** and look", "Pasting over a highlight keeps the pasted plain text plain")
         }
+        // A click is held only for a real window in front: the Dock's screen-sized window (Dock always shown)
+        // held a tester's run "Waiting for Dock" with the Dock nowhere near the caption.
+        do {
+            func row(_ id: Int, _ owner: String, _ rect: CGRect, layer: Int = 0) -> [String: Any] {
+                [kCGWindowNumber as String: NSNumber(value: id), kCGWindowOwnerName as String: owner, kCGWindowLayer as String: layer,
+                 kCGWindowAlpha as String: 1.0, kCGWindowBounds as String: rect.dictionaryRepresentation]
+            }
+            let screen = CGRect(x: 0, y: 0, width: 1728, height: 1117), caption = CGPoint(x: 240, y: 660)
+            let dock = row(7, "Dock", screen, layer: 20), premiere = row(42, "Adobe Premiere Pro 2025", screen)
+            check(Desktop.blocker(at: caption, of: 42, in: [dock, premiere], ignoring: []) == nil, "The Dock's screen-sized window does not hold a click")
+            let player = row(9, "Opera", CGRect(x: 100, y: 600, width: 400, height: 200), layer: 3)
+            check(Desktop.blocker(at: caption, of: 42, in: [player, dock, premiere], ignoring: []) == "Opera", "A real window over the caption still holds it")
+            let locked = row(3, "loginwindow", screen, layer: 2000)
+            check(Desktop.blocker(at: caption, of: 42, in: [locked, premiere], ignoring: []) == "loginwindow", "A locked screen still holds every click")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.
