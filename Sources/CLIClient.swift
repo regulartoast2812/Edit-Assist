@@ -7,8 +7,8 @@ enum CLIProvider: String, CaseIterable, Identifiable {
     /// The Antigravity CLI installs its binary as `agy`.
     var command: String { self == .antigravity ? "agy" : rawValue.lowercased() }
     static var savedDefault: String {
-        let saved = UserDefaults.standard.string(forKey: "cliProvider") ?? "Codex"
-        if let known = CLIProvider(rawValue: saved) { return known.rawValue }
+        // Only a provider you chose is kept; "Codex" as a fallback here meant the search below never ran.
+        if let saved = UserDefaults.standard.string(forKey: "cliProvider"), let known = CLIProvider(rawValue: saved) { return known.rawValue }
         // Gemini was replaced by Antigravity, but Antigravity needs a tool call per image and runs
         // about 30s a step against Claude's 8s, so a never-configured user gets the fastest installed
         // provider instead. Antigravity stays one click away in Assistant CLI.

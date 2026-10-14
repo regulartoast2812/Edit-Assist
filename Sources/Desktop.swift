@@ -82,6 +82,8 @@ final class Desktop {
     var onStop: (() -> Void)?
     var beforeOperation: (() async throws -> Void)?
     var armed = false
+    /// A run is going (paused or not), so Escape stops it even while input is not armed.
+    var runActive = false
     /// One-shot capture of the user's next click, used to learn where the style control is.
     var onRecordedClick: ((CGPoint) -> Void)?
     private var recordingFor: WindowChoice?
@@ -98,10 +100,11 @@ final class Desktop {
                 if (0...1).contains(point.x), (0...1).contains(point.y) { self.onRecordedClick?(point) }
                 return
             }
-            guard self.armed else { return }
-            if event.type == .keyDown, event.keyCode == 53 {
+            // Escape stops a run, paused or not (the overlay says so); other input only pauses an armed one.
+            if event.type == .keyDown, event.keyCode == 53, self.armed || self.runActive {
                 self.armed = false; self.onStop?(); return
             }
+            guard self.armed else { return }
             // Pause at the next operation boundary; a short in-flight gesture finishes first.
             self.onInterrupt?()
         }) { monitors.append(monitor) }

@@ -2,8 +2,29 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// Quit always quits. With a sheet open (the permission setup, at every first launch) SwiftUI cancelled a
+/// quit ("User canceled") before any delegate was asked, so macOS's own "Quit & Reopen" after turning on
+/// Screen recording did nothing and the installer had to force-quit. The quit request itself (from macOS,
+/// the installer, or ⌘Q) now saves and exits.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Saves projects and settings; set by the app once its store exists.
+    static var save: (() -> Void)?
+    static func quitNow() {
+        save?()
+        UserDefaults.standard.synchronize()
+        exit(0)
+    }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleQuit(_:withReplyEvent:)),
+                                                     forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEQuitApplication))
+    }
+    @objc func handleQuit(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) { AppDelegate.quitNow() }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateNow }
+}
+
 @main
 struct EditAssistApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = Store()
 
     init() {
@@ -20,11 +41,15 @@ struct EditAssistApp: App {
             ContentView().environmentObject(store)
                 .frame(minWidth: 1120, minHeight: 760)
                 .preferredColorScheme(.dark)
-                .onAppear { ClickOutsideEndsEditing.install() }
+                .onAppear { ClickOutsideEndsEditing.install(); AppDelegate.save = { [weak store] in store?.save() } }
         }
         .defaultSize(width: 1360, height: 880)
         .commands {
-            CommandGroup(replacing: .newItem) { Button("New project") { store.addProject() }.keyboardShortcut("n") }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit Edit Assist") { AppDelegate.quitNow() }.keyboardShortcut("q")
+            }
+            // Not while something runs: a new project stops the run.
+            CommandGroup(replacing: .newItem) { Button("New project") { store.addProject() }.keyboardShortcut("n").disabled(store.busy) }
             CommandMenu("Assistant") {
                 Button("Stop") { store.stop() }.keyboardShortcut(".", modifiers: .command)
                 Button("Connection settings") { store.openConnection() }.keyboardShortcut(",")
@@ -213,8 +238,10 @@ struct ContentView: View {
             Spacer(minLength: 20)
             if let update = s.update {
                 // A newer build is out: one click installs it and reopens the app.
-                Button { s.installUpdate() } label: { Label("Update to \(update.label)", systemImage: "arrow.down.circle.fill") }
-                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(s.busy)
+                Button { s.installUpdate() } label: {
+                    Label(s.installingUpdate ? "Installing \(update.label)…" : "Update to \(update.label)", systemImage: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill")
+                }
+                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(s.busy || s.installingUpdate)
                     .help(s.busy ? "Finish or stop the run first" : "Download and install, then reopen Edit Assist")
                     .padding(.trailing, 12)
             }
@@ -517,8 +544,11 @@ struct ContentView: View {
     var detectionControls: some View {
         VStack(alignment: .leading, spacing: 15) {
             Text("Detection settings").font(.system(size: 16, weight: .semibold))
-            Toggle("Continuous observation", isOn: $s.detectionMode)
-            Toggle("Show during runs", isOn: $s.showOCRBoxes)
+            // When detection shows is the header switch (Off · During runs · Always): two separate toggles here
+            // could disagree with it.
+            Picker("Show", selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
+                ForEach(Store.DetectionLevel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented)
             Divider()
             label("SHOW ON SCREEN")
             Toggle("Boxes", isOn: $s.detectionBoxes)
@@ -593,7 +623,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(job.title).font(.system(size: 12, weight: .semibold))
-                        Text(!s.running ? "Ready" : s.runPaused ? "Paused" : "Running")
+                        Text(s.running ? (s.runPaused ? "Paused" : "Running") : s.busy ? "Working" : "Ready")
                             .font(.system(size: 9, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 2)
                             .background((!s.running ? Color.secondary : s.runPaused ? .orange : accent).opacity(0.18), in: Capsule())
                             .foregroundStyle(!s.running ? Color.secondary : s.runPaused ? .orange : accent)
@@ -987,7 +1017,11 @@ struct ConnectionView: View {
                 Text("If sign-in is needed, run “\(provider.loginHint)” in Terminal. Installed status does not confirm login.").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Text("The selected CLI receives the script and any captured images. Its account limits and data policies apply. Only one assistant is called per step.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
-            HStack { Spacer(); Button("Use \(s.provider)") { s.saveConnection() }.buttonStyle(.borderedProminent) }
+            HStack {
+                Button("Cancel") { s.connectionOpen = false }.keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Use \(s.provider)") { s.saveConnection() }.buttonStyle(.borderedProminent)
+            }
         }.padding(30).frame(width: 490).background(canvasBackground).tint(accent)
     }
 }

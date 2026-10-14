@@ -49,7 +49,7 @@ final class Store: ObservableObject {
     @Published var observation: Observation?
     @Published var proposal: Decision?
     @Published var busy = false { didSet { if busy != oldValue { updateLiveFeed() } } }
-    @Published var running = false { didSet { if !running { activeFunction = nil; runStarted = nil } } }
+    @Published var running = false { didSet { desktop.runActive = running; if !running { activeFunction = nil; runStarted = nil } } }
     @Published var runPaused = false {
         // The overlay's circle continues a paused run; it takes no clicks otherwise.
         didSet {
@@ -697,7 +697,7 @@ final class Store: ObservableObject {
         }
     }
     func ensureConnection() throws {
-        if ocrOnly { throw AssistError.message("OCR only is on, so Edit Assist will not call a CLI. Use Routine → OCR mode, or turn OCR only off.") }
+        if ocrOnly { throw AssistError.message("The assistant is off: Edit Assist is set to read the screen only. To use it, turn off \"Use OCR for editing routines\" in the function's settings.") }
         guard let choice = CLIProvider(rawValue: provider), choice.executable != nil else {
             connectionOpen = true
             throw AssistError.message("\(provider) CLI was not found. Install it and sign in through Terminal, then reopen Edit Assist.")
@@ -733,12 +733,21 @@ final class Store: ObservableObject {
     }
 
     /// Downloads and installs the update; the installer quits this app and opens the new one.
+    /// While an update downloads: the button shows it and cannot start a second installer.
+    @Published var installingUpdate = false
     func installUpdate() {
-        guard let update, !busy else { return }
+        guard let update, !busy, !installingUpdate else { return }
         do {
             try Updater.install(update)
+            installingUpdate = true
             updateStatus = "Installing \(update.label)… Edit Assist will reopen by itself."
             log("Update: installing \(update.label) (log: ~/Library/Logs/Edit Assist update.log)")
+            // Still here after two minutes: the installer did not get through (offline, a failed download).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
+                guard let self, self.installingUpdate else { return }
+                self.installingUpdate = false
+                self.error = "The update did not finish. Check your connection and try again; details are in ~/Library/Logs/Edit Assist update.log."
+            }
         } catch { self.error = "Could not start the update: \(error.localizedDescription)" }
     }
 
@@ -810,6 +819,8 @@ final class Store: ObservableObject {
     func send() {
         let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !busy else { return }
+        // Check first: with screen reading only, nothing is sent, so your message and screenshots stay put.
+        do { try ensureConnection() } catch { self.error = error.localizedDescription; return }
         projects[index].messages.append(Message(role: "user", text: text, images: attachments.isEmpty ? nil : attachments)); attachments = []; command = ""; save()
         busy = true; let id = selected; let token = UUID(); generation = token
         task = Task {
@@ -846,7 +857,7 @@ final class Store: ObservableObject {
             // Highlighting is Premiere's: never run in After Effects because it was the last Adobe app used.
             let window = try desktop.premiereWindow(preferring: followed)
             if window.id != followed.id { log("Run: the editor followed was \(followed.app); highlighting runs in Premiere, so using its window"); target = window }
-            if !preview && !desktop.canControl { throw AssistError.message("Enable Accessibility in Setup before running actions.") }
+            if !preview && !desktop.canControl { throw AssistError.message("Allow Mouse & keyboard first: Assistant menu → Permissions…") }
             busy = true; running = !preview; proposal = nil
             if !preview { began(.highlight) }
             let id = selected; let token = UUID(); generation = token
@@ -854,8 +865,11 @@ final class Store: ObservableObject {
                 // The overlay is torn down unconditionally: stop() replaces the generation, so a
                 // generation-guarded cleanup would never run on the interrupt path and it would linger.
                 defer {
-                    overlay.hide(); desktop.overlayWindowID = 0; desktop.inspectionWindowID = 0
-                    if generation == token { busy = false; running = false; runPaused = false; desktop.armed = false }
+                    // Only this run's overlay: Stop hides it itself, and after Stop then Run a newer run owns it.
+                    if generation == token {
+                        overlay.hide(); desktop.overlayWindowID = 0; desktop.inspectionWindowID = 0
+                        busy = false; running = false; runPaused = false; desktop.armed = false
+                    }
                 }
                 do {
                     if !preview {
@@ -1096,8 +1110,11 @@ final class Store: ObservableObject {
             let id = selected; let token = UUID(); generation = token
             task = Task {
                 defer {
-                    overlay.hide(); desktop.overlayWindowID = 0; desktop.inspectionWindowID = 0
-                    if generation == token { busy = false; running = false; runPaused = false; desktop.armed = false }
+                    // Only this run's overlay: Stop hides it itself, and after Stop then Run a newer run owns it.
+                    if generation == token {
+                        overlay.hide(); desktop.overlayWindowID = 0; desktop.inspectionWindowID = 0
+                        busy = false; running = false; runPaused = false; desktop.armed = false
+                    }
                     if recorder.isOn { lastRecording = recorder.folder; recorder.stop(); recordNextRun = false }
                 }
                 do {
