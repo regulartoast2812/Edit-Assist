@@ -225,7 +225,9 @@ final class Store: ObservableObject {
         guard !running else { return }
         if steps.contains(step.rawValue) { steps.remove(step.rawValue) } else { steps.insert(step.rawValue) }
     }
-    @Published var showOCRBoxes = UserDefaults.standard.bool(forKey: "showOCRBoxes") {
+    // New installs show detection: Always (the live overlay) and during runs. Both were off by default, so on
+    // a fresh Mac the overlay never appeared while the switch read "During runs".
+    @Published var showOCRBoxes = (UserDefaults.standard.object(forKey: "showOCRBoxes") as? Bool) ?? true {
         didSet {
             UserDefaults.standard.set(showOCRBoxes, forKey: "showOCRBoxes")
             if !showOCRBoxes && !detectionMode { overlay.hideInspection(); desktop.inspectionWindowID = 0 }
@@ -244,7 +246,8 @@ final class Store: ObservableObject {
     /// runs, nothing read in between), Always (the live overlay as well).
     enum DetectionLevel: String, CaseIterable { case off = "Off", runs = "During runs", always = "Always" }
     var detectionLevel: DetectionLevel {
-        get { !detectionEnabled ? .off : detectionMode ? .always : .runs }
+        // What is really set: on but showing nothing (neither the live overlay nor runs) reads as Off.
+        get { !detectionEnabled ? .off : detectionMode ? .always : showOCRBoxes ? .runs : .off }
         set {
             switch newValue {
             case .off: detectionEnabled = false
@@ -254,7 +257,7 @@ final class Store: ObservableObject {
         }
     }
 
-    @Published var detectionMode = UserDefaults.standard.bool(forKey: "detectionMode") {
+    @Published var detectionMode = (UserDefaults.standard.object(forKey: "detectionMode") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(detectionMode, forKey: "detectionMode"); restartDetectionMode() }
     }
     @Published var detectionBoxes = (UserDefaults.standard.object(forKey: "detectionBoxes") as? Bool) ?? true {
