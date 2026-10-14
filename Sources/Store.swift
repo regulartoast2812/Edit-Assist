@@ -620,6 +620,25 @@ final class Store: ObservableObject {
         set { update(\.instruction, newValue) }
     }
 
+    /// Shown over the whole window while the app restarts.
+    @Published var restarting = false
+
+    /// Restarts Edit Assist in one go: the sheet closes, the window greys with "Restarting…", projects and
+    /// settings are saved, and the app exits; one new copy opens a moment later. `resetPermissions` first
+    /// clears Edit Assist's permission entries so macOS asks again.
+    func restart(resetPermissions: Bool = false) {
+        guard !restarting else { return }
+        stop("Restarting")
+        permissionsOpen = false
+        restarting = true
+        save()
+        // Long enough for the sheet to close and the grey to draw, short enough to feel immediate.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [desktop] in
+            if resetPermissions { desktop.resetPermissions() }
+            desktop.relaunch()
+        }
+    }
+
     func save() {
         do {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

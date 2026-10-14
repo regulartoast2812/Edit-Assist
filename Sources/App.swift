@@ -109,6 +109,18 @@ struct ContentView: View {
         .sheet(isPresented: $techStackOpen) { techStackSheet }
         .sheet(isPresented: $s.connectionOpen) { ConnectionView().environmentObject(s) }
         .sheet(isPresented: $s.permissionsOpen) { PermissionsView().environmentObject(s) }
+        // Restarting: the whole window greys out at once, so the click visibly took.
+        .overlay {
+            if s.restarting {
+                ZStack {
+                    Color.black.opacity(0.55)
+                    VStack(spacing: 10) {
+                        ProgressView().controlSize(.large)
+                        Text("Restarting Edit Assist…").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    }
+                }.ignoresSafeArea()
+            }
+        }
         .sheet(isPresented: $s.showScriptDraft) {
             VStack(alignment: .leading, spacing: 15) {
                 Text("Review the extracted script").font(.title2)
@@ -854,7 +866,7 @@ struct PermissionsView: View {
                         Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
-                        Button { s.desktop.relaunch() } label: {
+                        Button { s.restart() } label: {
                             Label("Restart Edit Assist to finish", systemImage: "arrow.clockwise")
                         }.buttonStyle(.borderedProminent)
                         HStack(spacing: 6) {
@@ -883,7 +895,7 @@ struct PermissionsView: View {
             }
         }
         .confirmationDialog("Reset Edit Assist's permissions?", isPresented: $resetting, titleVisibility: .visible) {
-            Button("Reset and reopen", role: .destructive) { screenRequested = false; s.desktop.resetPermissions() }
+            Button("Reset and reopen", role: .destructive) { screenRequested = false; s.restart(resetPermissions: true) }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected.")
@@ -937,7 +949,7 @@ struct PermissionsView: View {
             }
             HStack {
                 Button("Reset & re-register") { resetting = true }
-                Button("Restart Edit Assist") { s.desktop.relaunch() }
+                Button("Restart Edit Assist") { s.restart() }
                 Spacer()
             }.font(.system(size: 11))
         }

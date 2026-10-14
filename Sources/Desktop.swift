@@ -164,13 +164,12 @@ final class Desktop {
             try? process.run()
             process.waitUntilExit()
         }
-        relaunch()
     }
 
     /// Screen recording only takes effect in a fresh process.
-    /// Quits, then opens again: a helper waits until this copy has fully exited before opening the app, so
-    /// there is never a second copy. (It used to open a new copy first and then quit, which left two when
-    /// the quit was slow.) If the quit does not happen, nothing new is opened.
+    /// Exits, then opens again: a helper waits until this copy has fully exited before opening the app, so
+    /// there is never a second copy. Called by Store.restart, which first closes any sheet and greys the
+    /// window, so nothing is left for SwiftUI to show again while it goes.
     func relaunch() {
         let pid = ProcessInfo.processInfo.processIdentifier
         let path = Bundle.main.bundleURL.path.replacingOccurrences(of: "'", with: "'\\''")
@@ -179,12 +178,10 @@ final class Desktop {
         helper.arguments = ["-c", "(while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; open '\(path)') >/dev/null 2>&1 &"]
         try? helper.run()
         helper.waitUntilExit()
-        // Quitting from a button inside a sheet (the permission setup) was ignored: close sheets first, quit
-        // on the next turn of the run loop, and if this copy is still running two seconds later, exit anyway.
-        // The helper above reopens the app either way, once this copy is gone.
-        for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
-        DispatchQueue.main.async { NSApp.terminate(nil) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { UserDefaults.standard.synchronize(); exit(0) }
+        // Exit directly: NSApp.terminate asked from inside a sheet was ignored, and forcing the sheet closed
+        // made SwiftUI show it again several times before a fallback exit. Settings are written first.
+        UserDefaults.standard.synchronize()
+        exit(0)
     }
 
     /// The supported editor the user worked in most recently. Other apps are ignored outright.
