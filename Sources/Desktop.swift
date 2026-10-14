@@ -179,7 +179,12 @@ final class Desktop {
         helper.arguments = ["-c", "(while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; open '\(path)') >/dev/null 2>&1 &"]
         try? helper.run()
         helper.waitUntilExit()
-        NSApp.terminate(nil)
+        // Quitting from a button inside a sheet (the permission setup) was ignored: close sheets first, quit
+        // on the next turn of the run loop, and if this copy is still running two seconds later, exit anyway.
+        // The helper above reopens the app either way, once this copy is gone.
+        for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { UserDefaults.standard.synchronize(); exit(0) }
     }
 
     /// The supported editor the user worked in most recently. Other apps are ignored outright.
