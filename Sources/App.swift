@@ -811,77 +811,121 @@ struct CaptureView: View {
 struct PermissionsView: View {
     @EnvironmentObject var s: Store
     @State private var resetting = false
+    @State private var troubleOpen = false
+    /// Set once you have been sent to Screen Recording: macOS applies that grant only after a restart, so the
+    /// step then offers the restart instead of waiting for a change it cannot see.
+    @AppStorage("screenRecordingRequested") private var screenRequested = false
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Two macOS permissions").font(.system(size: 24, weight: .semibold))
-            Text("macOS shows its own popup only once. If it never appeared, or you dismissed it, open System Settings and tick Edit Assist by hand.")
-                .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
-            row("Screen recording", "Lets Edit Assist see the window you are editing in.", ready: s.screenAllowed,
-                ask: { s.desktop.requestCapture(); s.refreshPermissions() }, settings: { s.desktop.openScreenSettings() })
-            row("Mouse & keyboard", "Listed as Accessibility. Lets Edit Assist click and press keys for you.", ready: s.controlAllowed,
-                ask: { s.desktop.requestControl(); s.refreshPermissions() }, settings: { s.desktop.openControlSettings() })
-            Divider()
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 12) {
+                Image(systemName: s.permissionsReady ? "checkmark.seal.fill" : "hand.raised.fill")
+                    .font(.system(size: 26)).foregroundStyle(s.permissionsReady ? accent : .orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(s.permissionsReady ? "All set" : "Two quick permissions").font(.system(size: 22, weight: .semibold))
+                    Text(s.permissionsReady ? "Edit Assist can see and work in Premiere." : "Edit Assist needs to see Premiere and click in it for you. About a minute, once.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            step(1, "Mouse & keyboard", "Lets Edit Assist click and type in Premiere for you. macOS calls it Accessibility.",
+                 done: s.controlAllowed, current: !s.controlAllowed) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button { s.desktop.requestControl(); s.desktop.openControlSettings() } label: {
+                        Label("Allow mouse & keyboard", systemImage: "cursorarrow.click.2")
+                    }.buttonStyle(.borderedProminent)
+                    Text("In the list that opens, turn on **Edit Assist**. This step ticks itself as soon as you do.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            step(2, "Screen recording", "Lets Edit Assist see the Premiere window. It does not record or save your screen.",
+                 done: s.screenAllowed, current: s.controlAllowed && !s.screenAllowed) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !screenRequested {
+                        Button { screenRequested = true; s.desktop.requestCapture(); s.desktop.openScreenSettings() } label: {
+                            Label("Allow screen recording", systemImage: "rectangle.dashed.badge.record")
+                        }.buttonStyle(.borderedProminent)
+                        Text("In the list that opens, turn on **Edit Assist**. When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    } else {
+                        Button { s.desktop.relaunch() } label: {
+                            Label("Restart Edit Assist to finish", systemImage: "arrow.clockwise")
+                        }.buttonStyle(.borderedProminent)
+                        HStack(spacing: 6) {
+                            Text("Turned on **Edit Assist** in the list? macOS applies it after a restart.")
+                            Button("Open the list again") { s.desktop.requestCapture(); s.desktop.openScreenSettings() }.buttonStyle(.link)
+                        }.font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            DisclosureGroup("Still not working?", isExpanded: $troubleOpen) { trouble.padding(.top, 10) }
+                .font(.system(size: 12))
+            HStack {
+                Spacer()
+                Button(s.permissionsReady ? "Start using Edit Assist" : "Later") { s.permissionsOpen = false }
+                    .buttonStyle(.borderedProminent).tint(s.permissionsReady ? accent : .secondary)
+            }
+        }
+        .padding(30).frame(width: 540).background(canvasBackground).tint(accent)
+        // Accessibility changes show up at once; checking each second lets step 1 tick itself.
+        .onReceive(tick) { _ in
+            let wasReady = s.permissionsReady
+            s.refreshPermissions()
+            if s.screenAllowed { screenRequested = false }
+            if !wasReady && s.permissionsReady {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if s.permissionsReady { s.permissionsOpen = false } }
+            }
+        }
+        .confirmationDialog("Reset Edit Assist's permissions?", isPresented: $resetting, titleVisibility: .visible) {
+            Button("Reset and reopen", role: .destructive) { screenRequested = false; s.desktop.resetPermissions() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected.")
+        }
+    }
+
+    /// One numbered step: a tick when done, its button and instruction while it is the one to do.
+    func step<Content: View>(_ number: Int, _ name: String, _ detail: String, done: Bool, current: Bool, @ViewBuilder action: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ZStack {
+                Circle().fill(done ? accent : (current ? Color.orange : Color.white).opacity(done ? 1 : 0.15)).frame(width: 28, height: 28)
+                if done { Image(systemName: "checkmark").font(.system(size: 13, weight: .bold)).foregroundStyle(.black) }
+                else { Text("\(number)").font(.system(size: 13, weight: .bold)).foregroundStyle(current ? .orange : .secondary) }
+            }
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ticked the box but it still says Not allowed?").font(.system(size: 12, weight: .semibold))
-                Text("Screen recording is read once at launch, so a running app never sees a grant you just made — use Quit & reopen. If it is still wrong afterwards, the row in System Settings is an orphan left by an older copy of the app, and no amount of ticking it will match. Reset & re-register deletes those rows so macOS asks you cleanly.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
-            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(name).font(.system(size: 14, weight: .semibold))
+                    if done { Text("Allowed").font(.system(size: 10, weight: .bold)).foregroundStyle(accent) }
+                }
+                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                if current { action().padding(.top, 4) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(panel, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(current ? Color.orange.opacity(0.5) : .clear))
+        .opacity(done || current ? 1 : 0.55)
+    }
+
+    /// For when the steps did not take: old duplicate rows in System Settings, or a copy elsewhere.
+    var trouble: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("If Edit Assist is turned on in System Settings but a step still is not ticked, the list may hold an old entry from an earlier copy. **Reset & re-register** removes Edit Assist's entries and reopens it so macOS asks again.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
+            Text("After an update, macOS may ask again: each new version looks like a new app to it.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
                 Text("THIS COPY").font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(s.desktop.bundlePath).font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
-                let signing = s.desktop.signingSummary
-                if signing.stable {
-                    Text("Signed as “\(signing.name)”. Permissions stay granted across rebuilds.")
-                        .font(.system(size: 10)).foregroundStyle(accent)
-                } else {
-                    Text("Ad-hoc signed, so macOS drops permissions on every rebuild. Run ./setup-signing.sh, then ./build.sh.")
-                        .font(.system(size: 10)).foregroundStyle(.orange).lineSpacing(2)
-                }
-                Text("In System Settings, approve the entry at this exact path. Remove older “Edit Assist” rows with the minus button.")
-                    .font(.system(size: 10)).foregroundStyle(.secondary).lineSpacing(2)
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+            }
             HStack {
-                Button("Quit & reopen") { s.desktop.relaunch() }.buttonStyle(.borderedProminent)
                 Button("Reset & re-register") { resetting = true }
-                Button("Recheck") { s.refreshPermissions() }
+                Button("Restart Edit Assist") { s.desktop.relaunch() }
                 Spacer()
-                Button("Done") { s.permissionsOpen = false }
-            }
-            .confirmationDialog("Reset Edit Assist's permissions?", isPresented: $resetting, titleVisibility: .visible) {
-                Button("Reset and reopen", role: .destructive) { s.desktop.resetPermissions() }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Removes Edit Assist from Screen recording and Accessibility, then reopens the app so macOS can ask again. Only this app is affected.")
-            }
-        }.padding(30).frame(width: 530).background(canvasBackground).tint(accent)
-    }
-
-    func row(_ name: String, _ detail: String, ready: Bool, ask: @escaping () -> Void, settings: @escaping () -> Void) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: ready ? "checkmark.circle.fill" : "exclamationmark.circle")
-                .font(.system(size: 18)).foregroundStyle(ready ? accent : .orange).frame(width: 24)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(name).font(.system(size: 13, weight: .semibold))
-                    Text(ready ? "Allowed" : "Not allowed").font(.system(size: 9, weight: .bold)).tracking(0.8)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background((ready ? accent : Color.orange).opacity(0.18), in: Capsule())
-                        .foregroundStyle(ready ? accent : .orange)
-                }
-                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
-                if !ready {
-                    HStack(spacing: 8) {
-                        Button("Ask macOS", action: ask)
-                        Button("Open System Settings", action: settings).buttonStyle(.borderedProminent)
-                    }.font(.system(size: 11)).padding(.top, 2)
-                }
-            }
-            Spacer(minLength: 0)
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(panel, in: RoundedRectangle(cornerRadius: 11))
+            }.font(.system(size: 11))
+        }
     }
 }
 

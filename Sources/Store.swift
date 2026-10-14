@@ -597,6 +597,8 @@ final class Store: ObservableObject {
         watchActivation()
         restartDetectionMode()
         refreshPermissions()
+        // A missing permission opens the setup at launch, so a new install is walked through it.
+        if !permissionsReady { permissionsOpen = true }
         detect()
         checkForUpdates()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
