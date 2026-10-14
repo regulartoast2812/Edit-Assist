@@ -86,6 +86,14 @@ final class Store: ObservableObject {
     func start(_ job: EditFunction) {
         guard !busy else { return }
         function = job
+        // No editor window followed yet (a fresh install, Premiere minimised or in another Space): find
+        // Premiere first, and say exactly what is missing when it cannot be found.
+        guard window != nil else {
+            Task {
+                if let found = await findPremiere() { target = found; start(job) }
+            }
+            return
+        }
         switch job {
         case .highlight:
             if ocrOnly { runOCR(all: true) } else { run(limit: 40) }
@@ -621,6 +629,33 @@ final class Store: ObservableObject {
     func select(_ id: UUID) { stop(); selected = id; resetContext() }
     func resetContext() { attachments = []; scriptDraft = nil; showScriptDraft = false; observation = nil; proposal = nil; previous = nil; activity = []; detect() }
     func refreshPermissions() { screenAllowed = desktop.canCapture; controlAllowed = desktop.canControl }
+
+    /// Premiere's window for a run when none is followed yet, or a message saying which thing is missing:
+    /// the Screen Recording permission (which macOS applies only after the app is reopened), Premiere
+    /// itself, or a Premiere window on this screen. An open Premiere is brought forward and used.
+    func findPremiere() async -> WindowChoice? {
+        refreshPermissions()
+        guard screenAllowed else {
+            error = "Edit Assist needs Screen Recording to see Premiere. Turn it on in System Settings → Privacy & Security → Screen Recording, then quit Edit Assist and open it again (macOS applies it only after a restart)."
+            return nil
+        }
+        guard let premiere = NSWorkspace.shared.runningApplications.first(where: { Desktop.isPremiere($0) && !$0.isTerminated }) else {
+            error = "Premiere Pro is not open. Open your project in Premiere, then run again."
+            return nil
+        }
+        // Bring it forward: a minimised window or one in another Space comes onto this screen.
+        premiere.unhide()
+        premiere.activate()
+        for _ in 0 ..< 10 {
+            if let found = try? desktop.premiereWindow(preferring: nil) {
+                log("Run: found \(found.app)'s window after bringing it forward")
+                return found
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        error = "\(premiere.localizedName ?? "Premiere Pro") is open, but none of its windows is on this screen (minimised, or in a full-screen Space on another display). Show its main window, then run again."
+        return nil
+    }
     func saveConnection() {
         UserDefaults.standard.set(provider, forKey: "cliProvider")
         UserDefaults.standard.set(model, forKey: "cliModel")
