@@ -831,10 +831,14 @@ struct PermissionsView: View {
             step(1, "Mouse & keyboard", "Lets Edit Assist click and type in Premiere for you. macOS calls it Accessibility.",
                  done: s.controlAllowed, current: !s.controlAllowed) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Button { s.desktop.requestControl(); s.desktop.openControlSettings() } label: {
-                        Label("Allow mouse & keyboard", systemImage: "cursorarrow.click.2")
-                    }.buttonStyle(.borderedProminent)
-                    Text("In the list that opens, turn on **Edit Assist**. This step ticks itself as soon as you do.")
+                    HStack(spacing: 8) {
+                        // Asking macOS first is what puts Edit Assist in the list; Settings opened at the same
+                        // moment could show the list without it.
+                        Button { s.desktop.requestControl() } label: { Label("Ask macOS", systemImage: "hand.raised") }
+                            .buttonStyle(.borderedProminent)
+                        Button("Open System Settings") { openAfterAsking(control: true) }
+                    }
+                    Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. This step ticks itself as soon as it is on.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -842,10 +846,12 @@ struct PermissionsView: View {
                  done: s.screenAllowed, current: s.controlAllowed && !s.screenAllowed) {
                 VStack(alignment: .leading, spacing: 8) {
                     if !screenRequested {
-                        Button { screenRequested = true; s.desktop.requestCapture(); s.desktop.openScreenSettings() } label: {
-                            Label("Allow screen recording", systemImage: "rectangle.dashed.badge.record")
-                        }.buttonStyle(.borderedProminent)
-                        Text("In the list that opens, turn on **Edit Assist**. When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
+                        HStack(spacing: 8) {
+                            Button { screenRequested = true; s.desktop.requestCapture() } label: { Label("Ask macOS", systemImage: "hand.raised") }
+                                .buttonStyle(.borderedProminent)
+                            Button("Open System Settings") { screenRequested = true; openAfterAsking(control: false) }
+                        }
+                        Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
                         Button { s.desktop.relaunch() } label: {
@@ -853,7 +859,7 @@ struct PermissionsView: View {
                         }.buttonStyle(.borderedProminent)
                         HStack(spacing: 6) {
                             Text("Turned on **Edit Assist** in the list? macOS applies it after a restart.")
-                            Button("Open the list again") { s.desktop.requestCapture(); s.desktop.openScreenSettings() }.buttonStyle(.link)
+                            Button("Open the list again") { openAfterAsking(control: false) }.buttonStyle(.link)
                         }.font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
@@ -881,6 +887,15 @@ struct PermissionsView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected.")
+        }
+    }
+
+    /// Opens the Settings list only after asking macOS, which adds Edit Assist to that list: opened at once,
+    /// the list could load before the entry existed and show without Edit Assist.
+    func openAfterAsking(control: Bool) {
+        if control { s.desktop.requestControl() } else { s.desktop.requestCapture() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            if control { s.desktop.openControlSettings() } else { s.desktop.openScreenSettings() }
         }
     }
 
