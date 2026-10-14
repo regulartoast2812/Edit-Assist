@@ -5,6 +5,16 @@ import UniformTypeIdentifiers
 @main
 struct EditAssistApp: App {
     @StateObject private var store = Store()
+
+    init() {
+        // Only one Edit Assist: a second copy brings the running one forward and quits before it starts.
+        let me = ProcessInfo.processInfo.processIdentifier
+        if let id = Bundle.main.bundleIdentifier,
+           let running = NSRunningApplication.runningApplications(withBundleIdentifier: id).first(where: { $0.processIdentifier != me && !$0.isTerminated }) {
+            running.activate()
+            exit(0)
+        }
+    }
     var body: some Scene {
         WindowGroup("Edit Assist") {
             ContentView().environmentObject(store)

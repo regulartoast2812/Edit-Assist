@@ -168,12 +168,18 @@ final class Desktop {
     }
 
     /// Screen recording only takes effect in a fresh process.
+    /// Quits, then opens again: a helper waits until this copy has fully exited before opening the app, so
+    /// there is never a second copy. (It used to open a new copy first and then quit, which left two when
+    /// the quit was slow.) If the quit does not happen, nothing new is opened.
     func relaunch() {
-        let config = NSWorkspace.OpenConfiguration()
-        config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in
-            DispatchQueue.main.async { NSApp.terminate(nil) }
-        }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let path = Bundle.main.bundleURL.path.replacingOccurrences(of: "'", with: "'\\''")
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c", "(while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; open '\(path)') >/dev/null 2>&1 &"]
+        try? helper.run()
+        helper.waitUntilExit()
+        NSApp.terminate(nil)
     }
 
     /// The supported editor the user worked in most recently. Other apps are ignored outright.
