@@ -195,7 +195,24 @@ final class Store: ObservableObject {
         status = "Continuing the current pass…"
     }
     @Published var status = "Ready"
-    @Published var error: String?
+    @Published var error: String? { didSet { if let error { noteProblem(error) } } }
+
+    /// What went wrong, newest last: alerts, runs that stopped, updates that failed. Shown by the error log button.
+    struct Problem: Identifiable { let id = UUID(); let time: Date; let message: String }
+    @Published var problems: [Problem] = []
+    /// Problems since the log was last opened, for the badge.
+    @Published var unseenProblems = 0
+    func noteProblem(_ message: String) {
+        // The same message twice in a row (a run retrying) is one entry.
+        if problems.last?.message == message, let last = problems.last, Date().timeIntervalSince(last.time) < 5 { return }
+        problems.append(Problem(time: Date(), message: message))
+        if problems.count > 100 { problems.removeFirst(problems.count - 100) }
+        unseenProblems += 1
+    }
+    var problemsText: String {
+        problems.map { "\($0.time.formatted(date: .abbreviated, time: .standard))  \($0.message)" }.joined(separator: "\n")
+    }
+    var activityLogURL: URL { folder.appendingPathComponent("activity-\(project.id.uuidString).log") }
     @Published var command = ""
     @Published var attachments: [Data] = []
     @Published var scriptDraft: String?
@@ -718,6 +735,8 @@ final class Store: ObservableObject {
         }
     }
     func log(_ text: String) {
+        // Stops and failures also go to the error log.
+        for prefix in ["OCR fail: ", "Paused: "] where text.hasPrefix(prefix) { noteProblem(String(text.dropFirst(prefix.count))) }
         let entry = "\(Date().formatted(date: .omitted, time: .standard))  \(text)"
         activity.append(entry)
         if activity.count > 160 { activity.removeFirst() }

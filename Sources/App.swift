@@ -66,6 +66,9 @@ struct EditAssistApp: App {
 enum ClickOutsideEndsEditing {
     private static var monitor: Any?
     static func install() {
+        // Nothing starts in edit mode: the window otherwise focused the first field (the font size step) at launch,
+        // so keys typed then went into it.
+        for delay in [0.1, 0.5] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { NSApp.keyWindow?.makeFirstResponder(nil) } }
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             if let window = event.window, let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
@@ -157,6 +160,8 @@ struct ContentView: View {
         .alert("Edit Assist", isPresented: Binding(get: { s.error != nil }, set: { if !$0 { s.error = nil } })) {
             Button("OK") { s.error = nil }
         } message: { Text(s.error ?? "") }
+        // The error log, bottom right: a count of new problems, and the list of what went wrong.
+        .overlay(alignment: .bottomTrailing) { ErrorLogButton().environmentObject(s).padding(14) }
     }
 
     var sidebar: some View {
@@ -680,7 +685,7 @@ struct ContentView: View {
                     columnTitle("SETUP")
                     card("Style and size") {
                         HStack(spacing: 10) {
-                            label("EACH PHRASE GETS")
+                            label("APPLY")
                             Spacer()
                             // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
                             Picker("Each phrase gets", selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
@@ -1003,6 +1008,60 @@ struct PermissionsView: View {
                 Button("Restart Edit Assist") { s.restart() }
                 Spacer()
             }.font(.system(size: 11))
+        }
+    }
+}
+
+/// Bottom-right button: how many problems are new, and a list of every one with Copy, the log file and Clear.
+struct ErrorLogButton: View {
+    @EnvironmentObject var s: Store
+    @State private var open = false
+    var body: some View {
+        Button { open.toggle(); s.unseenProblems = 0 } label: {
+            HStack(spacing: 6) {
+                Image(systemName: s.unseenProblems > 0 ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
+                Text(s.unseenProblems > 0 ? "\(s.unseenProblems) new" : "Errors").font(.system(size: 11, weight: .semibold))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background((s.unseenProblems > 0 ? Color.orange : Color.white).opacity(s.unseenProblems > 0 ? 0.22 : 0.07), in: Capsule())
+            .foregroundStyle(s.unseenProblems > 0 ? Color.orange : .secondary)
+        }
+        .buttonStyle(.plain).help("Error log")
+        .popover(isPresented: $open, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Error log").font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                    Text("\(s.problems.count) this session").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                if s.problems.isEmpty {
+                    Text("Nothing has gone wrong this session.").font(.system(size: 12)).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 60)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(s.problems.reversed()) { problem in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(problem.time.formatted(date: .omitted, time: .standard))
+                                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                                    Text(problem.message).font(.system(size: 12)).textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                    }.frame(maxHeight: 360)
+                }
+                HStack {
+                    Button("Copy all") {
+                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s.problemsText, forType: .string)
+                    }.disabled(s.problems.isEmpty)
+                    Button("Show full log") { NSWorkspace.shared.activateFileViewerSelecting([s.activityLogURL]) }
+                    Spacer()
+                    Button("Clear") { s.problems = []; s.unseenProblems = 0 }.disabled(s.problems.isEmpty)
+                }.font(.system(size: 11))
+            }.padding(16).frame(width: 440).tint(accent)
         }
     }
 }
