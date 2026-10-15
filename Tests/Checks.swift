@@ -1050,13 +1050,15 @@ struct Checks {
         check(!Desktop.sameWords(["after", "66"], ["after", "65"]), "A number must match exactly")
         check(!Desktop.sameWords(["clases", "ih", "front"], ["closes", "in", "front"]), "Only one word may be loose")
         check(!Desktop.sameWords(["closes", "ix", "front"], ["closes", "in", "front"]), "Only known lookalike letters are tolerated")
-        // Flip: the text between the bold phrases becomes the phrases, trimmed; stretches with no real word drop out.
+        // Flip in the script editor: highlighted and plain swap; punctuation-only stretches and line breaks stay plain.
         do {
-            let line = try ScriptParser.parse("**After 65**, I thought **tummy control **meant squeezing my waist - until I found **these jeans.**")[0]
-            check(line.flipped.highlights.map(\.text) == [", I thought", "meant squeezing my waist - until I found"],
-                  "Flip highlights the text between the bold phrases (\(line.flipped.highlights.map(\.text)))")
-            let allBold = try ScriptParser.parse("**all bold**")[0]
-            check(allBold.flipped.highlights.isEmpty, "Flip of an all-bold line has nothing to highlight")
+            let flipper = RichScriptTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+            flipper.isRichText = true; flipper.isEditable = true
+            flipper.textStorage?.setAttributedString(ScriptText.attributed("**After 65**, I thought **tummy control **meant it\n**Pull them on** and **look polished**"))
+            flipper.flipHighlights()
+            let flipped = ScriptText.marked(flipper.textStorage!)
+            check(flipped == "After 65, **I thought** tummy control **meant it**\nPull them on **and** look polished",
+                  "Flip swaps highlighted and plain in the script (\(flipped.debugDescription))")
         }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main

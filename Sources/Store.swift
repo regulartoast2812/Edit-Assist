@@ -626,12 +626,7 @@ final class Store: ObservableObject {
     var index: Int { projects.firstIndex { $0.id == selected } ?? 0 }
     var project: Project { projects[index] }
     var window: WindowChoice? { target }
-    /// The script's lines with the phrases to highlight: the bold ones, or with Flip on, the text between them.
-    /// Everything (runs, the preview, the count) reads the phrases from here.
-    var parsed: [ScriptLine] {
-        let lines = (try? ScriptParser.parse(project.script)) ?? []
-        return project.flipHighlights == true ? lines.map(\.flipped) : lines
-    }
+    var parsed: [ScriptLine] { (try? ScriptParser.parse(project.script)) ?? [] }
     var targetCount: Int { parsed.reduce(0) { $0 + $1.highlights.count } }
     var settings: AISettings { AISettings(provider: provider, model: model) }
     var runInstruction: String {

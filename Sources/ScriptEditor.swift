@@ -117,7 +117,52 @@ enum ScriptText {
 }
 
 final class RichScriptTextView: NSTextView {
+    /// The script editor on screen, for the Flip button (which need not have the editor focused).
+    nonisolated(unsafe) static weak var current: RichScriptTextView?
     var onPasteImage: ((NSImage) -> Void)?
+
+    /// Flips the whole script: every highlighted stretch becomes plain and every plain one highlighted. Line breaks
+    /// stay plain, and so do stretches with no letter or digit (", "), which would be phrases with nothing to find.
+    /// One undoable change.
+    func flipHighlights() {
+        guard let storage = textStorage, storage.length > 0 else { return }
+        let all = NSRange(location: 0, length: storage.length)
+        let flipped = NSMutableAttributedString(attributedString: storage)
+        storage.enumerateAttribute(.scriptHighlight, in: all) { value, range, _ in
+            flipped.setAttributes(ScriptText.attributes(highlighted: !ScriptText.isHighlight(value)), range: range)
+        }
+        // Each highlighted run, line by line, must hold a letter or digit, and no line break.
+        let text = storage.string as NSString
+        flipped.enumerateAttribute(.scriptHighlight, in: all) { value, range, _ in
+            guard ScriptText.isHighlight(value) else { return }
+            var start = range.location
+            let end = range.location + range.length
+            while start < end {
+                let line = text.lineRange(for: NSRange(location: start, length: 0))
+                let piece = NSRange(location: start, length: min(end, line.location + line.length) - start)
+                let words = text.substring(with: piece)
+                let keep = words.rangeOfCharacter(from: .alphanumerics) != nil
+                flipped.setAttributes(ScriptText.attributes(highlighted: keep), range: piece)
+                // Line breaks, spaces and leading punctuation stay plain (", I thought" starts at "I"); a highlight may end
+                // with . ! ? as a phrase does, not with a comma or dash.
+                let inner = words as NSString
+                let leading = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+                let trailing = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;:-–—"))
+                var lead = 0, trail = inner.length
+                while lead < trail, let c = UnicodeScalar(inner.character(at: lead)), leading.contains(c) { lead += 1 }
+                while trail > lead, let c = UnicodeScalar(inner.character(at: trail - 1)), trailing.contains(c) { trail -= 1 }
+                if keep, lead > 0 { flipped.setAttributes(ScriptText.attributes(highlighted: false), range: NSRange(location: piece.location, length: lead)) }
+                if keep, trail < inner.length { flipped.setAttributes(ScriptText.attributes(highlighted: false), range: NSRange(location: piece.location + trail, length: inner.length - trail)) }
+                start = piece.location + piece.length
+            }
+        }
+        guard shouldChangeText(in: all, replacementString: nil) else { return }
+        storage.beginEditing()
+        flipped.enumerateAttributes(in: all) { attributes, range, _ in storage.setAttributes(attributes, range: range) }
+        storage.endEditing()
+        didChangeText()
+        undoManager?.setActionName("Flip Highlights")
+    }
     override func paste(_ sender: Any?) {
         if let onPasteImage, let image = NSImage(pasteboard: .general) { onPasteImage(image); return }
         guard let marked = RichScript.paste() else { return }
@@ -191,6 +236,7 @@ struct RichScriptEditor: NSViewRepresentable {
         editor.delegate = context.coordinator
         editor.onPasteImage = onPasteImage
         editor.textStorage?.setAttributedString(ScriptText.attributed(text))
+        RichScriptTextView.current = editor
         scroll.documentView = editor
         return scroll
     }
