@@ -77,6 +77,17 @@ struct Project: Codable, Identifiable {
     var keepStyle: Bool? = nil
     var rememberedStyle: RememberedStyle? = nil
     var keepsStyle: Bool { keepStyle ?? true }
+    /// What a highlight run does to each phrase: "both" (style and size, the default), "style" or "size". Shared by
+    /// both highlight functions; optional so older projects load.
+    var runParts: String? = nil
+    var doesStyle: Bool { runParts != "size" }
+    var doesSize: Bool { runParts != "style" }
+    /// The steps a run takes for this choice. Size only keeps Back, to leave a browser that is open.
+    var runSteps: Set<String> {
+        Set(OCRStep.allCases.map(\.rawValue)).subtracting(
+            (doesStyle ? [] : [OCRStep.openStylePanel.rawValue, OCRStep.applyStyle.rawValue]) + (doesSize ? [] : [OCRStep.increaseSize.rawValue]))
+    }
+
     /// No longer used (flipping is done in the script itself); kept so projects that saved it still load.
     var flipHighlights: Bool? = nil
     /// Indices into the flattened phrase list that are already done. A set rather than a counter,

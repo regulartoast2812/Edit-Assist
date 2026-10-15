@@ -1111,6 +1111,9 @@ final class Store: ObservableObject {
         guard !busy else { return }
         do {
             guard !targets.isEmpty else { throw AssistError.message("Paste a script with bold phrases first.") }
+            if only == nil, !project.doesStyle, project.fontSizeStep == 0 {
+                throw AssistError.message("Size only with a font size step of 0 has nothing to do. Set a step, or choose Style & size.")
+            }
             guard all || anyTarget || !remaining.isEmpty else { throw AssistError.message("All \(targets.count) phrases are done. Reset progress to start again.") }
             guard let followed = self.window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window.") }
             // Highlighting is Premiere's: never run in After Effects because it was the last Adobe app used.
@@ -1147,7 +1150,10 @@ final class Store: ObservableObject {
                 do {
                     overlay.show(on: window.frame)
                     desktop.overlayWindowID = overlay.windowID
-                    let gestures = only ?? Set(OCRStep.allCases.map(\.rawValue))
+                    // A run does every step, less what the project leaves out: Style only skips the size step; Size only
+                    // skips opening the browser and picking a tile, but still steps Back out of a browser left open, so
+                    // the Font Size row is there to set.
+                    let gestures = only ?? project.runSteps
                     for second in stride(from: countdown, to: 0, by: -1) {
                         status = "Starting in \(second)… release mouse and keyboard"
                         overlay.update(step: 0, limit: targets.count, headline: "Starting in \(second)…",

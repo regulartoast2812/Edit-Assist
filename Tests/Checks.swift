@@ -1060,6 +1060,17 @@ struct Checks {
             check(flipped == "After 65, **I thought** tummy control **meant it**\nPull them on **and** look polished",
                   "Flip swaps highlighted and plain in the script (\(flipped.debugDescription))")
         }
+        // Each phrase gets: what a run does. Size only still steps Back out of a browser left open.
+        do {
+            var project = Project()
+            check(project.runSteps.count == OCRStep.allCases.count, "Style & size runs every step")
+            project.runParts = "style"
+            check(!project.runSteps.contains(OCRStep.increaseSize.rawValue) && project.runSteps.contains(OCRStep.applyStyle.rawValue), "Style only skips the size step")
+            project.runParts = "size"
+            check(!project.runSteps.contains(OCRStep.applyStyle.rawValue) && !project.runSteps.contains(OCRStep.openStylePanel.rawValue)
+                  && project.runSteps.contains(OCRStep.backFromStyle.rawValue) && project.runSteps.contains(OCRStep.increaseSize.rawValue),
+                  "Size only skips the style steps but keeps Back")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

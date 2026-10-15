@@ -398,7 +398,7 @@ struct ContentView: View {
     var stages: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("In order, for every phrase. A run does them all; the boxes choose what Test selected stages does.")
+                Text("In order, for every phrase. The boxes choose what Test selected stages does; a run follows Each phrase gets.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button("All") { s.steps = Set(OCRStep.allCases.map(\.rawValue)) }.font(.system(size: 10)).disabled(s.busy)
@@ -679,6 +679,16 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     columnTitle("SETUP")
                     card("Style and size") {
+                        HStack(spacing: 10) {
+                            label("EACH PHRASE GETS")
+                            Spacer()
+                            // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
+                            Picker("Each phrase gets", selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
+                                Text("Style & size").tag("both")
+                                Text("Style only").tag("style")
+                                Text("Size only").tag("size")
+                            }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(s.busy)
+                        }
                         HStack(alignment: .top, spacing: 12) {
                             Group {
                                 if let picked = s.pickedStyleImage {
@@ -702,7 +712,7 @@ struct ContentView: View {
                             Spacer()
                             Button("Reset style") { s.resetStyle() }
                                 .disabled(!s.hasRememberedStyle)
-                        }.disabled(s.busy)
+                        }.disabled(s.busy).opacity(s.project.doesStyle ? 1 : 0.4)
                         HStack(spacing: 10) {
                             label("FONT SIZE STEP")
                             Spacer()
@@ -716,11 +726,19 @@ struct ContentView: View {
                                     .help("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller.")
                                 Stepper("Font size step", value: step, in: -100...200).labelsHidden()
                             }.disabled(s.busy)
-                        }
+                        }.opacity(s.project.doesSize ? 1 : 0.4)
                         if !s.ocrOnly { legacyStyle }
                     }
-                    card("Steps for each phrase") { stages }
-                    DisclosureGroup("Diagnostics") { diagnostics.padding(.top, 12) }
+                    DisclosureGroup("Diagnostics") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            // The individual steps: for testing one at a time (Test selected stages). A run follows
+                            // "Each phrase gets" above, not these boxes.
+                            label("STEPS FOR EACH PHRASE (TESTING)")
+                            stages
+                            Divider()
+                            diagnostics
+                        }.padding(.top, 12)
+                    }
                     if !s.ocrOnly {
                         DisclosureGroup("Assistant routine instructions") { routine.frame(minHeight: 420).padding(.top, 12) }
                     }
