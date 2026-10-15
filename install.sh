@@ -6,6 +6,11 @@ set -euo pipefail
 REPO="regulartoast2812/Edit-Assist"
 APP="Edit Assist.app"
 DEST="$HOME/Applications"
+# Update the copy where it already is: a copy someone moved to /Applications stays the one that opens, and no
+# second copy (with its own permission entries) is left behind.
+if [[ -d "/Applications/Edit Assist.app" && "$(defaults read "/Applications/Edit Assist.app/Contents/Info" CFBundleIdentifier 2>/dev/null)" == "com.crossian.editassist" && -w /Applications ]]; then
+  DEST="/Applications"
+fi
 # The newest build: updates/beta.json names it (release.sh writes it for every beta and every stable
 # release). A beta is a GitHub pre-release, which "latest" skips, so "latest" is only the fallback.
 URL=$(curl -fsSL "https://raw.githubusercontent.com/$REPO/main/updates/beta.json?t=$(date +%s)" 2>/dev/null | sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' || true)

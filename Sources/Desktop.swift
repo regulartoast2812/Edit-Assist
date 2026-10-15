@@ -258,7 +258,8 @@ final class Desktop {
         }
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
-        let scale = sharper ? 2 : min(1.5, 2400 / window.frame.width)
+        // At least one pixel per point: a wide window (2560 pt) was captured below that, too small for interface text.
+        let scale = sharper ? 2 : max(1, min(1.5, 2400 / window.frame.width))
         config.width = Int(window.frame.width * scale)
         config.height = Int(window.frame.height * scale)
         config.showsCursor = false
@@ -330,6 +331,9 @@ final class Desktop {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
+        // English and Vietnamese: Vietnamese captions (diacritics) are read too. Checked on all 42 saved screens:
+        // English text reads identically, at the same speed.
+        request.recognitionLanguages = ["en-US", "vi-VT"]
         guard (try? VNImageRequestHandler(cgImage: image, options: [:]).perform([request])) != nil,
               let results = request.results else { return [] }
         return results.compactMap { observation in
@@ -1972,8 +1976,15 @@ final class Desktop {
     /// Window-server order is front to back.
     func covering(_ p: CGPoint, of window: WindowChoice) -> String? {
         let all = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        return Self.blocker(at: p, of: window.id, in: all, ignoring: [overlayWindowID, inspectionWindowID].filter { $0 != 0 })
+        // macOS's own apps by their IDs, which do not change with the system language (their names do).
+        let system = Set(NSWorkspace.shared.runningApplications.filter { Self.systemOverlayIDs.contains($0.bundleIdentifier ?? "") }.map(\.processIdentifier))
+        let screen = NSScreen.screens.first?.frame.size ?? .zero
+        return Self.blocker(at: p, of: window.id, in: all, ignoring: [overlayWindowID, inspectionWindowID].filter { $0 != 0 },
+                            systemPIDs: system, screen: screen)
     }
+    static let systemOverlayIDs: Set<String> = ["com.apple.dock", "com.apple.controlcenter", "com.apple.notificationcenterui",
+                                                 "com.apple.Spotlight", "com.apple.systemuiserver", "com.apple.WindowManager",
+                                                 "com.apple.TextInputMenuAgent", "com.apple.wallpaper.agent"]
 
     /// macOS's own overlays, not windows in the way. With the Dock always shown, the Dock draws into a window
     /// as large as the screen; taken for a window in front, a tester's run waited "for Dock" without end.
@@ -1983,7 +1994,8 @@ final class Desktop {
     /// What is in front of the target window at a point, from the window list front to back: nil when the
     /// target is the first window there. Our own overlays and macOS's overlays are looked through; the
     /// login window (a locked screen) is not.
-    nonisolated static func blocker(at p: CGPoint, of target: CGWindowID, in rows: [[String: Any]], ignoring ours: [CGWindowID]) -> String? {
+    nonisolated static func blocker(at p: CGPoint, of target: CGWindowID, in rows: [[String: Any]], ignoring ours: [CGWindowID],
+                                    systemPIDs: Set<pid_t> = [], screen: CGSize = .zero) -> String? {
         for row in rows {
             guard let bounds = row[kCGWindowBounds as String] as? NSDictionary,
                   let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(p),
@@ -1992,7 +2004,15 @@ final class Desktop {
             if id.uint32Value == target { return nil }
             if ours.contains(id.uint32Value) { continue }
             let owner = (row[kCGWindowOwnerName as String] as? String) ?? "Another window"
+            // A locked screen holds every click.
+            if owner == "loginwindow" { return owner }
             if systemOverlays.contains(owner) { continue }
+            if let pid = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, systemPIDs.contains(pid) { continue }
+            // A see-through layer over a whole screen above the normal windows (screen-sharing and support tools,
+            // writing assistants) is not something a person can move off the editor; a real window over the
+            // caption is a normal window or a small floating one, such as a video player.
+            let layer = row[kCGWindowLayer as String] as? Int ?? 0
+            if layer != 0, screen.width > 0, frame.width * frame.height >= screen.width * screen.height * 0.9 { continue }
             return owner
         }
         return "Nothing on screen"
@@ -2083,13 +2103,17 @@ final class Desktop {
             wheel?.location = p
             emit(wheel)
         case "typeNumber":
+            // Each digit on its own key: key code 0 (the A key) carrying the digit reached Premiere fine, but
+            // Vietnamese typing tools (EVKey, OpenKey) work from the key, saw "aa" and turned it into "â".
+            let digitKeys: [Character: CGKeyCode] = ["0": 29, "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22, "7": 26, "8": 28, "9": 25]
             for scalar in action.phrase.unicodeScalars {
                 try validateWindow(observation)
                 var unit = UniChar(scalar.value)
-                let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true)
+                let key = digitKeys[Character(scalar)] ?? 0
+                let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true)
                 down?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
                 emit(down)
-                let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+                let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
                 up?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &unit)
                 emit(up)
                 try await Task.sleep(for: .milliseconds(12))

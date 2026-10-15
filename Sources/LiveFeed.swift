@@ -24,7 +24,7 @@ final class LiveFeed: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sen
         }
         // Same pixel size as Desktop.capture, so OCR, the grid and the row tracker see identical images.
         let config = SCStreamConfiguration()
-        let scale = min(1.5, 2400 / window.frame.width)
+        let scale = max(1, min(1.5, 2400 / window.frame.width))
         config.width = Int(window.frame.width * scale)
         config.height = Int(window.frame.height * scale)
         config.showsCursor = false

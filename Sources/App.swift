@@ -880,7 +880,7 @@ struct PermissionsView: View {
                             .buttonStyle(.borderedProminent)
                         Button("Open System Settings") { openAfterAsking(control: true) }
                     }
-                    Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. This step ticks itself as soon as it is on.")
+                    Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. Already on in the list (after an update)? Turn it **off and on again**. This step ticks itself as soon as it is on.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -893,7 +893,7 @@ struct PermissionsView: View {
                                 .buttonStyle(.borderedProminent)
                             Button("Open System Settings") { screenRequested = true; openAfterAsking(control: false) }
                         }
-                        Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
+                        Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist** (already on after an update? turn it **off and on again**). When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
                         Button { s.restart() } label: {

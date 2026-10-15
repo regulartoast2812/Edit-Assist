@@ -1098,6 +1098,12 @@ final class Store: ObservableObject {
                 log("Run: the editor followed was \(followed.app); highlighting runs in Premiere, so using its window")
                 target = window
             }
+            // The Properties panel this works through arrived in Premiere Pro 25 (2025).
+            if let url = NSRunningApplication(processIdentifier: window.pid)?.bundleURL,
+               let version = Bundle(url: url)?.infoDictionary?["CFBundleShortVersionString"] as? String,
+               let major = Int(version.split(separator: ".").first ?? ""), major < 25 {
+                throw AssistError.message("Highlighting needs Premiere Pro 2025 (version 25) or later, for its Properties panel. This Premiere is version \(version).")
+            }
             guard desktop.canControl else { throw AssistError.message("Enable Accessibility in Permissions before running actions.") }
             // Run all starts a fresh pass at the current playhead, regardless of prior progress.
             if all && record { resetProgress() }
@@ -1403,15 +1409,16 @@ final class Store: ObservableObject {
                             selected = (try await selectedNow())
                             log("OCR: clicked the caption in the Program Monitor — \(selected ? "selected" : "not selected")")
 
-                            // Premiere can take a moment to show the graphic in Properties (the first read came 0.3 s after
-                            // the click and still showed the old panel); look again for up to two seconds before deciding.
-                            if graphics, !selected {
+                            // Premiere can take a moment to show the selection in Properties (the first read came 0.3 s
+                            // after the click and still showed the old panel, more so on a slower Mac); look again for up
+                            // to two seconds before deciding, captions and graphics alike.
+                            if !selected {
                                 let began = Date()
                                 while !selected, Date().timeIntervalSince(began) < 2 {
                                     try await Task.sleep(for: .milliseconds(250))
                                     selected = try await selectedNow()
                                 }
-                                if selected { log(String(format: "OCR: the graphic showed as selected after %.1f s", Date().timeIntervalSince(began))) }
+                                if selected { log(String(format: "OCR: the selection showed in Properties after %.1f s", Date().timeIntervalSince(began))) }
                             }
                             // Highlight - Subtitle Layers on graphic text (a project whose captions are graphics on a
                             // video track, with no subtitle track): say so, instead of trying caption fallbacks that

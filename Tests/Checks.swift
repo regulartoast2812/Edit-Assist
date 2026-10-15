@@ -1039,8 +1039,10 @@ struct Checks {
             check(Desktop.blocker(at: caption, of: 42, in: [dock, premiere], ignoring: []) == nil, "The Dock's screen-sized window does not hold a click")
             let player = row(9, "Opera", CGRect(x: 100, y: 600, width: 400, height: 200), layer: 3)
             check(Desktop.blocker(at: caption, of: 42, in: [player, dock, premiere], ignoring: []) == "Opera", "A real window over the caption still holds it")
+            let overlayApp = row(11, "UltraViewer", screen, layer: 101)
+            check(Desktop.blocker(at: caption, of: 42, in: [overlayApp, premiere], ignoring: [], screen: screen.size) == nil, "A see-through full-screen overlay does not hold a click")
             let locked = row(3, "loginwindow", screen, layer: 2000)
-            check(Desktop.blocker(at: caption, of: 42, in: [locked, premiere], ignoring: []) == "loginwindow", "A locked screen still holds every click")
+            check(Desktop.blocker(at: caption, of: 42, in: [locked, premiere], ignoring: [], screen: screen.size) == "loginwindow", "A locked screen still holds every click")
         }
         // One lookalike letter in one word of a longer phrase is tolerated; nothing looser.
         check(Desktop.sameWords(["closes", "ih", "front"], ["closes", "in", "front"]), "A phrase is found with one lookalike letter misread (ih for in)")
