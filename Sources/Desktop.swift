@@ -518,7 +518,7 @@ final class Desktop {
             guard words.count >= needle.count else { continue }
             for start in 0...(words.count - needle.count) {
                 let slice = words[start ..< start + needle.count]
-                guard slice.map(\.text) == needle else { continue }
+                guard Self.sameWords(slice.map(\.text), needle) else { continue }
                 guard let head = slice.first, let tail = slice.last else { continue }
                 // Each token remembers the line it was read on. Heights alone fail for large captions set
                 // tight, where two lines' centres can be closer than one line is tall; a line's own words
@@ -541,6 +541,29 @@ final class Desktop {
             }
         }
         return nil
+    }
+
+    /// Letters that text recognition mistakes for one another on stylised captions (outlines, gradients):
+    /// "closes ih front" was read for "closes in front" on a tester's screen, and the phrase was not found.
+    nonisolated static let lookalikes: Set<String> = ["hn", "nh", "li", "il", "l1", "1l", "i1", "1i", "o0", "0o", "ce", "ec", "uv", "vu", "ft", "tf"]
+
+    /// The words read on screen against the phrase's words: equal, except that one word of a phrase of two or
+    /// more may differ by one lookalike letter (same length, not a number), provided another word is exact. A
+    /// lone word, or a number such as 65 against 66, must match exactly: a loose match there would restyle
+    /// the wrong caption.
+    nonisolated static func sameWords(_ read: [String], _ wanted: [String]) -> Bool {
+        guard read.count == wanted.count else { return false }
+        if read == wanted { return true }
+        guard wanted.count >= 2 else { return false }
+        var loose = 0
+        for (r, w) in zip(read, wanted) where r != w {
+            let a = Array(r), b = Array(w)
+            guard a.count == b.count, a.count >= 2, !w.allSatisfy(\.isNumber) else { return false }
+            let differing = zip(a, b).filter { $0 != $1 }
+            guard differing.count == 1, let pair = differing.first, lookalikes.contains(String([pair.0, pair.1])) else { return false }
+            loose += 1
+        }
+        return loose == 1 && loose < wanted.count
     }
 
     /// How many of the phrase's leading words are present on screen. A caption clip holds only part

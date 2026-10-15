@@ -1413,6 +1413,17 @@ final class Store: ObservableObject {
                                 }
                                 if selected { log(String(format: "OCR: the graphic showed as selected after %.1f s", Date().timeIntervalSince(began))) }
                             }
+                            // Highlight - Subtitle Layers on graphic text (a project whose captions are graphics on a
+                            // video track, with no subtitle track): say so, instead of trying caption fallbacks that
+                            // cannot work and stopping with a message about the Program Monitor.
+                            if !graphics, !selected, let now = try? await desktop.capture(window, readText: true) {
+                                switch Desktop.propertiesState(in: now.text, image: now.image) {
+                                case .graphic, .graphicLayers:
+                                    try await stop(OCRStep.clickClip, "This is graphic text, not a caption (it is on a video track, not a subtitle track). Use Highlight - Graphic Layers for it.")
+                                    return
+                                default: break
+                                }
+                            }
                             // The fallbacks select the caption clip under the playhead: captions only.
                             if graphics, !selected {
                                 try await stop(OCRStep.clickClip, "Clicking the words did not select a graphic. If the caption track shows the same words on top, hide it (its eye in the timeline) so clicks land on the graphics, then run again.")

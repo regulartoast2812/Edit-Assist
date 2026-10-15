@@ -1042,6 +1042,12 @@ struct Checks {
             let locked = row(3, "loginwindow", screen, layer: 2000)
             check(Desktop.blocker(at: caption, of: 42, in: [locked, premiere], ignoring: []) == "loginwindow", "A locked screen still holds every click")
         }
+        // One lookalike letter in one word of a longer phrase is tolerated; nothing looser.
+        check(Desktop.sameWords(["closes", "ih", "front"], ["closes", "in", "front"]), "A phrase is found with one lookalike letter misread (ih for in)")
+        check(!Desktop.sameWords(["ih"], ["in"]), "A lone word must match exactly")
+        check(!Desktop.sameWords(["after", "66"], ["after", "65"]), "A number must match exactly")
+        check(!Desktop.sameWords(["clases", "ih", "front"], ["closes", "in", "front"]), "Only one word may be loose")
+        check(!Desktop.sameWords(["closes", "ix", "front"], ["closes", "in", "front"]), "Only known lookalike letters are tolerated")
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

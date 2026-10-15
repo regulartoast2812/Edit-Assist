@@ -35,11 +35,17 @@ final class RunOverlay {
         guard let panel else { return }
         let size = NSSize(width: 460, height: 96)
         panel.setContentSize(size)
-        // Cocoa screen coordinates have their origin at the bottom left; window frames do not.
+        // Cocoa screen coordinates have their origin at the bottom left of the main screen; window frames
+        // count down from its top. Kept on the screen Premiere is on, which can sit left of, above or below
+        // the main one (negative coordinates): a clamp to the main screen put the panel on the wrong display.
         let screenHeight = NSScreen.screens.first?.frame.height ?? frame.maxY
-        let x = frame.midX - size.width / 2
-        let y = screenHeight - frame.minY - size.height - 18
-        panel.setFrameOrigin(NSPoint(x: x, y: max(12, y)))
+        let editor = CGRect(x: frame.minX, y: screenHeight - frame.maxY, width: frame.width, height: frame.height)
+        let screen = NSScreen.screens.max { $0.frame.intersection(editor).width * $0.frame.intersection(editor).height
+                                              < $1.frame.intersection(editor).width * $1.frame.intersection(editor).height }
+        let bounds = screen?.visibleFrame ?? editor
+        let x = min(max(frame.midX - size.width / 2, bounds.minX + 12), bounds.maxX - size.width - 12)
+        let y = min(max(screenHeight - frame.minY - size.height - 18, bounds.minY + 12), bounds.maxY - size.height - 12)
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
         panel.orderFrontRegardless()
     }
 
