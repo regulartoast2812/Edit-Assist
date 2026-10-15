@@ -626,7 +626,12 @@ final class Store: ObservableObject {
     var index: Int { projects.firstIndex { $0.id == selected } ?? 0 }
     var project: Project { projects[index] }
     var window: WindowChoice? { target }
-    var parsed: [ScriptLine] { (try? ScriptParser.parse(project.script)) ?? [] }
+    /// The script's lines with the phrases to highlight: the bold ones, or with Flip on, the text between them.
+    /// Everything (runs, the preview, the count) reads the phrases from here.
+    var parsed: [ScriptLine] {
+        let lines = (try? ScriptParser.parse(project.script)) ?? []
+        return project.flipHighlights == true ? lines.map(\.flipped) : lines
+    }
     var targetCount: Int { parsed.reduce(0) { $0 + $1.highlights.count } }
     var settings: AISettings { AISettings(provider: provider, model: model) }
     var runInstruction: String {
@@ -1003,7 +1008,14 @@ final class Store: ObservableObject {
     func nextVisible(in hits: [TextHit], anyTarget: Bool = false, minHeight: CGFloat = 0, area: CGRect? = nil) -> (index: Int, phrase: String, span: Desktop.Span, matched: Int, from: Int)? {
         for candidate in phraseCandidates(anyTarget: anyTarget) {
             if let found = Desktop.selection(forTokens: candidate.tokens, in: hits, minHeight: minHeight, area: area) {
-                return (candidate.index, targets[candidate.index], found.span, found.matched, candidate.from)
+                // A one-letter word at the phrase's start or end ("I thought") is not matched; take it in when it
+                // sits right beside the match. Only at the phrase's real start, and its end when this reaches it.
+                let raw = targets[candidate.index].split(whereSeparator: \.isWhitespace).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { !$0.isEmpty }
+                let lead = candidate.from == 0 ? raw.first.flatMap { $0.count == 1 ? $0 : nil } : nil
+                let reachesEnd = candidate.from + found.matched >= words(of: targets[candidate.index]).count
+                let trail = reachesEnd ? raw.last.flatMap { $0.count == 1 && raw.count > 1 ? $0 : nil } : nil
+                let span = (lead != nil || trail != nil) ? Desktop.widened(found.span, leading: lead, trailing: trail, in: hits) : found.span
+                return (candidate.index, targets[candidate.index], span, found.matched, candidate.from)
             }
         }
         return nil

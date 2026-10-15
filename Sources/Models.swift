@@ -10,6 +10,29 @@ struct ScriptLine: Codable, Identifiable, Equatable {
     var id: Int
     var text: String
     var highlights: [TextSpan]
+
+    /// The line with its highlighting flipped: the stretches between the bold phrases become the phrases
+    /// (trimmed of spaces), and the bold ones become plain. Stretches with no word of two letters or more
+    /// (a lone comma, "I") are left out, as nothing could be matched on screen for them.
+    var flipped: ScriptLine {
+        let chars = Array(text)
+        var spans: [TextSpan] = []
+        var cursor = 0
+        func add(_ from: Int, _ to: Int) {
+            var a = from, b = to
+            while a < b, chars[a].isWhitespace { a += 1 }
+            while b > a, chars[b - 1].isWhitespace { b -= 1 }
+            guard b > a else { return }
+            let piece = String(chars[a ..< b])
+            guard piece.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).contains(where: { $0.count > 1 }) else { return }
+            spans.append(TextSpan(start: a, end: b, text: piece))
+        }
+        for span in highlights.sorted(by: { $0.start < $1.start }) {
+            add(cursor, min(span.start, chars.count)); cursor = max(cursor, span.end)
+        }
+        add(cursor, chars.count)
+        return ScriptLine(id: id, text: text, highlights: spans)
+    }
 }
 
 /// The jobs Edit Assist can do. Each has its own page; only one runs at a time, and the run bar
@@ -77,6 +100,8 @@ struct Project: Codable, Identifiable {
     var keepStyle: Bool? = nil
     var rememberedStyle: RememberedStyle? = nil
     var keepsStyle: Bool { keepStyle ?? true }
+    /// Highlight the text between the bold phrases instead of the bold phrases. Optional for older projects.
+    var flipHighlights: Bool? = nil
     /// Indices into the flattened phrase list that are already done. A set rather than a counter,
     /// so you can work wherever the playhead happens to be and resume without losing earlier ones.
     var completed: [Int] = []

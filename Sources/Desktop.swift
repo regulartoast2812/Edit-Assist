@@ -374,9 +374,13 @@ final class Desktop {
             func flip(_ box: CGRect) -> CGRect {
                 CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height)
             }
+            // Each word's box from its own place in the line (a split keeps the line's indices). Searching for the
+            // word found its first occurrence: a repeated word, or "a" inside "and", got another word's box.
+            // One-letter words keep a box too, so a phrase can be widened to take in "I" or "a" (matching itself
+            // still leaves them out).
             var words: [(String, CGRect)] = []
-            for word in text.split(separator: " ") where word.count > 1 {
-                if let range = text.range(of: word), let box = try? candidate.boundingBox(for: range) {
+            for word in text.split(separator: " ") {
+                if let box = try? candidate.boundingBox(for: word.startIndex ..< word.endIndex) {
                     words.append((String(word), flip(box.boundingBox)))
                 }
             }
@@ -502,6 +506,27 @@ final class Desktop {
             length -= 1
         }
         return nil
+    }
+
+    /// One-letter words ("I", "a") are left out of matching, as text recognition places them poorly; a phrase that
+    /// starts or ends with one would then be selected without it ("I thought" as "thought"). This widens the span
+    /// to that letter when it is read as its own word right beside the match, on the same line.
+    nonisolated static func widened(_ span: Span, leading: String?, trailing: String?, in hits: [TextHit]) -> Span {
+        var span = span
+        let words = hits.flatMap { hit in hit.words.map { (text: $0.0.lowercased().trimmingCharacters(in: .punctuationCharacters), rect: $0.1) } }
+        func level(_ rect: CGRect, _ y: CGFloat) -> Bool { abs(rect.midY - y) < rect.height * 0.6 }
+        if let leading = leading?.lowercased(),
+           let word = words.filter({ $0.text == leading && level($0.rect, span.start.y) && $0.rect.maxX <= span.start.x + 0.002
+                                     && span.start.x - $0.rect.maxX < $0.rect.height * 1.2 }).max(by: { $0.rect.maxX < $1.rect.maxX }) {
+            span.start = CGPoint(x: word.rect.minX, y: span.start.y)
+            span.firstWord = CGPoint(x: word.rect.midX, y: word.rect.midY)
+        }
+        if let trailing = trailing?.lowercased(),
+           let word = words.filter({ $0.text == trailing && level($0.rect, span.end.y) && $0.rect.minX >= span.end.x - 0.002
+                                     && $0.rect.minX - span.end.x < $0.rect.height * 1.2 }).min(by: { $0.rect.minX < $1.rect.minX }) {
+            span.end = CGPoint(x: word.rect.maxX, y: span.end.y)
+        }
+        return span
     }
 
     /// Shared with the inspection overlay so its labels show the actual matcher filter.

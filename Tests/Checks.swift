@@ -1050,6 +1050,14 @@ struct Checks {
         check(!Desktop.sameWords(["after", "66"], ["after", "65"]), "A number must match exactly")
         check(!Desktop.sameWords(["clases", "ih", "front"], ["closes", "in", "front"]), "Only one word may be loose")
         check(!Desktop.sameWords(["closes", "ix", "front"], ["closes", "in", "front"]), "Only known lookalike letters are tolerated")
+        // Flip: the text between the bold phrases becomes the phrases, trimmed; stretches with no real word drop out.
+        do {
+            let line = try ScriptParser.parse("**After 65**, I thought **tummy control **meant squeezing my waist - until I found **these jeans.**")[0]
+            check(line.flipped.highlights.map(\.text) == [", I thought", "meant squeezing my waist - until I found"],
+                  "Flip highlights the text between the bold phrases (\(line.flipped.highlights.map(\.text)))")
+            let allBold = try ScriptParser.parse("**all bold**")[0]
+            check(allBold.flipped.highlights.isEmpty, "Flip of an all-bold line has nothing to highlight")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

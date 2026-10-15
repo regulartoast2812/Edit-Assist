@@ -345,7 +345,17 @@ struct ContentView: View {
             attachmentControls
             if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
             if let error = parseError { Text(error).font(.system(size: 11)).foregroundStyle(.orange) }
-            label("PARSED HIGHLIGHTS")
+            HStack(spacing: 10) {
+                label("HIGHLIGHT")
+                // Flip: the text between the bold phrases is styled instead (the bold reads as the plain part).
+                Picker("Highlight", selection: Binding(get: { s.project.flipHighlights == true }, set: { s.update(\.flipHighlights, $0 ? true : nil) })) {
+                    Text("Bold text").tag(false)
+                    Text("Everything else").tag(true)
+                }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(s.busy)
+                    .help("Bold text: highlight the bold phrases. Everything else: highlight the text between them instead.")
+                Spacer()
+            }
+            label(s.project.flipHighlights == true ? "PARSED HIGHLIGHTS · FLIPPED" : "PARSED HIGHLIGHTS")
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(s.parsed.filter { !$0.highlights.isEmpty }) { line in
