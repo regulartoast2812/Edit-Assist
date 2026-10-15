@@ -722,7 +722,14 @@ struct ContentView: View {
                             label("FONT SIZE STEP")
                             Spacer()
                             // Type a number or use the arrows: 0 leaves the size as it is, below 0 makes it smaller.
-                            let step = Binding(get: { s.project.fontSizeStep }, set: { s.update(\.fontSizeStep, min(200, max(-100, $0))) })
+                            // A step of 0 changes no size: Apply follows it to Style only, and back to Style & size when the
+                            // step leaves 0 from there (the arrows pass through 0 on the way from 1 to -1).
+                            let step = Binding(get: { s.project.fontSizeStep }, set: { value in
+                                let was = s.project.fontSizeStep, now = min(200, max(-100, value))
+                                s.update(\.fontSizeStep, now)
+                                if now == 0, s.project.runParts == nil { s.update(\.runParts, "style") }
+                                else if was == 0, now != 0, s.project.runParts == "style" { s.update(\.runParts, nil) }
+                            })
                             HStack(spacing: 4) {
                                 TextField("0", value: step, format: .number)
                                     .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
