@@ -401,6 +401,20 @@ final class Store: ObservableObject {
 
     /// Saves a screen where the style browser shows but its grid is not found, with what was read on it,
     /// to recordings/diagnostics, so the failure can be studied instead of guessed at.
+    /// Saves a screen where part of a script phrase showed but no phrase could be selected, with its reading.
+    func savePhraseDiagnostic(_ shot: Observation, note: String) {
+        let directory = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let snapshot = Snapshot(kind: "phrase", note: note, image: "\(stamp)-phrase.png", hits: shot.text.map(RecordedHit.init),
+                                candidates: phraseCandidates().map(\.tokens))
+        if let png = NSBitmapImageRep(cgImage: shot.image).representation(using: .png, properties: [:]) {
+            try? png.write(to: directory.appendingPathComponent("\(stamp)-phrase.png"))
+        }
+        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: directory.appendingPathComponent("\(stamp)-phrase.json")) }
+        log("OCR: \(note); saved the screen to \(directory.path)")
+    }
+
     /// The style browser's last text reading in a run, for diagnostics saved while the overlay is not reading.
     var styleTextForDiagnostics: Observation?
     private func saveGridDiagnostic(image: CGImage, text: [TextHit], note: String = "live overlay: style browser shown, no grid found", before: CGImage? = nil) {
@@ -1164,6 +1178,8 @@ final class Store: ObservableObject {
                     /// Where the Font Size value sat, beside its label, and the sizes typed so far this pass.
                     var fontField: (value: CGRect, label: CGRect)?
                     var sizesTyped: [Int] = []
+                    /// One saved screen per run of a phrase that could not be read, so a miss can be looked at.
+                    var phraseMissSaved = false
                     /// Highlight graphics: how far down (pixels, negative) the Properties panel was scrolled from its
                     /// top to show Linked style, for a panel of this size. Tried first on the next phrase, then checked.
                     var linkedStyleScroll: (pixels: Int, panel: CGSize)?
@@ -1189,6 +1205,23 @@ final class Store: ObservableObject {
                             if let again = nextVisible(in: sharp.text, anyTarget: anyTarget, minHeight: captionFloor, area: captionReach) {
                                 log("OCR: read the caption again at higher resolution and found “\(again.phrase)”")
                                 shot = sharp; found = again
+                            } else if let picture = Desktop.programPicture(in: shot.text, image: shot.image) ?? captionReach {
+                                // Still not: read the Program Monitor's picture in other renderings (brightest and darkest
+                                // channel, grey with contrast, twice the size), each in place of that area's own reading.
+                                let image = shot.image, outside = shot.text.filter { !$0.rect.intersects(picture) }
+                                let readings = await Task.detached(priority: .userInitiated) { Desktop.readEnhanced(image, area: picture) }.value
+                                for (number, lines) in readings.enumerated() {
+                                    if let again = nextVisible(in: outside + lines, anyTarget: anyTarget, minHeight: captionFloor, area: captionReach) {
+                                        log("OCR: found “\(again.phrase)” in another rendering of the caption (\(["twice the size", "brightest channel", "darkest channel", "grey with contrast"][number]))")
+                                        shot.text = outside + lines; found = again
+                                        break
+                                    }
+                                }
+                                if found == nil, !phraseMissSaved {
+                                    // Evidence for the next fix: the screen where part of a phrase showed but none could be selected.
+                                    phraseMissSaved = true
+                                    savePhraseDiagnostic(shot, note: "part of a phrase readable, none selectable in any rendering")
+                                }
                             }
                         }
                         observation = shot

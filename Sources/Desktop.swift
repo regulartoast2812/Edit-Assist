@@ -325,6 +325,36 @@ final class Desktop {
         return rep.representation(using: .png, properties: [:])
     }
 
+    /// The caption area read again in other renderings, for styled captions one reading misses: glows,
+    /// gradients and coloured outlines each read best in a different one (tested on real captions: an inverted
+    /// or thresholded reading turned "jeans" into "ieans", the brightest-channel reading kept it). Each set of
+    /// lines comes back in window coordinates; only the area's own text, the rest of the window is not read.
+    nonisolated static func readEnhanced(_ image: CGImage, area: CGRect) -> [[TextHit]] {
+        let W = CGFloat(image.width), H = CGFloat(image.height)
+        let pixels = CGRect(x: area.minX * W, y: area.minY * H, width: area.width * W, height: area.height * H).integral
+            .intersection(CGRect(x: 0, y: 0, width: W, height: H))
+        guard pixels.width > 20, pixels.height > 20, let crop = image.cropping(to: pixels) else { return [] }
+        let region = CGRect(x: pixels.minX / W, y: pixels.minY / H, width: pixels.width / W, height: pixels.height / H)
+        let source = CIImage(cgImage: crop).transformed(by: CGAffineTransform(scaleX: 2, y: 2))
+        let renderings: [CIImage] = [
+            source,                                                                   // twice the size
+            source.applyingFilter("CIMaximumComponent"),                              // brightest channel: light text on any colour
+            source.applyingFilter("CIMinimumComponent"),                              // darkest channel: coloured outlines
+            source.applyingFilter("CIColorControls", parameters: ["inputSaturation": 0, "inputContrast": 1.6]),
+        ]
+        func place(_ r: CGRect) -> CGRect {
+            CGRect(x: region.minX + r.minX * region.width, y: region.minY + r.minY * region.height,
+                   width: r.width * region.width, height: r.height * region.height)
+        }
+        return renderings.compactMap { rendering in
+            guard let cg = enhanceContext.createCGImage(rendering, from: rendering.extent) else { return nil }
+            return recognize(cg).map { hit in
+                TextHit(text: hit.text, rect: place(hit.rect), words: hit.words.map { ($0.0, place($0.1)) })
+            }
+        }
+    }
+    nonisolated(unsafe) private static let enhanceContext = CIContext(options: [.cacheIntermediates: false])
+
     /// On-device text recognition. Roughly half a second for a full window, against ~25s for a model
     /// round trip, and it returns measured boxes instead of an estimate, which is what fixes misclicks.
     nonisolated static func recognize(_ image: CGImage) -> [TextHit] {
@@ -493,7 +523,10 @@ final class Desktop {
         // The interface measure moves with how much small text was read (a sharper capture reads more),
         // so a caption height already seen on this screen sets a floor of its own.
         return all.filter { block in
-            guard let first = block.first, first.rect.height >= max(floor, minHeight) else { return false }
+            // Any line of the block caption-sized, not only its first: a two-tone caption sets a small plain line
+            // over the large highlighted phrase ("until I found" / "these jeans"), and judging the block by its
+            // small first line threw the phrase out with it.
+            guard block.contains(where: { $0.rect.height >= max(floor, minHeight) }) else { return false }
             // Height alone can be close: two timeline labels read as one line came to 0.021 against a
             // 0.031 caption. Position cannot be: the timeline is nowhere near the Program Monitor.
             if let area { return block.contains { $0.rect.intersects(area) } }
@@ -549,7 +582,7 @@ final class Desktop {
 
     /// Letters that text recognition mistakes for one another on stylised captions (outlines, gradients):
     /// "closes ih front" was read for "closes in front" on a tester's screen, and the phrase was not found.
-    nonisolated static let lookalikes: Set<String> = ["hn", "nh", "li", "il", "l1", "1l", "i1", "1i", "o0", "0o", "ce", "ec", "uv", "vu", "ft", "tf"]
+    nonisolated static let lookalikes: Set<String> = ["hn", "nh", "li", "il", "l1", "1l", "i1", "1i", "o0", "0o", "ce", "ec", "uv", "vu", "ft", "tf", "ij", "ji"]
 
     /// The words read on screen against the phrase's words: equal, except that one word of a phrase of two or
     /// more may differ by one lookalike letter (same length, not a number), provided another word is exact. A
@@ -1988,7 +2021,7 @@ final class Desktop {
 
     /// macOS's own overlays, not windows in the way. With the Dock always shown, the Dock draws into a window
     /// as large as the screen; taken for a window in front, a tester's run waited "for Dock" without end.
-    static let systemOverlays: Set<String> = ["Dock", "Window Server", "Control Center", "SystemUIServer", "Notification Center",
+    nonisolated static let systemOverlays: Set<String> = ["Dock", "Window Server", "Control Center", "SystemUIServer", "Notification Center",
                                               "Spotlight", "TextInputMenuAgent", "Wallpaper", "WindowManager"]
 
     /// What is in front of the target window at a point, from the window list front to back: nil when the
