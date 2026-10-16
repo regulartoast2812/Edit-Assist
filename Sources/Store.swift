@@ -214,32 +214,47 @@ final class Store: ObservableObject {
     }
     var activityLogURL: URL { folder.appendingPathComponent("activity-\(project.id.uuidString).log") }
 
-    /// Where Email log sends to.
-    static let logRecipient = "thenguyen2812@gmail.com"
-    /// Opens a new email to the log recipient with this session's errors, the versions involved and the full activity
-    /// log attached, ready to send. Without a Mail account, everything is copied to paste into any email instead.
-    func emailLog() {
+    /// Packs what is needed to look into a problem into one zip and shows it selected in Finder, to drag into any chat
+    /// app: a summary (versions, project, this session's errors), the full activity log, and the screens saved when
+    /// something went wrong in the last two days. Kept in a "Logs" folder next to the app's data.
+    func revealLogPackage() {
         let premiere = NSWorkspace.shared.runningApplications.first { Desktop.isPremiere($0) }
             .flatMap { $0.bundleURL }.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String } ?? "not running"
-        let body = """
-        Edit Assist \(Updater.current) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · Premiere \(premiere)
-        Project: \(project.name) · \(problems.count) problem\(problems.count == 1 ? "" : "s") this session
+        let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")
+        let logs = folder.appendingPathComponent("Logs", isDirectory: true)
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Edit Assist log \(stamp)", isDirectory: true)
+        let zip = logs.appendingPathComponent("Edit Assist log \(stamp).zip")
+        do {
+            try? FileManager.default.removeItem(at: staging)
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            let summary = """
+            Edit Assist \(Updater.current) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · Premiere \(premiere)
+            Project: \(project.name) · \(problems.count) problem\(problems.count == 1 ? "" : "s") this session
 
-        \(problems.isEmpty ? "No errors recorded this session." : problemsText)
-
-        The full activity log is attached.
-        """
-        let subject = "Edit Assist log · \(Updater.current) · \(Date().formatted(date: .abbreviated, time: .shortened))"
-        if let mail = NSSharingService(named: .composeEmail), mail.canPerform(withItems: [body, activityLogURL]) {
-            mail.recipients = [Store.logRecipient]
-            mail.subject = subject
-            mail.perform(withItems: [body, activityLogURL])
-            log("Log: opened an email to \(Store.logRecipient) with the activity log attached")
-        } else {
-            let full = body + "\n\n" + ((try? String(contentsOf: activityLogURL, encoding: .utf8)).map { String($0.suffix(60_000)) } ?? "")
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(full, forType: .string)
-            error = "No Mail account is set up, so the log was copied instead. Paste it into an email to \(Store.logRecipient)."
-        }
+            \(problems.isEmpty ? "No errors recorded this session." : problemsText)
+            """
+            try summary.write(to: staging.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
+            if FileManager.default.fileExists(atPath: activityLogURL.path) {
+                try FileManager.default.copyItem(at: activityLogURL, to: staging.appendingPathComponent("activity.log"))
+            }
+            let diagnostics = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
+            let recent = ((try? FileManager.default.contentsOfDirectory(at: diagnostics, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                .filter { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > Date().addingTimeInterval(-2 * 86400) }
+            if !recent.isEmpty {
+                let screens = staging.appendingPathComponent("screens", isDirectory: true)
+                try FileManager.default.createDirectory(at: screens, withIntermediateDirectories: true)
+                for file in recent { try? FileManager.default.copyItem(at: file, to: screens.appendingPathComponent(file.lastPathComponent)) }
+            }
+            let ditto = Process()
+            ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            ditto.arguments = ["-c", "-k", "--norsrc", "--keepParent", staging.path, zip.path]  // no "._" Finder files
+            try ditto.run(); ditto.waitUntilExit()
+            try? FileManager.default.removeItem(at: staging)
+            guard ditto.terminationStatus == 0 else { throw AssistError.message("Could not pack the log (zip failed).") }
+            NSWorkspace.shared.activateFileViewerSelecting([zip])
+            log("Log: packed \(zip.lastPathComponent) (\(recent.count) saved screen\(recent.count == 1 ? "" : "s")) and showed it in Finder")
+        } catch { self.error = "Could not prepare the log: \(error.localizedDescription)" }
     }
     @Published var command = ""
     @Published var attachments: [Data] = []

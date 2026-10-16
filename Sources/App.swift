@@ -1080,13 +1080,12 @@ struct ErrorLogView: View {
                     }.frame(maxHeight: 360)
                 }
                 HStack {
-                    Button { s.emailLog() } label: { Label("Email log", systemImage: "envelope") }
+                    Button { s.revealLogPackage() } label: { Label("Show log file", systemImage: "folder") }
                         .buttonStyle(.borderedProminent)
-                        .help("Opens an email to \(Store.logRecipient) with these errors and the full activity log attached")
+                        .help("Packs the errors, the full log and the screens saved on problems into one zip and shows it in Finder, to drag into a chat")
                     Button("Copy all") {
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s.problemsText, forType: .string)
                     }.disabled(s.problems.isEmpty)
-                    Button("Show full log") { NSWorkspace.shared.activateFileViewerSelecting([s.activityLogURL]) }
                     Spacer()
                     Button("Clear") { s.problems = []; s.unseenProblems = 0 }.disabled(s.problems.isEmpty)
                 }.font(.system(size: 11))
