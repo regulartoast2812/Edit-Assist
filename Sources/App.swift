@@ -91,6 +91,7 @@ struct ContentView: View {
     @State private var detectionSettingsOpen = false
     @State private var settingsOpen = false
     @State private var techStackOpen = false
+    @State private var logOpen = false
     @State private var settingsDestination: String?
     var body: some View {
         HStack(spacing: 0) {
@@ -205,6 +206,17 @@ struct ContentView: View {
                 Label("Tech stack", systemImage: "square.stack.3d.up").font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
+            // The error log, also in the bottom-right corner: new problems counted beside it.
+            Button { logOpen.toggle(); s.unseenProblems = 0 } label: {
+                HStack(spacing: 6) {
+                    Label("Log", systemImage: "doc.text.magnifyingglass").font(.system(size: 12))
+                    if s.unseenProblems > 0 {
+                        Text("\(s.unseenProblems)").font(.system(size: 10, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.25), in: Capsule()).foregroundStyle(.orange)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
             Text("Edit Assist · Preview").font(.system(size: 10)).foregroundStyle(.secondary)
         }.padding(18).background(panel.opacity(0.55))
     }
@@ -1034,7 +1046,14 @@ struct ErrorLogButton: View {
             .foregroundStyle(s.unseenProblems > 0 ? Color.orange : .secondary)
         }
         .buttonStyle(.plain).help("Error log")
-        .popover(isPresented: $open, arrowEdge: .top) {
+        .popover(isPresented: $open, arrowEdge: .top) { ErrorLogView().environmentObject(s) }
+    }
+}
+
+/// The error log: every problem this session with its time, and Email log, Copy all, Show full log, Clear.
+struct ErrorLogView: View {
+    @EnvironmentObject var s: Store
+    var body: some View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Error log").font(.system(size: 15, weight: .semibold))
@@ -1061,6 +1080,9 @@ struct ErrorLogButton: View {
                     }.frame(maxHeight: 360)
                 }
                 HStack {
+                    Button { s.emailLog() } label: { Label("Email log", systemImage: "envelope") }
+                        .buttonStyle(.borderedProminent)
+                        .help("Opens an email to \(Store.logRecipient) with these errors and the full activity log attached")
                     Button("Copy all") {
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s.problemsText, forType: .string)
                     }.disabled(s.problems.isEmpty)
@@ -1069,7 +1091,6 @@ struct ErrorLogButton: View {
                     Button("Clear") { s.problems = []; s.unseenProblems = 0 }.disabled(s.problems.isEmpty)
                 }.font(.system(size: 11))
             }.padding(16).frame(width: 440).tint(accent)
-        }
     }
 }
 

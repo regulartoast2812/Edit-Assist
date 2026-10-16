@@ -213,6 +213,34 @@ final class Store: ObservableObject {
         problems.map { "\($0.time.formatted(date: .abbreviated, time: .standard))  \($0.message)" }.joined(separator: "\n")
     }
     var activityLogURL: URL { folder.appendingPathComponent("activity-\(project.id.uuidString).log") }
+
+    /// Where Email log sends to.
+    static let logRecipient = "thenguyen2812@gmail.com"
+    /// Opens a new email to the log recipient with this session's errors, the versions involved and the full activity
+    /// log attached, ready to send. Without a Mail account, everything is copied to paste into any email instead.
+    func emailLog() {
+        let premiere = NSWorkspace.shared.runningApplications.first { Desktop.isPremiere($0) }
+            .flatMap { $0.bundleURL }.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String } ?? "not running"
+        let body = """
+        Edit Assist \(Updater.current) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · Premiere \(premiere)
+        Project: \(project.name) · \(problems.count) problem\(problems.count == 1 ? "" : "s") this session
+
+        \(problems.isEmpty ? "No errors recorded this session." : problemsText)
+
+        The full activity log is attached.
+        """
+        let subject = "Edit Assist log · \(Updater.current) · \(Date().formatted(date: .abbreviated, time: .shortened))"
+        if let mail = NSSharingService(named: .composeEmail), mail.canPerform(withItems: [body, activityLogURL]) {
+            mail.recipients = [Store.logRecipient]
+            mail.subject = subject
+            mail.perform(withItems: [body, activityLogURL])
+            log("Log: opened an email to \(Store.logRecipient) with the activity log attached")
+        } else {
+            let full = body + "\n\n" + ((try? String(contentsOf: activityLogURL, encoding: .utf8)).map { String($0.suffix(60_000)) } ?? "")
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(full, forType: .string)
+            error = "No Mail account is set up, so the log was copied instead. Paste it into an email to \(Store.logRecipient)."
+        }
+    }
     @Published var command = ""
     @Published var attachments: [Data] = []
     @Published var scriptDraft: String?
