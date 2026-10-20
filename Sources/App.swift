@@ -178,7 +178,7 @@ struct ContentView: View {
             Button(L("Update now")) { s.updatePromptOpen = false; s.installUpdate() }
             Button(L("Later"), role: .cancel) { s.declineUpdate() }
         } message: {
-            Text(L("Edit Assist %@ is available. You have %@. Updating takes a few seconds and reopens the app; your projects stay as they are.",
+            Text(L("Edit Assist %@ is available (you have %@).\n\nIt takes a few seconds and reopens the app. Your projects stay as they are.",
                    s.update?.label ?? "", Updater.current))
         }
         // The error log, bottom right: a count of new problems, and the list of what went wrong.
@@ -394,7 +394,7 @@ struct ContentView: View {
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.06)))
                 .frame(minHeight: 300).disabled(s.busy)
             if !s.project.script.isEmpty && s.targetCount == 0 {
-                Text(md: L("No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.")).font(.system(size: 11)).foregroundStyle(.orange)
+                Text(md: L("No bold phrases found in the script.\n→ Select phrases and press ⌘B, or paste again with Paste formatted text.")).font(.system(size: 11)).foregroundStyle(.orange)
             } else {
                 Text(md: L("Bold in what you paste becomes the phrases, in green. ⌘B highlights a selection · ⌘Z undoes."))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -443,7 +443,7 @@ struct ContentView: View {
                 }
             }
             HStack {
-                Text(md: L("Words count separately, so a phrase split across caption clips shows partial progress. Redo clears one phrase."))
+                Text(md: L("Each word counts: a phrase split across clips shows part done."))
                     .font(.system(size: 9)).foregroundStyle(.secondary)
                 Spacer()
                 Button(L("Reset progress")) { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords(graphics: s.progressGraphics).isEmpty)
@@ -738,7 +738,7 @@ struct ContentView: View {
     var taskColumn: some View {
         VStack(alignment: .leading, spacing: 18) {
             columnTitle(L("TASK"))
-            Text(L(s.function.summary)).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+            Bullets(s.function.points)
             if s.targets.isEmpty {
                 card(L("To do")) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -974,8 +974,8 @@ struct PermissionsView: View {
                             .buttonStyle(.borderedProminent)
                         Button(L("Open System Settings")) { openAfterAsking(control: true) }
                     }
-                    Text(md: L("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. Already on in the list (after an update)? Turn it **off and on again**. This step ticks itself as soon as it is on."))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Bullets(["Click **Ask macOS**", "In its popup, click **Open System Settings**", "Turn on **Edit Assist**"], numbered: true)
+                    Tip("No popup? Use **Open System Settings** here. Already on after an update? Turn it **off and on again**. This step ticks itself.")
                 }
             }
             step(2, "Screen recording", "Lets Edit Assist see the Premiere window. It does not record or save your screen.",
@@ -987,8 +987,8 @@ struct PermissionsView: View {
                                 .buttonStyle(.borderedProminent)
                             Button(L("Open System Settings")) { screenRequested = true; openAfterAsking(control: false) }
                         }
-                        Text(md: L("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist** (already on after an update? turn it **off and on again**). When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done."))
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                        Bullets(["Click **Ask macOS**", "In its popup, click **Open System Settings**", "Turn on **Edit Assist**", "When macOS offers **Quit & Reopen**, choose it"], numbered: true)
+                        Tip("Already on after an update? Turn it **off and on again**. Edit Assist reopens with this step done.")
                     } else {
                         Button { s.restart() } label: {
                             Label(L("Restart Edit Assist to finish"), systemImage: "arrow.clockwise")
@@ -1022,7 +1022,7 @@ struct PermissionsView: View {
             Button(L("Reset and reopen"), role: .destructive) { screenRequested = false; s.restart(resetPermissions: true) }
             Button(L("Cancel"), role: .cancel) { }
         } message: {
-            Text(md: L("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected."))
+            Text(md: L("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again.\n\nOnly this app is affected."))
         }
     }
 
@@ -1062,10 +1062,7 @@ struct PermissionsView: View {
     /// For when the steps did not take: old duplicate rows in System Settings, or a copy elsewhere.
     var trouble: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(md: L("If Edit Assist is turned on in System Settings but a step still is not ticked, the list may hold an old entry from an earlier copy. **Reset & re-register** removes Edit Assist's entries and reopens it so macOS asks again."))
-                .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
-            Text(md: L("After an update, macOS may ask again: each new version looks like a new app to it."))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Bullets(["Turned on but **not ticked**? The list may hold an **old entry** from an earlier copy", "**Reset & re-register** removes Edit Assist's entries and reopens it, so macOS asks again", "After an **update**, macOS may ask again: each version is a new app to it"])
             VStack(alignment: .leading, spacing: 4) {
                 Text(md: L("THIS COPY")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(s.desktop.bundlePath).font(.system(size: 10, design: .monospaced))
@@ -1204,5 +1201,45 @@ struct FlowLayout: Layout {
             view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing; row = max(row, size.height)
         }
+    }
+}
+
+
+/// Points or numbered steps, one idea each, **bold** for the key words. Every list of instructions uses this.
+struct Bullets: View {
+    let items: [String]
+    var numbered = false
+    var size: CGFloat = 12
+    private let accent = Color(red: 0.43, green: 0.88, blue: 0.73)
+    init(_ items: [String], numbered: Bool = false, size: CGFloat = 12) { self.items = items; self.numbered = numbered; self.size = size }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if numbered {
+                        Text("\(index + 1)").font(.system(size: size - 2, weight: .bold, design: .rounded)).foregroundStyle(.black.opacity(0.75))
+                            .frame(width: 16, height: 16).background(accent.opacity(0.85), in: Circle())
+                    } else {
+                        Circle().fill(accent).frame(width: 5, height: 5).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                    }
+                    Text(md: L(item)).font(.system(size: size)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+/// A tip in a tinted box, after the steps it belongs to.
+struct Tip: View {
+    let text: String
+    private let accent = Color(red: 0.43, green: 0.88, blue: 0.73)
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "lightbulb").font(.system(size: 10)).foregroundStyle(accent)
+            Text(md: L(text)).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
     }
 }

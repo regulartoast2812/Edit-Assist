@@ -83,8 +83,8 @@ enum Vietnamese {
         "Reset & re-register": "Đặt lại và đăng ký lại",
         "Reset Edit Assist's permissions?": "Đặt lại quyền của Edit Assist?",
         "Reset and reopen": "Đặt lại và mở lại",
-        "Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected.":
-            "Gỡ Edit Assist khỏi Screen Recording và Accessibility, rồi mở lại để macOS hỏi lại. Chỉ ảnh hưởng đến ứng dụng này.",
+        "Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again.\n\nOnly this app is affected.":
+            "Gỡ Edit Assist khỏi Screen Recording và Accessibility, rồi mở lại để macOS hỏi lại.\n\nChỉ ảnh hưởng đến ứng dụng này.",
         "Start using Edit Assist": "Bắt đầu dùng Edit Assist",
         "Later": "Để sau",
         "macOS permissions": "Quyền macOS",
@@ -130,8 +130,8 @@ enum Vietnamese {
         "Update available": "Có bản cập nhật",
         "Update to latest version": "Cập nhật lên bản mới nhất",
         "Installing the update…": "Đang cài bản cập nhật…",
-        "Edit Assist %@ is available. You have %@. Updating takes a few seconds and reopens the app; your projects stay as they are.":
-            "Đã có Edit Assist %@. Bạn đang dùng %@. Cập nhật mất vài giây và ứng dụng sẽ tự mở lại; các dự án của bạn vẫn giữ nguyên.",
+        "Edit Assist %@ is available (you have %@).\n\nIt takes a few seconds and reopens the app. Your projects stay as they are.":
+            "Đã có Edit Assist %@ (bạn đang dùng %@).\n\nCập nhật mất vài giây và ứng dụng sẽ tự mở lại. Các dự án của bạn vẫn giữ nguyên.",
         "Installing %@…": "Đang cài %@…",
         "Download and install, then reopen Edit Assist": "Tải về và cài đặt, rồi mở lại Edit Assist",
         "Finish or stop the run first": "Hãy kết thúc hoặc dừng lần chạy trước",
@@ -169,8 +169,7 @@ enum Vietnamese {
         "Redo": "Làm lại",
         "Reset progress": "Đặt lại tiến độ",
         "Progress reset": "Đã đặt lại tiến độ",
-        "Words count separately, so a phrase split across caption clips shows partial progress. Redo clears one phrase.":
-            "Mỗi từ được tính riêng, nên một cụm bị chia qua nhiều clip phụ đề sẽ hiện tiến độ từng phần. Làm lại sẽ xoá tiến độ của một cụm.",
+        "Each word counts: a phrase split across clips shows part done.": "Mỗi từ được tính riêng: cụm bị chia qua nhiều clip sẽ hiện phần đã xong.",
         "No phrases yet. The script belongs to the project, so every function can use it.": "Chưa có cụm từ nào. Kịch bản thuộc về dự án nên mọi chức năng đều dùng được.",
         "Add the script": "Thêm kịch bản",
         "Context": "Ngữ cảnh",
@@ -191,8 +190,8 @@ enum Vietnamese {
         "Font size step": "Mức tăng cỡ chữ",
         "Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller.":
             "Số điểm cộng thêm vào cỡ chữ của mỗi cụm được highlight. 0 là giữ nguyên; số âm là thu nhỏ.",
-        "Size only with a font size step of 0 has nothing to do. Set a step, or choose Style & size.":
-            "Chỉ cỡ với mức tăng bằng 0 thì không có gì để làm. Hãy đặt mức tăng, hoặc chọn Kiểu và cỡ.",
+        "Size only with a step of 0 has nothing to do.\n→ Set a font size step, or choose Style & size.":
+            "Chỉ cỡ với mức tăng bằng 0 thì không có gì để làm.\n→ Đặt mức tăng cỡ chữ, hoặc chọn Kiểu và cỡ.",
 
         // Steps
         "STEPS FOR EACH PHRASE (TESTING)": "CÁC BƯỚC CHO MỖI CỤM (ĐỂ KIỂM THỬ)",
@@ -244,8 +243,8 @@ enum Vietnamese {
         "Paste your script above: its bold phrases show here.": "Dán kịch bản ở trên: các cụm in đậm sẽ hiện ở đây.",
         "Highlight everything that is not highlighted now, and the reverse. ⌘Z undoes it.": "Highlight mọi phần đang không được highlight, và ngược lại. ⌘Z để hoàn tác.",
         "Select words and press ⌘B · Flip swaps highlighted and plain": "Chọn chữ rồi bấm ⌘B · Đảo sẽ hoán đổi phần highlight và phần thường",
-        "No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.":
-            "Không thấy cụm in đậm nào. Clipboard có thể chỉ chứa văn bản thường. Hãy đánh dấu cụm bằng ⌘B hoặc đọc ảnh chụp kịch bản có định dạng.",
+        "No bold phrases found in the script.\n→ Select phrases and press ⌘B, or paste again with Paste formatted text.":
+            "Không thấy cụm in đậm nào trong kịch bản.\n→ Chọn cụm rồi bấm ⌘B, hoặc dán lại bằng Dán văn bản có định dạng.",
         "Add screenshots…": "Thêm ảnh chụp…",
         "Paste image": "Dán ảnh",
         "PARSED HIGHLIGHTS": "CÁC CỤM HIGHLIGHT",
@@ -276,8 +275,8 @@ enum Vietnamese {
         "Check for updates": "Kiểm tra cập nhật",
         "Checking…": "Đang kiểm tra…",
         "Update now": "Cập nhật ngay",
-        "The update did not finish. Check your connection and try again; details are in ~/Library/Logs/Edit Assist update.log.":
-            "Cập nhật chưa xong. Hãy kiểm tra kết nối rồi thử lại; chi tiết nằm trong ~/Library/Logs/Edit Assist update.log.",
+        "The update did not finish.\n→ Check your connection and try again. Details: ~/Library/Logs/Edit Assist update.log":
+            "Cập nhật chưa xong.\n→ Kiểm tra kết nối rồi thử lại. Chi tiết: ~/Library/Logs/Edit Assist update.log",
         "Error log": "Nhật ký lỗi",
         "Errors": "Lỗi",
         "{n} new": "{n} mới",
@@ -297,6 +296,22 @@ enum Vietnamese {
         "Permissions…": "Quyền…",
         "Connection settings": "Cài đặt kết nối",
         "Language": "Ngôn ngữ",
+        // Lists
+        "Click **Ask macOS**": "Bấm **Ask macOS**",
+        "In its popup, click **Open System Settings**": "Trong cửa sổ hiện ra, bấm **Open System Settings**",
+        "Turn on **Edit Assist**": "Bật **Edit Assist**",
+        "When macOS offers **Quit & Reopen**, choose it": "Khi macOS đề nghị **Quit & Reopen**, hãy chọn",
+        "No popup? Use **Open System Settings** here. Already on after an update? Turn it **off and on again**. This step ticks itself.": "Không thấy cửa sổ? Dùng **Open System Settings** ở đây. Đã bật sẵn sau khi cập nhật? Hãy **tắt rồi bật lại**. Bước này tự đánh dấu.",
+        "Already on after an update? Turn it **off and on again**. Edit Assist reopens with this step done.": "Đã bật sẵn sau khi cập nhật? Hãy **tắt rồi bật lại**. Edit Assist mở lại với bước này đã xong.",
+        "Turned on but **not ticked**? The list may hold an **old entry** from an earlier copy": "Đã bật mà **chưa được đánh dấu**? Danh sách có thể còn **mục cũ** của bản trước",
+        "**Reset & re-register** removes Edit Assist's entries and reopens it, so macOS asks again": "**Đặt lại và đăng ký lại** xoá các mục của Edit Assist rồi mở lại, để macOS hỏi lại",
+        "After an **update**, macOS may ask again: each version is a new app to it": "Sau khi **cập nhật**, macOS có thể hỏi lại: mỗi phiên bản là một ứng dụng mới",
+        "Finds your script's **bold phrases** in the **captions**": "Tìm các **cụm in đậm** của kịch bản trong **phụ đề**",
+        "Applies **your style** and the **font size step**": "Áp **kiểu chữ của bạn** và **mức tăng cỡ chữ**",
+        "Clip by clip, **from the playhead**": "Từng clip một, **tính từ playhead**",
+        "Finds your script's **bold phrases** in **graphic text** on the video tracks": "Tìm các **cụm in đậm** của kịch bản trong **chữ đồ hoạ** trên các track video",
+        "Applies **your style** (Linked style) and the **font size step**": "Áp **kiểu chữ của bạn** (Linked style) và **mức tăng cỡ chữ**",
+        "**Hide the caption track** if it shows the same words": "**Ẩn track phụ đề** nếu nó hiện cùng nội dung",
         // Guide
         "Click your **project**": "Bấm vào **dự án** của bạn",
         "**Paste formatted text** from your script": "**Dán văn bản có định dạng** từ kịch bản",
@@ -394,31 +409,36 @@ enum Vietnamese {
         "Finished the sequence": "Đã hết sequence",
 
         // Run stops and errors
-        "Your style was not found in the browser. No style was clicked.": "Không tìm thấy kiểu chữ của bạn trong bảng. Chưa bấm vào kiểu nào.",
-        "The style browser did not open within six seconds. Open My Styles before retrying.": "Bảng kiểu chữ không mở trong vòng sáu giây. Hãy mở My Styles rồi thử lại.",
+        "Your style was not found in the style browser; nothing was clicked.\n→ Click Reset style, run again and pick it.":
+            "Không tìm thấy kiểu chữ của bạn trong bảng; chưa bấm gì.\n→ Bấm Đặt lại kiểu chữ, chạy lại và chọn lại.",
+        "The style browser did not open within six seconds.\n→ Open My Styles in Properties, then run again.":
+            "Bảng kiểu chữ không mở trong vòng sáu giây.\n→ Mở My Styles trong Properties, rồi chạy lại.",
         "Could not see the style tiles. Open My Styles before retrying.": "Không thấy các ô kiểu chữ. Hãy mở My Styles rồi thử lại.",
         "No style was clicked within ten minutes.": "Không có kiểu chữ nào được chọn trong vòng mười phút.",
-        "Could not select the caption. Check that the Program Monitor is showing it and the Selection tool is active.": "Không chọn được phụ đề. Hãy kiểm tra Program Monitor đang hiện nó và Selection tool đang được chọn.",
-        "Clicking the words did not select a graphic. If the caption track shows the same words on top, hide it (its eye in the timeline) so clicks land on the graphics, then run again.":
-            "Bấm vào chữ không chọn được đồ hoạ. Nếu track phụ đề hiện cùng nội dung ở trên, hãy ẩn nó (biểu tượng con mắt trên timeline) để cú bấm trúng đồ hoạ, rồi chạy lại.",
-        "This is graphic text, not a caption (it is on a video track, not a subtitle track). Use Highlight - Graphic Layers for it.":
-            "Đây là chữ đồ hoạ, không phải phụ đề (nó nằm trên track video, không phải track phụ đề). Hãy dùng Highlight - Lớp đồ hoạ.",
-        "The phrase is no longer where the caption was read, so nothing was dragged. Check the Program Monitor shows the caption, then run again.":
-            "Cụm không còn ở vị trí đã đọc, nên chưa kéo chọn gì. Hãy kiểm tra Program Monitor đang hiện phụ đề, rồi chạy lại.",
-        "Could not find Font Size on the Properties panel. Untick that stage if this project does not need it.": "Không tìm thấy Font Size trong bảng Properties. Hãy bỏ chọn bước đó nếu dự án không cần.",
-        "Font Size shows – (the selection mixes sizes) and no size has been set yet in this pass to repeat. Set this one by hand, then run again.":
-            "Font Size hiện – (vùng chọn có nhiều cỡ chữ) và lượt này chưa đặt cỡ nào để lặp lại. Hãy đặt cỡ cho cụm này bằng tay, rồi chạy lại.",
-        "Properties shows no clip selected (\"Select a clip in the timeline\"), so there is no style button to open. The selection was lost; run again from this phrase.":
-            "Properties không có clip nào được chọn (\"Select a clip in the timeline\"), nên không có nút kiểu chữ để mở. Vùng chọn đã mất; hãy chạy lại từ cụm này.",
-        "Properties shows the graphic as a whole (its layer list), not its text, so there is no Font Size. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.":
-            "Properties đang hiện cả khối đồ hoạ (danh sách layer), không phải phần chữ, nên không có Font Size. Hãy bấm đúp vào chữ trong Program Monitor để Properties hiện layer chữ, rồi chạy lại.",
-        "Properties shows the graphic as a whole (its layer list), not its text, so there is no Linked style row. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.":
-            "Properties đang hiện cả khối đồ hoạ (danh sách layer), không phải phần chữ, nên không có hàng Linked style. Hãy bấm đúp vào chữ trong Program Monitor để Properties hiện layer chữ, rồi chạy lại.",
-        "This text item has no Track Style row (a graphic, or a caption upgraded to one), so there is no four-square style button to open. Its font size was set; apply the style by hand, use Highlight graphics, or untick the style steps for it.":
-            "Mục chữ này không có hàng Track Style (là đồ hoạ, hoặc phụ đề đã chuyển thành đồ hoạ), nên không có nút bốn ô để mở. Cỡ chữ đã được đặt; hãy áp kiểu bằng tay, dùng Highlight - Lớp đồ hoạ, hoặc bỏ các bước kiểu chữ.",
-        "Premiere Pro is not open. Open your project in Premiere, then run again.": "Premiere Pro chưa mở. Hãy mở dự án trong Premiere, rồi chạy lại.",
-        "Edit Assist needs Screen Recording to see Premiere. Turn it on in System Settings → Privacy & Security → Screen Recording, then quit Edit Assist and open it again (macOS applies it only after a restart).":
-            "Edit Assist cần quyền Screen Recording để nhìn thấy Premiere. Hãy bật trong System Settings → Privacy & Security → Screen Recording, rồi thoát và mở lại Edit Assist (macOS chỉ áp dụng sau khi khởi động lại).",
+        "Could not select the caption.\n→ Make sure the Program Monitor shows it, then run again.":
+            "Không chọn được phụ đề.\n→ Kiểm tra Program Monitor đang hiện phụ đề, rồi chạy lại.",
+        "Clicking the words did not select a graphic.\n→ Hide the caption track (its eye in the timeline) if it shows the same words, then run again.":
+            "Bấm vào chữ không chọn được đồ hoạ.\n→ Ẩn track phụ đề (biểu tượng con mắt trên timeline) nếu nó hiện cùng nội dung, rồi chạy lại.",
+        "This is graphic text on a video track, not a caption.\n→ Use Highlight - Graphic Layers for it.":
+            "Đây là chữ đồ hoạ trên track video, không phải phụ đề.\n→ Hãy dùng Highlight - Lớp đồ hoạ.",
+        "The phrase moved before it could be selected; nothing was dragged.\n→ Make sure the Program Monitor shows the caption, then run again.":
+            "Cụm đã đổi chỗ trước khi kịp chọn; chưa kéo gì.\n→ Kiểm tra Program Monitor đang hiện phụ đề, rồi chạy lại.",
+        "Font Size was not found in Properties.\n→ Make sure the Properties tab is in front, or choose Style only.":
+            "Không tìm thấy Font Size trong Properties.\n→ Kiểm tra thẻ Properties đang ở phía trước, hoặc chọn Chỉ kiểu.",
+        "Font Size shows – (the selection mixes sizes).\n→ Set this phrase\'s size by hand, then run again.":
+            "Font Size hiện – (vùng chọn có nhiều cỡ chữ).\n→ Đặt cỡ chữ cho cụm này bằng tay, rồi chạy lại.",
+        "Properties shows no clip selected: the selection was lost.\n→ Run again from this phrase.":
+            "Properties không có clip nào được chọn: vùng chọn đã mất.\n→ Chạy lại từ cụm này.",
+        "Properties shows the whole graphic, not its text, so there is no Font Size.\n→ Double-click the text in the Program Monitor, then run again.":
+            "Properties đang hiện cả khối đồ hoạ, không phải phần chữ, nên không có Font Size.\n→ Bấm đúp vào chữ trong Program Monitor, rồi chạy lại.",
+        "Properties shows the whole graphic, not its text, so there is no Linked style.\n→ Double-click the text in the Program Monitor, then run again.":
+            "Properties đang hiện cả khối đồ hoạ, không phải phần chữ, nên không có Linked style.\n→ Bấm đúp vào chữ trong Program Monitor, rồi chạy lại.",
+        "This text has no Track Style row: it is graphic text. Its font size was set.\n→ Use Highlight - Graphic Layers for it.":
+            "Chữ này không có hàng Track Style: đây là chữ đồ hoạ. Cỡ chữ đã được đặt.\n→ Hãy dùng Highlight - Lớp đồ hoạ.",
+        "Premiere Pro is not open.\n→ Open your project in Premiere, then run again.":
+            "Premiere Pro chưa mở.\n→ Mở dự án trong Premiere, rồi chạy lại.",
+        "Edit Assist needs Screen Recording to see Premiere.\n→ System Settings → Privacy & Security → Screen Recording: turn on Edit Assist, then quit and reopen it.":
+            "Edit Assist cần quyền Screen Recording để nhìn thấy Premiere.\n→ System Settings → Privacy & Security → Screen Recording: bật Edit Assist, rồi thoát và mở lại.",
         "Enable Screen Recording so Edit Assist can see your editor. macOS may require quitting and reopening the app.": "Hãy bật Screen Recording để Edit Assist nhìn thấy trình dựng. macOS có thể yêu cầu thoát và mở lại ứng dụng.",
         "Enable Screen recording so Edit Assist can see your editor.": "Hãy bật Screen Recording để Edit Assist nhìn thấy trình dựng.",
         "Enable Accessibility in Permissions before running actions.": "Hãy bật Accessibility trong mục Quyền trước khi chạy.",

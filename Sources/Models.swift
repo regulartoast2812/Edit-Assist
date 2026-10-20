@@ -33,6 +33,13 @@ enum EditFunction: String, CaseIterable, Identifiable {
         case .highlightGraphics: return "Finds the bold phrases of your script in graphic text on the video tracks, applies your style from Linked style and enlarges the text, clip by clip from the playhead. Hide the caption track if it shows the same words, so clicks land on the graphics."
         }
     }
+    /// What the function does, as points for its page.
+    var points: [String] {
+        switch self {
+        case .highlight: return ["Finds your script's **bold phrases** in the **captions**", "Applies **your style** and the **font size step**", "Clip by clip, **from the playhead**"]
+        case .highlightGraphics: return ["Finds your script's **bold phrases** in **graphic text** on the video tracks", "Applies **your style** (Linked style) and the **font size step**", "Clip by clip, **from the playhead**", "**Hide the caption track** if it shows the same words"]
+        }
+    }
     var icon: String {
         switch self {
         case .highlight: return "highlighter"

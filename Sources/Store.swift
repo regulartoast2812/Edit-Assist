@@ -760,11 +760,11 @@ final class Store: ObservableObject {
     func findPremiere() async -> WindowChoice? {
         refreshPermissions()
         guard screenAllowed else {
-            error = "Edit Assist needs Screen Recording to see Premiere. Turn it on in System Settings → Privacy & Security → Screen Recording, then quit Edit Assist and open it again (macOS applies it only after a restart)."
+            error = "Edit Assist needs Screen Recording to see Premiere.\n→ System Settings → Privacy & Security → Screen Recording: turn on Edit Assist, then quit and reopen it."
             return nil
         }
         guard let premiere = NSWorkspace.shared.runningApplications.first(where: { Desktop.isPremiere($0) && !$0.isTerminated }) else {
-            error = "Premiere Pro is not open. Open your project in Premiere, then run again."
+            error = "Premiere Pro is not open.\n→ Open your project in Premiere, then run again."
             return nil
         }
         // Bring it forward: a minimised window or one in another Space comes onto this screen.
@@ -862,7 +862,7 @@ final class Store: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
                 guard let self, self.installingUpdate else { return }
                 self.installingUpdate = false
-                self.error = "The update did not finish. Check your connection and try again; details are in ~/Library/Logs/Edit Assist update.log."
+                self.error = "The update did not finish.\n→ Check your connection and try again. Details: ~/Library/Logs/Edit Assist update.log"
             }
         } catch { self.error = "Could not start the update: \(error.localizedDescription)" }
     }
@@ -1214,7 +1214,7 @@ final class Store: ObservableObject {
         do {
             guard !targets.isEmpty else { throw AssistError.message("Paste a script with bold phrases first.") }
             if only == nil, !project.doesStyle, project.fontSizeStep == 0 {
-                throw AssistError.message("Size only with a font size step of 0 has nothing to do. Set a step, or choose Style & size.")
+                throw AssistError.message("Size only with a step of 0 has nothing to do.\n→ Set a font size step, or choose Style & size.")
             }
             guard all || anyTarget || !remaining.isEmpty else { throw AssistError.message("All \(targets.count) phrases are done. Reset progress to start again.") }
             guard let followed = self.window else { throw AssistError.message("Edit Assist cannot see \(TargetApp.label) yet. Open one and click its window.") }
@@ -1574,14 +1574,14 @@ final class Store: ObservableObject {
                             if !graphics, !selected, let now = try? await desktop.capture(window, readText: true) {
                                 switch Desktop.propertiesState(in: now.text, image: now.image) {
                                 case .graphic, .graphicLayers:
-                                    try await stop(OCRStep.clickClip, "This is graphic text, not a caption (it is on a video track, not a subtitle track). Use Highlight - Graphic Layers for it.")
+                                    try await stop(OCRStep.clickClip, "This is graphic text on a video track, not a caption.\n→ Use Highlight - Graphic Layers for it.")
                                     return
                                 default: break
                                 }
                             }
                             // The fallbacks select the caption clip under the playhead: captions only.
                             if graphics, !selected {
-                                try await stop(OCRStep.clickClip, "Clicking the words did not select a graphic. If the caption track shows the same words on top, hide it (its eye in the timeline) so clicks land on the graphics, then run again.")
+                                try await stop(OCRStep.clickClip, "Clicking the words did not select a graphic.\n→ Hide the caption track (its eye in the timeline) if it shows the same words, then run again.")
                                 return
                             }
                             if !selected, let point = Desktop.clipAtPlayhead(in: shot.text, image: shot.image) {
@@ -1597,7 +1597,7 @@ final class Store: ObservableObject {
                                 log("OCR: fell back to D — \(selected ? "selected" : "not selected")")
                             }
                             guard selected else {
-                                try await stop(OCRStep.clickClip, "Could not select the caption. Check that the Program Monitor is showing it and the Selection tool is active.")
+                                try await stop(OCRStep.clickClip, "Could not select the caption.\n→ Make sure the Program Monitor shows it, then run again.")
                                 return
                             }
                         } else { log("OCR skip: \(OCRStep.clickClip.label)") }
@@ -1614,7 +1614,7 @@ final class Store: ObservableObject {
                                         minHeight: Double(captionFloor), area: captionReach?.recorded,
                                         point: [Double(span.start.x + 0.002), Double(span.start.y)], bool: captionHere))
                         guard captionHere else {
-                            try await stop(OCRStep.selectRange, "The phrase is no longer where the caption was read, so nothing was dragged. Check the Program Monitor shows the caption, then run again.")
+                            try await stop(OCRStep.selectRange, "The phrase moved before it could be selected; nothing was dragged.\n→ Make sure the Program Monitor shows the caption, then run again.")
                             return
                         }
                         try await send(.selectRange, AgentAction(kind: "drag", x: span.start.x, y: span.start.y, endX: span.end.x, endY: span.end.y, keys: [], scroll: 0, purpose: "Select \(hit.phrase)"))
@@ -1650,7 +1650,7 @@ final class Store: ObservableObject {
                                 outer = try await desktop.capture(window, readText: true); outerReading = outer
                             }
                             if graphics, find("font size", in: outer.text) == nil, case .graphicLayers = Desktop.propertiesState(in: outer.text, image: outer.image) {
-                                try await stop(OCRStep.increaseSize, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Font Size. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
+                                try await stop(OCRStep.increaseSize, "Properties shows the whole graphic, not its text, so there is no Font Size.\n→ Double-click the text in the Program Monitor, then run again.")
                                 return false
                             }
                             // Bring the Font Size row into view, whatever the panel is doing: another tab in
@@ -1674,7 +1674,7 @@ final class Store: ObservableObject {
                                 outer = try await desktop.capture(window, readText: true); outerReading = outer
                             }
                             guard let label = find("font size", in: outer.text) else {
-                                try await stop(OCRStep.increaseSize, "Could not find Font Size on the Properties panel. Untick that stage if this project does not need it.")
+                                try await stop(OCRStep.increaseSize, "Font Size was not found in Properties.\n→ Make sure the Properties tab is in front, or choose Style only.")
                                 return false
                             }
                             let target: Int, at: CGRect, was: String
@@ -1696,7 +1696,7 @@ final class Store: ObservableObject {
                                 at = known.value.offsetBy(dx: 0, dy: label.rect.midY - known.label.midY)
                                 log("OCR: Font Size shows – because the selection mixes sizes; setting \(usual), the size the other phrases got")
                             } else {
-                                try await stop(OCRStep.increaseSize, "Font Size shows – (the selection mixes sizes) and no size has been set yet in this pass to repeat. Set this one by hand, then run again.")
+                                try await stop(OCRStep.increaseSize, "Font Size shows – (the selection mixes sizes).\n→ Set this phrase\'s size by hand, then run again.")
                                 return false
                             }
                             try await perform(AgentAction(kind: "click", x: at.midX, y: at.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Focus the font size"), on: outer)
@@ -1769,13 +1769,13 @@ final class Store: ObservableObject {
                             guard let point = button else {
                                 switch shown {
                                 case .nothingSelected:
-                                    try await stop(OCRStep.openStylePanel, "Properties shows no clip selected (\"Select a clip in the timeline\"), so there is no style button to open. The selection was lost; run again from this phrase.")
+                                    try await stop(OCRStep.openStylePanel, "Properties shows no clip selected: the selection was lost.\n→ Run again from this phrase.")
                                 case .graphic where !graphics:
-                                    try await stop(OCRStep.openStylePanel, "This text item has no Track Style row (a graphic, or a caption upgraded to one), so there is no four-square style button to open. Its font size was set; apply the style by hand, use Highlight graphics, or untick the style steps for it.")
+                                    try await stop(OCRStep.openStylePanel, "This text has no Track Style row: it is graphic text. Its font size was set.\n→ Use Highlight - Graphic Layers for it.")
                                 case .graphic:
                                     try await stop(OCRStep.openStylePanel, "Scrolled the graphic's Properties down \(lowers) times without finding Linked style and its four-square button. Its font size was set; apply the style by hand, or open Linked style and run again.")
                                 case .graphicLayers where graphics:
-                                    try await stop(OCRStep.openStylePanel, "Properties shows the graphic as a whole (its layer list), not its text, so there is no Linked style row. Double-click the text in the Program Monitor so Properties shows the text layer, then run again.")
+                                    try await stop(OCRStep.openStylePanel, "Properties shows the whole graphic, not its text, so there is no Linked style.\n→ Double-click the text in the Program Monitor, then run again.")
                                 default:
                                     try await stop(OCRStep.openStylePanel, "The Properties panel shows \(state.name), and the four-square style button is not in it.")
                                 }
@@ -1840,7 +1840,7 @@ final class Store: ObservableObject {
                             }
                             if waited > 0, Desktop.stylePanelLeft(in: panel.text) != nil { log("OCR: the style browser appeared after \(Double(waited) * 0.5) s") }
                             guard let left = Desktop.stylePanelLeft(in: panel.text) else {
-                                try await stop(OCRStep.applyStyle, "The style browser did not open within six seconds. Open My Styles before retrying.")
+                                try await stop(OCRStep.applyStyle, "The style browser did not open within six seconds.\n→ Open My Styles in Properties, then run again.")
                                 return false
                             }
                             // Colour must match first (see StyleSlot.difference); then the shape. At your row
@@ -2102,7 +2102,7 @@ final class Store: ObservableObject {
                                     }
                                 }
                                 guard let chosen = target else {
-                                    try await stop(OCRStep.applyStyle, "Your style was not found in the browser. No style was clicked.")
+                                    try await stop(OCRStep.applyStyle, "Your style was not found in the style browser; nothing was clicked.\n→ Click Reset style, run again and pick it.")
                                     return false
                                 }
                                 showGrid(cells, picked: (chosen.row, chosen.column))
