@@ -761,7 +761,16 @@ final class Store: ObservableObject {
         guard !running else { return }
         projects[index][keyPath: path] = value; save()
     }
-    func addProject() { stop(); let p = Project(); projects.append(p); selected = p.id; resetContext(); save() }
+    /// A new project takes the style and size settings of the one you are on (font size step, Apply, Keep style),
+    /// so it behaves like the project you just used: a fresh default of step 0 styled a whole run without sizing.
+    func addProject() {
+        stop()
+        var p = Project()
+        if !projects.isEmpty {
+            p.fontSizeStep = project.fontSizeStep; p.runParts = project.runParts; p.keepStyle = project.keepStyle
+        }
+        projects.append(p); selected = p.id; resetContext(); save()
+    }
     func select(_ id: UUID) { stop(); selected = id; resetContext() }
     func resetContext() { attachments = []; scriptDraft = nil; showScriptDraft = false; observation = nil; proposal = nil; previous = nil; activity = []; detect() }
     func refreshPermissions() { screenAllowed = desktop.canCapture; controlAllowed = desktop.canControl }
