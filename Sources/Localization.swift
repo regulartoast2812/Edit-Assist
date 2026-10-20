@@ -387,7 +387,7 @@ enum Vietnamese {
         "Enable Screen recording so Edit Assist can see your editor.": "Hãy bật Screen Recording để Edit Assist nhìn thấy trình dựng.",
         "Enable Accessibility in Permissions before running actions.": "Hãy bật Accessibility trong mục Quyền trước khi chạy.",
         "Enable Accessibility for Edit Assist before running mouse or keyboard actions.": "Hãy bật Accessibility cho Edit Assist trước khi chạy thao tác chuột hoặc bàn phím.",
-        "Allow Mouse & keyboard first: Assistant menu → Permissions…": "Hãy cho phép Chuột và bàn phím trước: menu Assistant → Permissions…",
+        "Allow Mouse & keyboard first: Edit Assist menu → Permissions…": "Hãy cho phép Chuột và bàn phím trước: menu Edit Assist → Permissions…",
         "Desktop control is stopped or Accessibility permission is missing.": "Điều khiển đã dừng hoặc thiếu quyền Accessibility.",
         "Open Premiere or After Effects first.": "Hãy mở Premiere hoặc After Effects trước.",
         "That window has closed. Click the window you want to work in, then try again.": "Cửa sổ đó đã đóng. Hãy bấm vào cửa sổ bạn muốn làm việc, rồi thử lại.",

@@ -291,7 +291,10 @@ final class Store: ObservableObject {
         didSet { if oldValue && !permissionsOpen { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.offerUpdate() } } }
     }
     /// When on, nothing in the app calls a CLI. OCR mode is the only way to act.
-    @Published var ocrOnly: Bool = (UserDefaults.standard.object(forKey: "ocrOnly") as? Bool) ?? true {
+    /// The assistant (chat, assistant-driven runs, reading scripts from screenshots) is hidden from the interface
+    /// for now: it needs an AI command-line tool few testers have. Runs always read the screen; the code stays.
+    static let assistantHidden = true
+    @Published var ocrOnly: Bool = Store.assistantHidden ? true : ((UserDefaults.standard.object(forKey: "ocrOnly") as? Bool) ?? true) {
         didSet { UserDefaults.standard.set(ocrOnly, forKey: "ocrOnly") }
     }
     /// Which gestures the checklist runs. Style is off by default: it needs the browser open.
@@ -645,7 +648,7 @@ final class Store: ObservableObject {
     @Published var screenAllowed = false { didSet { if screenAllowed != oldValue { updateLiveFeed() } } }
     @Published var controlAllowed = false
     /// "function" shows the selected function's page; "Assistant" the conversation.
-    @Published var tab = "function"
+    @Published var tab = "function" { didSet { if Store.assistantHidden && tab == "Assistant" { tab = "function" } } }
     let desktop = Desktop()
     let overlay = RunOverlay()
     var task: Task<Void, Never>?
@@ -970,7 +973,7 @@ final class Store: ObservableObject {
             // Highlighting is Premiere's: never run in After Effects because it was the last Adobe app used.
             let window = try desktop.premiereWindow(preferring: followed)
             if window.id != followed.id { log("Run: the editor followed was \(followed.app); highlighting runs in Premiere, so using its window"); target = window }
-            if !preview && !desktop.canControl { throw AssistError.message("Allow Mouse & keyboard first: Assistant menu → Permissions…") }
+            if !preview && !desktop.canControl { throw AssistError.message("Allow Mouse & keyboard first: Edit Assist menu → Permissions…") }
             busy = true; running = !preview; proposal = nil
             if !preview { began(.highlight) }
             let id = selected; let token = UUID(); generation = token

@@ -50,9 +50,9 @@ struct EditAssistApp: App {
             }
             // Not while something runs: a new project stops the run.
             CommandGroup(replacing: .newItem) { Button(L("New project")) { store.addProject() }.keyboardShortcut("n").disabled(store.busy) }
-            CommandMenu("Assistant") {
+            // The assistant is hidden for now (Store.assistantHidden); this menu keeps Stop and Permissions.
+            CommandMenu("Edit Assist") {
                 Button(L("Stop")) { store.stop() }.keyboardShortcut(".", modifiers: .command)
-                Button(L("Connection settings")) { store.openConnection() }.keyboardShortcut(",")
                 Button(L("Permissions…")) { store.openPermissions() }.keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
@@ -233,10 +233,6 @@ struct ContentView: View {
                 }.buttonStyle(.plain).disabled(s.busy || s.installingUpdate)
                     .help(s.busy ? L("Finish or stop the run first") : L("Download and install, then reopen Edit Assist"))
             }
-            Button { s.tab = "Assistant" } label: {
-                Label(L("Assistant"), systemImage: "bubble.left.and.bubble.right").font(.system(size: 12))
-                    .foregroundStyle(s.tab == "Assistant" ? accent : .primary)
-            }.buttonStyle(.plain)
             Button { settingsOpen = true } label: {
                 Label(L("Settings"), systemImage: "gearshape").font(.system(size: 12))
             }.buttonStyle(.plain)
@@ -393,7 +389,7 @@ struct ContentView: View {
                 Spacer()
                 if s.project.script.isEmpty { Button(L("Use your example")) { s.sample() }.buttonStyle(.plain).foregroundStyle(accent) }
             }.font(.system(size: 12)).controlSize(.regular).disabled(s.busy)
-            RichScriptEditor(text: binding(\.script), editable: !s.busy, onPasteImage: { s.addScreenshot($0) })
+            RichScriptEditor(text: binding(\.script), editable: !s.busy)
                 .padding(12).background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.06)))
                 .frame(minHeight: 300).disabled(s.busy)
@@ -404,12 +400,6 @@ struct ContentView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if let error = parseError { Text(error).font(.system(size: 11)).foregroundStyle(.orange) }
-            DisclosureGroup(L("Import from a screenshot")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    attachmentControls
-                    if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
-                }.padding(.top, 8)
-            }.font(.system(size: 12)).foregroundStyle(.secondary)
         }
     }
 
@@ -608,10 +598,6 @@ struct ContentView: View {
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
             }
             Divider()
-            Toggle(L("Use OCR for editing routines"), isOn: $s.ocrOnly).disabled(s.busy)
-            Text(md: L("OCR follows the caption styling workflow. Turn this off to use assistant-driven routines.")).font(.system(size: 12)).foregroundStyle(.secondary)
-            Divider()
-            Button("Assistant provider · \(s.provider)") { settingsDestination = "provider"; settingsOpen = false }.disabled(s.busy)
             Button(L("macOS permissions")) { settingsDestination = "permissions"; settingsOpen = false }
             Text(L(s.permissionsReady ? "Screen recording and mouse control are allowed." : s.missingPermissions))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
