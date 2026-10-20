@@ -181,8 +181,6 @@ struct ContentView: View {
             Text(L("Edit Assist %@ is available (you have %@).\n\nIt takes a few seconds and reopens the app. Your projects stay as they are.",
                    s.update?.label ?? "", Updater.current))
         }
-        // The error log, bottom right: a count of new problems, and the list of what went wrong.
-        .overlay(alignment: .bottomTrailing) { ErrorLogButton().environmentObject(s).padding(14) }
     }
 
     var sidebar: some View {
@@ -240,7 +238,7 @@ struct ContentView: View {
                 Label(L("Tech stack"), systemImage: "square.stack.3d.up").font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
-            // The error log, also in the bottom-right corner: new problems counted beside it.
+            // The error log: new problems counted beside it.
             // A walk-through of a function, pointing at its controls.
             Menu {
                 ForEach(EditFunction.allCases) { job in Button(L(job.title)) { s.startGuide(job) } }
