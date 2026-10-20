@@ -92,6 +92,7 @@ struct ContentView: View {
     @State private var settingsOpen = false
     @State private var techStackOpen = false
     @State private var logOpen = false
+    @State private var renaming = false
     @State private var settingsDestination: String?
     var body: some View {
         HStack(spacing: 0) {
@@ -109,7 +110,17 @@ struct ContentView: View {
                             if s.tab == "Assistant" {
                                 Text(md: L("Assistant")).font(.system(size: 22, weight: .semibold))
                             } else if s.tab == "project" {
-                                Label(L("Project"), systemImage: "film.stack").font(.system(size: 22, weight: .semibold))
+                                // The name and editor are in the header above; renaming is here, on request.
+                                if renaming {
+                                    TextField(L("Project name"), text: binding(\.name))
+                                        .textFieldStyle(.roundedBorder).font(.system(size: 18, weight: .semibold)).frame(maxWidth: 360)
+                                        .onSubmit { renaming = false }
+                                    Button(L("Done")) { renaming = false }
+                                } else {
+                                    Label(L("Project"), systemImage: "film.stack").font(.system(size: 22, weight: .semibold))
+                                    Button { renaming = true } label: { Image(systemName: "pencil") }
+                                        .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
+                                }
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
@@ -829,16 +840,6 @@ struct ContentView: View {
     var projectPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Name and editor in one quiet row.
-                HStack(spacing: 12) {
-                    TextField(L("Project name"), text: binding(\.name))
-                        .textFieldStyle(.plain).font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)).frame(maxWidth: 360).disabled(s.busy)
-                    Label(s.target.map { "\($0.app) · \(($0.title as NSString).lastPathComponent)" } ?? s.project.app, systemImage: "film")
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                }
                 card(L("Script")) { script }
                 card(L("Phrases to highlight"), trailing: L("%@ phrases", s.targetCount)) {
                     if s.targets.isEmpty {

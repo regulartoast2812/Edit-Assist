@@ -224,6 +224,7 @@ enum Vietnamese {
         "What this project is about. Functions read from here: Highlight phrases takes its bold phrases from the script.": "Thông tin của dự án. Các chức năng đọc từ đây: highlight lấy các cụm in đậm từ kịch bản.",
         "NAME": "TÊN",
         "Project name": "Tên dự án",
+        "Rename project": "Đổi tên dự án",
         "EDITOR": "TRÌNH DỰNG",
         "Script": "Kịch bản",
         "Paste formatted text from your script: its bold becomes the phrases to highlight, shown here in green. Select words and press ⌘B to mark or unmark one; ⌘Z undoes.":
