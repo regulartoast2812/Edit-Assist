@@ -1317,13 +1317,18 @@ final class Store: ObservableObject {
                     var advances = 0
                     var stalled = 0
                     if all { log("OCR: new pass from the current playhead; prior progress cleared") }
+                    /// The screen read after stepping to the next caption: it is the next scan, not read again.
+                    var nextShot: Observation?
+                    /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
+                    var timelineFocused = false
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
                         let doneSoFar = doneCount
                         overlay.update(step: doneSoFar + 1, limit: targets.count, headline: "Reading the screen…", detail: "", confidence: nil, paused: false)
                         let began = Date()
-                        var shot = try await desktop.capture(window, readText: true)
+                        var shot: Observation
+                        if let ready = nextShot { shot = ready; nextShot = nil } else { shot = try await desktop.capture(window, readText: true) }
                         // Captions are only ever in the Program Monitor's picture, from the first phrase on: text
                         // elsewhere (a sequence tab "Shelara Bra v1.2" matched the phrase "a bra" once, and the
                         // click and double-click that followed maximised the timeline) is never a caption. Found on
@@ -1339,7 +1344,12 @@ final class Store: ObservableObject {
                         if mustAdvance { found = nil }
                         // Part of a phrase is readable but not enough to select it: styled captions (heavy
                         // outlines, gradients) read less reliably at the usual size. Read once more, sharper.
-                        if found == nil, !mustAdvance, remaining.contains(where: { Desktop.coverage(for: targets[$0], in: shot.text).matched > 0 }) {
+                        // Only on real evidence (two words and half of a phrase): one common word ("on", "the") showed on
+                        // almost every caption and this read ran on every caption passed.
+                        if found == nil, !mustAdvance, remaining.contains(where: { index in
+                            let shown = Desktop.coverage(for: targets[index], in: shot.text).matched
+                            return shown >= 2 && shown * 2 >= words(of: targets[index]).count
+                        }) {
                             let sharp = try await desktop.capture(window, readText: true, sharper: true)
                             if let again = nextVisible(in: sharp.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea) {
                                 log("OCR: read the caption again at higher resolution and found “\(again.phrase)”")
@@ -1405,16 +1415,22 @@ final class Store: ObservableObject {
                                 // Styling leaves a caret blinking in the caption. While text editing
                                 // is active Down moves the caret, not the playhead, whatever has
                                 // focus — so leave the edit before anything else.
-                                var jump = try await desktop.capture(window)
-                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Leave text editing"), on: jump)
-                                try await Task.sleep(for: .milliseconds(50))
-                                jump = try await desktop.capture(window, readText: true)
-                                // Then hand the Timeline keyboard focus. The playhead is the natural
-                                // thing to click, but it can be scrolled out of view; the track header
-                                // is always on screen and deselects as well as focusing.
-                                let focusPoint = Desktop.clipAtPlayhead(in: jump.text, image: jump.image)
-                                    ?? Desktop.trackHeader(in: jump.text)
-                                let focused = focusPoint != nil
+                                // Only after styling: while stepping from caption to caption the timeline keeps its focus,
+                                // and this Escape, reading and click cost a second or more each time on a busy machine.
+                                var jump = shot
+                                var focusPoint: CGPoint?
+                                if !timelineFocused {
+                                    jump = try await desktop.capture(window)
+                                    try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Leave text editing"), on: jump)
+                                    try await Task.sleep(for: .milliseconds(50))
+                                    jump = try await desktop.capture(window, readText: true)
+                                    // Then hand the Timeline keyboard focus. The playhead is the natural
+                                    // thing to click, but it can be scrolled out of view; the track header
+                                    // is always on screen and deselects as well as focusing.
+                                    focusPoint = Desktop.clipAtPlayhead(in: jump.text, image: jump.image)
+                                        ?? Desktop.trackHeader(in: jump.text)
+                                }
+                                let focused = timelineFocused || focusPoint != nil
                                 if let focusPoint {
                                     try await perform(AgentAction(kind: "click", x: focusPoint.x, y: focusPoint.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Give the timeline keyboard focus"), on: jump)
                                     try await Task.sleep(for: .milliseconds(50))
@@ -1472,7 +1488,11 @@ final class Store: ObservableObject {
                                     stalled = 0
                                     advances += 1
                                     mustAdvance = false   // on the next clip now: the rest of a split phrase may show
+                                    timelineFocused = true
+                                    nextShot = moved
                                 }
+                                // Stuck: hand focus back again on the next step.
+                                if timeStill { timelineFocused = false }
                                 overlay.update(step: doneCount, limit: targets.count,
                                                headline: "Looking for the next caption…",
                                                detail: now.map { String(format: "playhead at %.1fs, %d of %d done", $0, doneCount, targets.count) } ?? "",
@@ -2390,6 +2410,7 @@ final class Store: ObservableObject {
                         let total = words(of: hit.phrase).count
                         let covered = hit.from + hit.matched
                         mustAdvance = covered < total
+                        timelineFocused = false   // styling moved focus to Properties; the next step hands it back
                         log(String(format: "OCR: styled %d-%d of %d words of \"%@\" in %.2fs%@",
                                    hit.from + 1, covered, total, hit.phrase, Date().timeIntervalSince(began),
                                    covered < total ? " — the rest is on the next caption clip" : ""))
