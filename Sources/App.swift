@@ -139,6 +139,7 @@ struct ContentView: View {
                 }
             }
         }
+        .overlayPreferenceValue(GuideTargets.self) { anchors in GuideOverlay(anchors: anchors).environmentObject(s) }
         .background(canvasBackground)
         .tint(accent)
         .sheet(isPresented: $settingsOpen, onDismiss: {
@@ -206,6 +207,7 @@ struct ContentView: View {
                             .foregroundStyle(s.selected == project.id && s.tab == "project" ? accent : .primary)
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(s.busy)
+                        .guideTarget(project.id == s.selected ? "project" : "other-project")
                 }
             }
             Divider()
@@ -243,6 +245,13 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             // The error log, also in the bottom-right corner: new problems counted beside it.
+            // A walk-through of a function, pointing at its controls.
+            Menu {
+                ForEach(EditFunction.allCases) { job in Button(L(job.title)) { s.startGuide(job) } }
+            } label: {
+                Label(L("Guide"), systemImage: "questionmark.circle").font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(s.busy).tint(.primary)
             Button { logOpen.toggle(); s.unseenProblems = 0 } label: {
                 HStack(spacing: 6) {
                     Label(L("Log"), systemImage: "doc.text.magnifyingglass").font(.system(size: 12))
@@ -253,6 +262,7 @@ struct ContentView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
+                .guideTarget("log")
             Text(md: L("Edit Assist · Preview")).font(.system(size: 10)).foregroundStyle(.secondary)
         }.padding(18).background(panel.opacity(0.55))
     }
@@ -292,6 +302,7 @@ struct ContentView: View {
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 6) {
                     Image(systemName: s.detectionLevel == .off ? "eye.slash" : "eye").foregroundStyle(s.detectionLevel == .off ? Color.secondary : accent)
+                        .guideTarget("detection")
                     // Off · During runs (only while a function runs) · Always (the live overlay too).
                     Picker(L("Detection"), selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
                         ForEach(Store.DetectionLevel.allCases, id: \.self) { Text(L($0.rawValue)).tag($0) }
@@ -670,6 +681,7 @@ struct ContentView: View {
             }
             .background(showing ? accent.opacity(0.12) : .white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
             .foregroundStyle(showing ? accent : .secondary)
+            .guideTarget(job == s.function ? "function" : "other-function")
     }
 
     @ViewBuilder func page(for job: EditFunction) -> some View {
@@ -702,7 +714,7 @@ struct ContentView: View {
                     .disabled(!s.running).help(L("Pause between gestures; Continue resumes the same pass"))
                 Button { s.stop() } label: { Label(L("Stop"), systemImage: "stop.fill") }.disabled(!s.busy).tint(.orange)
                 Button { s.start(s.function) } label: { Label(L(s.function.runLabel), systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).guideTarget("run")
                     .disabled(s.busy || (s.function.highlightsPhrases && s.ocrOnly && s.targets.isEmpty))
                     .help(s.busy ? "\((s.activeFunction ?? s.function).title) is running; one function runs at a time" : "Start \(s.function.title.lowercased()) at the current playhead")
             }
@@ -750,7 +762,7 @@ struct ContentView: View {
                     }
                 }
             } else {
-                card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }
+                card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }.guideTarget("todo")
             }
         }.padding(.bottom, 10)
     }
@@ -815,7 +827,7 @@ struct ContentView: View {
                     }.disabled(s.busy)
                 }.opacity(s.project.doesSize ? 1 : 0.4)
                 if !s.ocrOnly { legacyStyle }
-            }
+            }.guideTarget("apply")
             DisclosureGroup(L("Diagnostics")) {
                 VStack(alignment: .leading, spacing: 16) {
                     // The individual steps: for testing one at a time (Test selected stages). A run follows

@@ -297,6 +297,34 @@ enum Vietnamese {
         "Permissions…": "Quyền…",
         "Connection settings": "Cài đặt kết nối",
         "Language": "Ngôn ngữ",
+        "Guide": "Hướng dẫn",
+        "Skip": "Bỏ qua",
+        "Next": "Tiếp",
+        "Back": "Quay lại",
+        "%@ of %@": "%@ / %@",
+        "1. Your script": "1. Kịch bản của bạn",
+        "Click your project, then paste your script with Paste formatted text. Its bold becomes the phrases to highlight, shown in green. ⌘B marks more.":
+            "Bấm vào dự án, rồi dán kịch bản bằng Dán văn bản có định dạng. Phần in đậm sẽ thành các cụm cần highlight, hiện màu xanh. ⌘B để đánh dấu thêm.",
+        "2. This function": "2. Chức năng này",
+        "Pick the function here. Its page shows the phrases still to do and how they will be styled.": "Chọn chức năng ở đây. Trang của nó hiện các cụm còn phải làm và cách chúng được tạo kiểu.",
+        "3. What each phrase gets": "3. Mỗi cụm được gì",
+        "Style & size, Style only or Size only. The style is the tile you click in Premiere's style browser on the first phrase; Keep style reuses it next time. The step is how much the font size grows.":
+            "Kiểu và cỡ, Chỉ kiểu hoặc Chỉ cỡ. Kiểu chữ là ô bạn bấm trong bảng kiểu của Premiere ở cụm đầu tiên; Giữ kiểu chữ sẽ dùng lại cho lần sau. Mức tăng là số cỡ chữ được cộng thêm.",
+        "4. Progress": "4. Tiến độ",
+        "Every phrase and how much of it is done. Redo clears one; Reset progress clears all.": "Mọi cụm và phần đã xong. Làm lại xoá một cụm; Đặt lại tiến độ xoá tất cả.",
+        "5. Before you run": "5. Trước khi chạy",
+        "Graphic text sits on a video track. If the caption track shows the same words on top, hide it with its eye icon in the timeline, so clicks land on the graphics.":
+            "Chữ đồ hoạ nằm trên track video. Nếu track phụ đề hiện cùng nội dung ở trên, hãy ẩn nó bằng biểu tượng con mắt trên timeline để cú bấm trúng vào đồ hoạ.",
+        "5. Run": "5. Chạy",
+        "6. Run": "6. Chạy",
+        "In Premiere, put the playhead before the first caption, then press Run. Let go of the mouse: moving it pauses the run, Escape stops it. The first time, click your style when it asks.":
+            "Trong Premiere, đặt playhead trước phụ đề đầu tiên, rồi bấm Chạy. Buông chuột ra: di chuột sẽ tạm dừng, Escape để dừng hẳn. Lần đầu, hãy bấm chọn kiểu chữ khi được hỏi.",
+        "Seeing what it sees": "Xem những gì bot thấy",
+        "During runs shows boxes over what the bot reads while it works. Off hides them; Always shows them all the time.":
+            "Khi đang chạy sẽ hiện khung trên những gì bot đọc trong lúc làm việc. Tắt để ẩn; Luôn bật để hiện mọi lúc.",
+        "If something goes wrong": "Nếu có sự cố",
+        "Open Log, then Show log file: it gives one zip to drag into a chat, so the problem can be looked at.":
+            "Mở Nhật ký, rồi Hiện tệp nhật ký: bạn sẽ có một tệp zip để kéo vào ứng dụng chat, giúp xem lại sự cố.",
         "Screen recording and mouse control are allowed.": "Đã cho phép ghi màn hình và điều khiển chuột.",
         "Picked on the first phrase": "Chọn ở cụm đầu tiên",
         "Use OCR for editing routines": "Dùng OCR cho quy trình dựng",

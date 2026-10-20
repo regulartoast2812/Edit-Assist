@@ -207,6 +207,13 @@ final class Store: ObservableObject {
     /// What went wrong, newest last: alerts, runs that stopped, updates that failed. Shown by the error log button.
     struct Problem: Identifiable { let id = UUID(); let time: Date; let message: String }
     @Published var problems: [Problem] = []
+    /// The guide being shown (Guide in the sidebar), and its step.
+    @Published var guide: EditFunction?
+    @Published var guideStep = 0
+    func startGuide(_ function: EditFunction) {
+        guard !busy else { return }
+        self.function = function; tab = "function"; guideStep = 0; guide = function
+    }
     /// The interface language (Settings). Changing it redraws every window at once.
     @Published var language: AppLanguage = AppLanguage.current {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
