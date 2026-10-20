@@ -12,22 +12,25 @@ struct GuideStep {
 
 enum Guide {
     static func steps(for function: EditFunction) -> [GuideStep] {
+        // No numbers in the titles: the popup counts the steps.
         var steps = [
-            GuideStep(target: "project", title: "1. Your script",
+            GuideStep(target: "project", title: "Your script",
                       text: "Click your project, then paste your script with Paste formatted text. Its bold becomes the phrases to highlight, shown in green. ⌘B marks more."),
-            GuideStep(target: "function", title: "2. This function",
+            GuideStep(target: "editor", title: "Premiere's panels",
+                      text: "Keep three panels visible in Premiere's main window: the Program Monitor (it reads and clicks the captions there), the Timeline, and Properties with its tab in front. Resize and arrange them as you like; just don't close them or make them float. Premiere in English, version 2025 or later."),
+            GuideStep(target: "function", title: "This function",
                       text: "Pick the function here. Its page shows the phrases still to do and how they will be styled."),
-            GuideStep(target: "apply", title: "3. What each phrase gets",
+            GuideStep(target: "apply", title: "What each phrase gets",
                       text: "Style & size, Style only or Size only. The style is the tile you click in Premiere's style browser on the first phrase; Keep style reuses it next time. The step is how much the font size grows."),
-            GuideStep(target: "todo", title: "4. Progress",
+            GuideStep(target: "todo", title: "Progress",
                       text: "Every phrase and how much of it is done. Redo clears one; Reset progress clears all."),
         ]
         if function == .highlightGraphics {
-            steps.append(GuideStep(target: "run", title: "5. Before you run",
+            steps.append(GuideStep(target: "run", title: "Before you run",
                                    text: "Graphic text sits on a video track. If the caption track shows the same words on top, hide it with its eye icon in the timeline, so clicks land on the graphics."))
         }
         steps += [
-            GuideStep(target: "run", title: function == .highlightGraphics ? "6. Run" : "5. Run",
+            GuideStep(target: "run", title: "Run",
                       text: "In Premiere, put the playhead before the first caption, then press Run. Let go of the mouse: moving it pauses the run, Escape stops it. The first time, click your style when it asks."),
             GuideStep(target: "detection", title: "Seeing what it sees",
                       text: "During runs shows boxes over what the bot reads while it works. Off hides them; Always shows them all the time."),
@@ -87,7 +90,7 @@ struct GuideOverlay: View {
 
     /// Placed beside the control: to its right when it is in the sidebar, else below it, or above when there is no room.
     func popup(_ step: GuideStep, index: Int, count: Int, target: CGRect, in size: CGSize) -> some View {
-        let width: CGFloat = 330, height: CGFloat = 190, gap: CGFloat = 16
+        let width: CGFloat = 350, height: CGFloat = 230, gap: CGFloat = 16
         enum Side { case right, below, above }
         let side: Side = target.maxX + gap + width < size.width && target.minX < 260 ? .right
             : target.maxY + gap + height < size.height ? .below : .above

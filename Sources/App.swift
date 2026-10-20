@@ -292,7 +292,7 @@ struct ContentView: View {
                     Text(s.project.name).font(.system(size: 23, weight: .semibold)).lineLimit(1)
                 }.buttonStyle(.plain).help(L("Open the project"))
                 Text(s.target.map { L("Editing in %@ · %@", $0.app, ($0.title as NSString).lastPathComponent) } ?? L("Open Premiere or After Effects to connect"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).guideTarget("editor")
             }
             Spacer(minLength: 20)
             VStack(alignment: .trailing, spacing: 5) {
