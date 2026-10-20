@@ -238,6 +238,13 @@ struct ContentView: View {
                 Label(L("Tech stack"), systemImage: "square.stack.3d.up").font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
+            // A walk-through of a function, pointing at its controls.
+            Menu {
+                ForEach(EditFunction.allCases) { job in Button(L(job.title)) { s.startGuide(job) } }
+            } label: {
+                Label(L("Guide"), systemImage: "questionmark.circle").font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(s.busy).tint(.primary)
             // The error log: glows in the colour of the worst new problem until it is opened.
             LogSidebarItem(open: $logOpen).environmentObject(s)
                 .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
