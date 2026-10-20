@@ -698,102 +698,116 @@ struct ContentView: View {
 
     /// Highlight phrases: what to highlight, how, and how far it has got, on one page.
     /// Highlight phrases in two columns: the task on the left, how it is done on the right.
+    /// The function page: Task and Setup side by side when there is room, one above the other when not (the
+    /// Context panel open on a narrow window left too little width, and the page slid over the sidebar).
     var highlightPage: some View {
-        HStack(alignment: .top, spacing: 18) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    columnTitle(L("TASK"))
-                    Text(L(s.function.summary)).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
-                    if s.targets.isEmpty {
-                        card(L("To do")) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(md: L("No phrases yet. The script belongs to the project, so every function can use it."))
-                                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                                Button(L("Add the script")) { s.tab = "project" }.buttonStyle(.borderedProminent)
-                            }
-                        }
-                    } else {
-                        card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }
-                    }
-                }.padding(.bottom, 10)
-            }.frame(minWidth: 380, maxWidth: .infinity)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    columnTitle(L("SETUP"))
-                    card(L("Style and size")) {
-                        HStack(spacing: 10) {
-                            label(L("APPLY"))
-                            Spacer()
-                            // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
-                            Picker(L("Each phrase gets"), selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
-                                Text(md: L("Style & size")).tag("both")
-                                Text(md: L("Style only")).tag("style")
-                                Text(md: L("Size only")).tag("size")
-                            }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(s.busy)
-                        }
-                        HStack(alignment: .top, spacing: 12) {
-                            Group {
-                                if let picked = s.pickedStyleImage {
-                                    Image(nsImage: picked).resizable().scaledToFit()
-                                } else {
-                                    Image(systemName: "square.grid.2x2").font(.system(size: 22)).foregroundStyle(accent)
-                                }
-                            }.frame(width: 56, height: 56).background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(L(s.pickedStyleImage == nil ? "Picked on the first phrase" : "Last picked style"))
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(L(s.project.keepsStyle
-                                     ? (s.hasRememberedStyle ? "Reuse this style across runs. Reset it when you want to choose a different tile." : "Choose a tile on the first phrase. Remember it for the rest of this run and future runs.")
-                                     : "Choose a tile on the first phrase of each run; use it for the remaining phrases."))
-                                    .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        HStack {
-                            Toggle(L("Keep style"), isOn: Binding(get: { s.project.keepsStyle }, set: { s.update(\.keepStyle, Optional($0)) }))
-                                .toggleStyle(.switch).controlSize(.small)
-                            Spacer()
-                            Button(L("Reset style")) { s.resetStyle() }
-                                .disabled(!s.hasRememberedStyle)
-                        }.disabled(s.busy).opacity(s.project.doesStyle ? 1 : 0.4)
-                        HStack(spacing: 10) {
-                            label(L("FONT SIZE STEP"))
-                            Spacer()
-                            // Type a number or use the arrows: 0 leaves the size as it is, below 0 makes it smaller.
-                            // A step of 0 changes no size: Apply follows it to Style only, and back to Style & size when the
-                            // step leaves 0 from there (the arrows pass through 0 on the way from 1 to -1).
-                            let step = Binding(get: { s.project.fontSizeStep }, set: { value in
-                                let was = s.project.fontSizeStep, now = min(200, max(-100, value))
-                                s.update(\.fontSizeStep, now)
-                                if now == 0, s.project.runParts == nil { s.update(\.runParts, "style") }
-                                else if was == 0, now != 0, s.project.runParts == "style" { s.update(\.runParts, nil) }
-                            })
-                            HStack(spacing: 4) {
-                                TextField(L("0"), value: step, format: .number)
-                                    .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
-                                    .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
-                                    .font(.system(size: 12, design: .monospaced)).frame(width: 56)
-                                    .help(L("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller."))
-                                Stepper(L("Font size step"), value: step, in: -100...200).labelsHidden()
-                            }.disabled(s.busy)
-                        }.opacity(s.project.doesSize ? 1 : 0.4)
-                        if !s.ocrOnly { legacyStyle }
-                    }
-                    DisclosureGroup(L("Diagnostics")) {
-                        VStack(alignment: .leading, spacing: 16) {
-                            // The individual steps: for testing one at a time (Test selected stages). A run follows
-                            // "Each phrase gets" above, not these boxes.
-                            label(L("STEPS FOR EACH PHRASE (TESTING)"))
-                            stages
-                            Divider()
-                            diagnostics
-                        }.padding(.top, 12)
-                    }
-                    if !s.ocrOnly {
-                        DisclosureGroup(L("Assistant routine instructions")) { routine.frame(minHeight: 420).padding(.top, 12) }
-                    }
-                }.padding(.bottom, 10)
-            }.frame(width: 400)
+        GeometryReader { space in
+            if space.size.width >= 740 {
+                HStack(alignment: .top, spacing: 18) {
+                    ScrollView { taskColumn }.frame(minWidth: 380, maxWidth: .infinity)
+                    ScrollView { setupColumn }.frame(minWidth: 340, maxWidth: 400)
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 26) { taskColumn; setupColumn }
+                }
+            }
         }
+    }
+
+    var taskColumn: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            columnTitle(L("TASK"))
+            Text(L(s.function.summary)).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+            if s.targets.isEmpty {
+                card(L("To do")) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(md: L("No phrases yet. The script belongs to the project, so every function can use it."))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Button(L("Add the script")) { s.tab = "project" }.buttonStyle(.borderedProminent)
+                    }
+                }
+            } else {
+                card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }
+            }
+        }.padding(.bottom, 10)
+    }
+
+    var setupColumn: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            columnTitle(L("SETUP"))
+            card(L("Style and size")) {
+                HStack(spacing: 10) {
+                    label(L("APPLY"))
+                    Spacer()
+                    // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
+                    Picker(L("Each phrase gets"), selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
+                        Text(md: L("Style & size")).tag("both")
+                        Text(md: L("Style only")).tag("style")
+                        Text(md: L("Size only")).tag("size")
+                    }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(s.busy)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    Group {
+                        if let picked = s.pickedStyleImage {
+                            Image(nsImage: picked).resizable().scaledToFit()
+                        } else {
+                            Image(systemName: "square.grid.2x2").font(.system(size: 22)).foregroundStyle(accent)
+                        }
+                    }.frame(width: 56, height: 56).background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L(s.pickedStyleImage == nil ? "Picked on the first phrase" : "Last picked style"))
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(L(s.project.keepsStyle
+                             ? (s.hasRememberedStyle ? "Reuse this style across runs. Reset it when you want to choose a different tile." : "Choose a tile on the first phrase. Remember it for the rest of this run and future runs.")
+                             : "Choose a tile on the first phrase of each run; use it for the remaining phrases."))
+                            .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                HStack {
+                    Toggle(L("Keep style"), isOn: Binding(get: { s.project.keepsStyle }, set: { s.update(\.keepStyle, Optional($0)) }))
+                        .toggleStyle(.switch).controlSize(.small)
+                    Spacer()
+                    Button(L("Reset style")) { s.resetStyle() }
+                        .disabled(!s.hasRememberedStyle)
+                }.disabled(s.busy).opacity(s.project.doesStyle ? 1 : 0.4)
+                HStack(spacing: 10) {
+                    label(L("FONT SIZE STEP"))
+                    Spacer()
+                    // Type a number or use the arrows: 0 leaves the size as it is, below 0 makes it smaller.
+                    // A step of 0 changes no size: Apply follows it to Style only, and back to Style & size when the
+                    // step leaves 0 from there (the arrows pass through 0 on the way from 1 to -1).
+                    let step = Binding(get: { s.project.fontSizeStep }, set: { value in
+                        let was = s.project.fontSizeStep, now = min(200, max(-100, value))
+                        s.update(\.fontSizeStep, now)
+                        if now == 0, s.project.runParts == nil { s.update(\.runParts, "style") }
+                        else if was == 0, now != 0, s.project.runParts == "style" { s.update(\.runParts, nil) }
+                    })
+                    HStack(spacing: 4) {
+                        TextField(L("0"), value: step, format: .number)
+                            .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
+                            .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
+                            .font(.system(size: 12, design: .monospaced)).frame(width: 56)
+                            .help(L("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller."))
+                        Stepper(L("Font size step"), value: step, in: -100...200).labelsHidden()
+                    }.disabled(s.busy)
+                }.opacity(s.project.doesSize ? 1 : 0.4)
+                if !s.ocrOnly { legacyStyle }
+            }
+            DisclosureGroup(L("Diagnostics")) {
+                VStack(alignment: .leading, spacing: 16) {
+                    // The individual steps: for testing one at a time (Test selected stages). A run follows
+                    // "Each phrase gets" above, not these boxes.
+                    label(L("STEPS FOR EACH PHRASE (TESTING)"))
+                    stages
+                    Divider()
+                    diagnostics
+                }.padding(.top, 12)
+            }
+            if !s.ocrOnly {
+                DisclosureGroup(L("Assistant routine instructions")) { routine.frame(minHeight: 420).padding(.top, 12) }
+            }
+        }.padding(.bottom, 10)
     }
 
     func columnTitle(_ text: String) -> some View {
