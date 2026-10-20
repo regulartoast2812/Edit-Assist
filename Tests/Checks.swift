@@ -1063,7 +1063,10 @@ struct Checks {
         // Each phrase gets: what a run does. Size only still steps Back out of a browser left open.
         do {
             var project = Project()
-            check(project.runSteps.count == OCRStep.allCases.count, "Style & size runs every step")
+            check(project.effectiveRunParts == "style" && !project.runSteps.contains(OCRStep.increaseSize.rawValue),
+                  "A step of 0 counts as Style only, and Apply shows it")
+            project.fontSizeStep = 5
+            check(project.effectiveRunParts == "both" && project.runSteps.count == OCRStep.allCases.count, "Style & size with a step runs every step")
             project.runParts = "style"
             check(!project.runSteps.contains(OCRStep.increaseSize.rawValue) && project.runSteps.contains(OCRStep.applyStyle.rawValue), "Style only skips the size step")
             project.runParts = "size"

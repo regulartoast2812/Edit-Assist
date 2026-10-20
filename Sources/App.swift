@@ -741,7 +741,11 @@ struct ContentView: View {
                     label(L("APPLY"))
                     Spacer()
                     // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
-                    Picker(L("Each phrase gets"), selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
+                    Picker(L("Each phrase gets"), selection: Binding(get: { s.project.effectiveRunParts }, set: { choice in
+                        s.update(\.runParts, choice == "both" ? nil : choice)
+                        // Sizing with a step of 0 would change nothing: give it a step to see and adjust.
+                        if choice != "style", s.project.fontSizeStep == 0 { s.update(\.fontSizeStep, 5) }
+                    })) {
                         Text(md: L("Style & size")).tag("both")
                         Text(md: L("Style only")).tag("style")
                         Text(md: L("Size only")).tag("size")

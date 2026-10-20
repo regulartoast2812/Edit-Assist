@@ -88,7 +88,10 @@ struct Project: Codable, Identifiable {
     /// both highlight functions; optional so older projects load.
     var runParts: String? = nil
     var doesStyle: Bool { runParts != "size" }
-    var doesSize: Bool { runParts != "style" }
+    /// A step of 0 changes no size, whatever Apply says: it counts as Style only, and Apply shows that.
+    var doesSize: Bool { runParts != "style" && fontSizeStep != 0 }
+    /// What Apply shows and does: "both", "style" or "size".
+    var effectiveRunParts: String { runParts == nil && fontSizeStep == 0 ? "style" : runParts ?? "both" }
     /// The steps a run takes for this choice. Size only keeps Back, to leave a browser that is open.
     var runSteps: Set<String> {
         Set(OCRStep.allCases.map(\.rawValue)).subtracting(
