@@ -314,6 +314,9 @@ enum Vietnamese {
         "**Hide the caption track** if it shows the same words": "**Ẩn track phụ đề** nếu nó hiện cùng nội dung",
         "Run ended: {n} of {n} phrases done.": "Lần chạy đã kết thúc: xong {n} / {n} cụm.",
         "%@% done": "Xong %@%",
+        "Used on every run until you reset it.": "Dùng cho mọi lần chạy cho đến khi bạn đặt lại.",
+        "Picked on the first phrase of each run.": "Chọn ở cụm đầu tiên của mỗi lần chạy.",
+        "Words done. A phrase split across clips shows part done.": "Số từ đã xong. Cụm bị chia qua nhiều clip sẽ hiện phần đã xong.",
         // Guide
         "Click your **project**": "Bấm vào **dự án** của bạn",
         "**Paste formatted text** from your script": "**Dán văn bản có định dạng** từ kịch bản",

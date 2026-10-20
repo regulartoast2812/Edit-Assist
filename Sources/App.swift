@@ -419,25 +419,15 @@ struct ContentView: View {
                 }.padding(.bottom, 4)
             }
             ForEach(Array(s.targets.enumerated()), id: \.offset) { _, phrase in
-                let total = s.words(of: phrase).count
-                let done = min(s.styled(phrase), total)
-                HStack(spacing: 8) {
-                    Image(systemName: done >= total ? "checkmark.circle.fill" : (done > 0 ? "circle.lefthalf.filled" : "circle"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(done >= total ? accent : (done > 0 ? .orange : .secondary))
-                    Text(phrase.trimmingCharacters(in: .whitespaces)).font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 6)
-                    Text("\(done)/\(total)").font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(done > 0 && done < total ? .orange : .secondary)
-                    Button(L("Redo")) { s.clearProgress(of: phrase) }.font(.system(size: 9)).disabled(s.busy || done == 0)
-                }
+                PhraseRow(phrase: phrase).environmentObject(s)
             }
-            HStack {
-                Text(md: L("Each word counts: a phrase split across clips shows part done."))
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
-                Spacer()
-                Button(L("Reset progress")) { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords(graphics: s.progressGraphics).isEmpty)
-            }.padding(.top, 4)
+            // Only when there is progress to clear.
+            if !s.project.styledWords(graphics: s.progressGraphics).isEmpty {
+                HStack {
+                    Spacer()
+                    Button(L("Reset progress")) { s.resetProgress() }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary).disabled(s.busy)
+                }.padding(.top, 4)
+            }
         }
     }
 
@@ -738,7 +728,7 @@ struct ContentView: View {
                     }
                 }
             } else {
-                card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }.guideTarget("todo")
+                card(L("To do")) { phraseList }.guideTarget("todo")
             }
         }.padding(.bottom, 10)
     }
@@ -768,9 +758,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L(s.pickedStyleImage == nil ? "Picked on the first phrase" : "Last picked style"))
                             .font(.system(size: 12, weight: .semibold))
-                        Text(L(s.project.keepsStyle
-                             ? (s.hasRememberedStyle ? "Reuse this style across runs. Reset it when you want to choose a different tile." : "Choose a tile on the first phrase. Remember it for the rest of this run and future runs.")
-                             : "Choose a tile on the first phrase of each run; use it for the remaining phrases."))
+                        Text(L(s.project.keepsStyle && s.hasRememberedStyle ? "Used on every run until you reset it." : "Picked on the first phrase of each run."))
                             .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1286,5 +1274,37 @@ struct LogSidebarItem: View {
         }
         .buttonStyle(.plain)
         .onAppear { pulse = false; withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { pulse = true } }
+    }
+}
+
+
+/// One phrase in To do: its state, its words done (the tooltip explains the count), and Redo on hover once it has
+/// progress to clear.
+struct PhraseRow: View {
+    @EnvironmentObject var s: Store
+    let phrase: String
+    @State private var hovering = false
+    private let accent = Color(red: 0.43, green: 0.88, blue: 0.73)
+    var body: some View {
+        let total = s.words(of: phrase).count
+        let done = min(s.styled(phrase), total)
+        HStack(spacing: 8) {
+            Image(systemName: done >= total ? "checkmark.circle.fill" : (done > 0 ? "circle.lefthalf.filled" : "circle"))
+                .font(.system(size: 12))
+                .foregroundStyle(done >= total ? accent : (done > 0 ? .orange : .secondary))
+            Text(phrase.trimmingCharacters(in: .whitespaces)).font(.system(size: 12))
+                .foregroundStyle(done >= total ? .secondary : .primary).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 6)
+            if hovering && done > 0 && !s.busy {
+                Button(L("Redo")) { s.clearProgress(of: phrase) }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(accent)
+            }
+            Text("\(done)/\(total)").font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(done > 0 && done < total ? .orange : .secondary)
+                .help(L("Words done. A phrase split across clips shows part done."))
+        }
+        .padding(.vertical, 3).padding(.horizontal, 6)
+        .background(hovering ? Color.white.opacity(0.04) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
