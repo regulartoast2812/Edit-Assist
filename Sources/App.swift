@@ -46,14 +46,14 @@ struct EditAssistApp: App {
         .defaultSize(width: 1360, height: 880)
         .commands {
             CommandGroup(replacing: .appTermination) {
-                Button("Quit Edit Assist") { AppDelegate.quitNow() }.keyboardShortcut("q")
+                Button(L("Quit Edit Assist")) { AppDelegate.quitNow() }.keyboardShortcut("q")
             }
             // Not while something runs: a new project stops the run.
-            CommandGroup(replacing: .newItem) { Button("New project") { store.addProject() }.keyboardShortcut("n").disabled(store.busy) }
+            CommandGroup(replacing: .newItem) { Button(L("New project")) { store.addProject() }.keyboardShortcut("n").disabled(store.busy) }
             CommandMenu("Assistant") {
-                Button("Stop") { store.stop() }.keyboardShortcut(".", modifiers: .command)
-                Button("Connection settings") { store.openConnection() }.keyboardShortcut(",")
-                Button("Permissions…") { store.openPermissions() }.keyboardShortcut("p", modifiers: [.command, .shift])
+                Button(L("Stop")) { store.stop() }.keyboardShortcut(".", modifiers: .command)
+                Button(L("Connection settings")) { store.openConnection() }.keyboardShortcut(",")
+                Button(L("Permissions…")) { store.openPermissions() }.keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
     }
@@ -107,14 +107,14 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(alignment: .firstTextBaseline) {
                             if s.tab == "Assistant" {
-                                Text("Assistant").font(.system(size: 22, weight: .semibold))
+                                Text(md: L("Assistant")).font(.system(size: 22, weight: .semibold))
                             } else if s.tab == "project" {
-                                Label("Project", systemImage: "film.stack").font(.system(size: 22, weight: .semibold))
+                                Label(L("Project"), systemImage: "film.stack").font(.system(size: 22, weight: .semibold))
                             } else {
-                                Label(s.function.title, systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
+                                Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
                             Spacer()
-                            Button { contextOpen.toggle() } label: { Label("Context", systemImage: "sidebar.right") }
+                            Button { contextOpen.toggle() } label: { Label(L("Context"), systemImage: "sidebar.right") }
                                 .tint(contextOpen ? accent : .secondary)
                         }
                         if s.tab == "Assistant" { conversation }
@@ -145,22 +145,22 @@ struct ContentView: View {
                     Color.black.opacity(0.55)
                     VStack(spacing: 10) {
                         ProgressView().controlSize(.large)
-                        Text("Restarting Edit Assist…").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        Text(md: L("Restarting Edit Assist…")).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                     }
                 }.ignoresSafeArea()
             }
         }
         .sheet(isPresented: $s.showScriptDraft) {
             VStack(alignment: .leading, spacing: 15) {
-                Text("Review the extracted script").font(.title2)
-                Text("Check the wording and **bold phrases** against your screenshot before applying.").foregroundStyle(.secondary)
+                Text(md: L("Review the extracted script")).font(.title2)
+                Text(md: L("Check the wording and **bold phrases** against your screenshot before applying.")).foregroundStyle(.secondary)
                 TextEditor(text: Binding(get: { s.scriptDraft ?? "" }, set: { s.scriptDraft = $0 })).font(.system(size: 13, design: .monospaced)).frame(minHeight: 320)
-                HStack { Button("Discard") { s.scriptDraft = nil; s.showScriptDraft = false }; Spacer(); Button("Use this script") { s.applyScriptDraft() }.buttonStyle(.borderedProminent) }
+                HStack { Button(L("Discard")) { s.scriptDraft = nil; s.showScriptDraft = false }; Spacer(); Button(L("Use this script")) { s.applyScriptDraft() }.buttonStyle(.borderedProminent) }
             }.padding(25).frame(width: 620)
         }
-        .alert("Edit Assist", isPresented: Binding(get: { s.error != nil }, set: { if !$0 { s.error = nil } })) {
-            Button("OK") { s.error = nil }
-        } message: { Text(s.error ?? "") }
+        .alert(L("Edit Assist"), isPresented: Binding(get: { s.error != nil }, set: { if !$0 { s.error = nil } })) {
+            Button(L("OK")) { s.error = nil }
+        } message: { Text(L(s.error ?? "")) }
         // The error log, bottom right: a count of new problems, and the list of what went wrong.
         .overlay(alignment: .bottomTrailing) { ErrorLogButton().environmentObject(s).padding(14) }
     }
@@ -170,12 +170,12 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Image(systemName: "cursorarrow.motionlines").font(.system(size: 26)).foregroundStyle(accent)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("EDIT ASSIST").font(.system(size: 14, weight: .heavy, design: .rounded)).tracking(1.3)
-                    Text("Your editing companion").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(md: L("EDIT ASSIST")).font(.system(size: 14, weight: .heavy, design: .rounded)).tracking(1.3)
+                    Text(md: L("Your editing companion")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }.padding(.top, 14)
             VStack(alignment: .leading, spacing: 12) {
-                HStack { label("PROJECTS"); Spacer(); Button { s.addProject() } label: { Image(systemName: "plus") }.buttonStyle(.plain).disabled(s.busy) }
+                HStack { label(L("PROJECTS")); Spacer(); Button { s.addProject() } label: { Image(systemName: "plus") }.buttonStyle(.plain).disabled(s.busy) }
                 ForEach(s.projects) { project in
                     Button { if s.selected != project.id { s.select(project.id) }; s.tab = "project" } label: {
                         HStack(spacing: 10) {
@@ -191,25 +191,25 @@ struct ContentView: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: 7) {
-                label("FUNCTIONS")
+                label(L("FUNCTIONS"))
                 ForEach(EditFunction.allCases) { job in functionRow(job) }
             }
             Spacer()
             Button { s.tab = "Assistant" } label: {
-                Label("Assistant", systemImage: "bubble.left.and.bubble.right").font(.system(size: 12))
+                Label(L("Assistant"), systemImage: "bubble.left.and.bubble.right").font(.system(size: 12))
                     .foregroundStyle(s.tab == "Assistant" ? accent : .primary)
             }.buttonStyle(.plain)
             Button { settingsOpen = true } label: {
-                Label("Settings", systemImage: "gearshape").font(.system(size: 12))
+                Label(L("Settings"), systemImage: "gearshape").font(.system(size: 12))
             }.buttonStyle(.plain)
             Button { techStackOpen = true } label: {
-                Label("Tech stack", systemImage: "square.stack.3d.up").font(.system(size: 12))
+                Label(L("Tech stack"), systemImage: "square.stack.3d.up").font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             // The error log, also in the bottom-right corner: new problems counted beside it.
             Button { logOpen.toggle(); s.unseenProblems = 0 } label: {
                 HStack(spacing: 6) {
-                    Label("Log", systemImage: "doc.text.magnifyingglass").font(.system(size: 12))
+                    Label(L("Log"), systemImage: "doc.text.magnifyingglass").font(.system(size: 12))
                     if s.unseenProblems > 0 {
                         Text("\(s.unseenProblems)").font(.system(size: 10, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 1)
                             .background(Color.orange.opacity(0.25), in: Capsule()).foregroundStyle(.orange)
@@ -217,20 +217,20 @@ struct ContentView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
-            Text("Edit Assist · Preview").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(md: L("Edit Assist · Preview")).font(.system(size: 10)).foregroundStyle(.secondary)
         }.padding(18).background(panel.opacity(0.55))
     }
 
     private var techStackSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Tech stack").font(.title2.weight(.semibold))
+            Text(md: L("Tech stack")).font(.title2.weight(.semibold))
             techStackRow("Swift · SwiftUI · AppKit", purpose: "Native macOS app")
             techStackRow("ScreenCaptureKit", purpose: "Live window capture")
             techStackRow("Apple Vision", purpose: "On-device text recognition")
             techStackRow("Core Graphics", purpose: "Image analysis · mouse & keyboard")
             techStackRow("Rules · local JSON", purpose: "Workflow logic · project memory")
             techStackRow("\(s.provider) CLI", purpose: "Optional AI assistant")
-            HStack { Spacer(); Button("Done") { techStackOpen = false }.buttonStyle(.borderedProminent) }
+            HStack { Spacer(); Button(L("Done")) { techStackOpen = false }.buttonStyle(.borderedProminent) }
         }.padding(26).frame(width: 400)
     }
 
@@ -248,32 +248,32 @@ struct ContentView: View {
                 // The name is edited on the Project page.
                 Button { s.tab = "project" } label: {
                     Text(s.project.name).font(.system(size: 23, weight: .semibold)).lineLimit(1)
-                }.buttonStyle(.plain).help("Open the project")
-                Text(s.target.map { "Editing in \($0.app) · \(($0.title as NSString).lastPathComponent)" } ?? "Open Premiere or After Effects to connect")
+                }.buttonStyle(.plain).help(L("Open the project"))
+                Text(s.target.map { L("Editing in %@ · %@", $0.app, ($0.title as NSString).lastPathComponent) } ?? L("Open Premiere or After Effects to connect"))
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 20)
             if let update = s.update {
                 // A newer build is out: one click installs it and reopens the app.
                 Button { s.installUpdate() } label: {
-                    Label(s.installingUpdate ? "Installing \(update.label)…" : "Update to \(update.label)", systemImage: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill")
+                    Label(s.installingUpdate ? L("Installing %@…", update.label) : L("Update to %@", update.label), systemImage: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill")
                 }
                     .buttonStyle(.borderedProminent).controlSize(.small).disabled(s.busy || s.installingUpdate)
-                    .help(s.busy ? "Finish or stop the run first" : "Download and install, then reopen Edit Assist")
+                    .help(s.busy ? L("Finish or stop the run first") : L("Download and install, then reopen Edit Assist"))
                     .padding(.trailing, 12)
             }
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 6) {
                     Image(systemName: s.detectionLevel == .off ? "eye.slash" : "eye").foregroundStyle(s.detectionLevel == .off ? Color.secondary : accent)
                     // Off · During runs (only while a function runs) · Always (the live overlay too).
-                    Picker("Detection", selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
-                        ForEach(Store.DetectionLevel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    Picker(L("Detection"), selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
+                        ForEach(Store.DetectionLevel.allCases, id: \.self) { Text(L($0.rawValue)).tag($0) }
                     }.pickerStyle(.segmented).labelsHidden().fixedSize()
-                        .help("Off: no boxes. During runs: boxes only while a function runs. Always: the live overlay as well.")
+                        .help(L("Off: no boxes. During runs: boxes only while a function runs. Always: the live overlay as well."))
                     Button { detectionSettingsOpen.toggle() } label: { Image(systemName: "chevron.down") }
-                        .help("Detection settings").popover(isPresented: $detectionSettingsOpen) { detectionControls }
+                        .help(L("Detection settings")).popover(isPresented: $detectionSettingsOpen) { detectionControls }
                 }.controlSize(.small)
-                Text(!s.detectionEnabled ? "Detection off" : s.detectionMode ? s.detectionStatus : s.running ? "Showing this run's detection" : "Shows while a function runs")
+                Text(L(!s.detectionEnabled ? "Detection off" : s.detectionMode ? s.detectionStatus : s.running ? "Showing this run's detection" : "Shows while a function runs"))
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
         }.padding(.horizontal, 26).padding(.vertical, 22)
@@ -285,10 +285,10 @@ struct ContentView: View {
                 Image(systemName: "lock.badge.exclamationmark").font(.system(size: 17)).foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(s.missingPermissions).font(.system(size: 12, weight: .semibold))
-                    Text("Edit Assist cannot see your editor or act in it until macOS allows this.").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(md: L("Edit Assist cannot see your editor or act in it until macOS allows this.")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-                Text("Fix now").font(.system(size: 11, weight: .semibold))
+                Text(md: L("Fix now")).font(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 13).padding(.vertical, 6).background(.orange.opacity(0.2), in: Capsule())
             }.padding(.horizontal, 26).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.orange.opacity(0.1)).contentShape(Rectangle())
@@ -300,8 +300,8 @@ struct ContentView: View {
             if s.project.messages.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
                     Image(systemName: "sparkle").font(.system(size: 26)).foregroundStyle(accent)
-                    Text("What are we working on?").font(.system(size: 25, weight: .semibold))
-                    Text("Give me the project’s style and tell me what to handle. I’ll keep those choices with this project.").font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(5)
+                    Text(md: L("What are we working on?")).font(.system(size: 25, weight: .semibold))
+                    Text(md: L("Give me the project’s style and tell me what to handle. I’ll keep those choices with this project.")).font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(5)
                     VStack(alignment: .leading, spacing: 11) {
                         suggestion("Use the blue outline style for this project.")
                         suggestion("Only highlight bold phrases in the selected caption.")
@@ -328,7 +328,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 8) {
                 attachmentControls
                 if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
-                Text("Tell your assistant what to do · ⌘V also pastes screenshots").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(md: L("Tell your assistant what to do · ⌘V also pastes screenshots")).font(.system(size: 10)).foregroundStyle(.secondary)
                 ScriptEditor(text: $s.command, editable: !s.busy, onPasteImage: { s.addScreenshot($0) }).frame(height: 70)
                 HStack {
                     Text("\(s.provider) CLI · Conversation configures · Run performs").font(.system(size: 10)).foregroundStyle(.secondary)
@@ -342,30 +342,30 @@ struct ContentView: View {
 
     var script: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Paste formatted text from your script: its bold becomes the phrases to highlight, shown here in green. Select words and press ⌘B to mark or unmark one; ⌘Z undoes.").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+            Text(md: L("Paste formatted text from your script: its bold becomes the phrases to highlight, shown here in green. Select words and press ⌘B to mark or unmark one; ⌘Z undoes.")).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
             HStack {
-                Button("Paste formatted text", systemImage: "doc.on.clipboard") { s.pasteScript() }
-                Button("Import…") { importScript() }
+                Button(L("Paste formatted text"), systemImage: "doc.on.clipboard") { s.pasteScript() }
+                Button(L("Import…")) { importScript() }
                 Spacer()
-                if s.project.script.isEmpty { Button("Use your example") { s.sample() }.buttonStyle(.plain).foregroundStyle(accent) }
+                if s.project.script.isEmpty { Button(L("Use your example")) { s.sample() }.buttonStyle(.plain).foregroundStyle(accent) }
             }.font(.system(size: 11)).disabled(s.busy)
             HStack {
-                Button("B · Mark selection") { (NSApp.keyWindow?.firstResponder as? RichScriptTextView)?.toggleHighlight() }
+                Button(L("B · Mark selection")) { (NSApp.keyWindow?.firstResponder as? RichScriptTextView)?.toggleHighlight() }
                 // Flip the whole script: highlighted becomes plain and plain becomes highlighted. ⌘Z undoes it.
-                Button("⇄ Flip") { RichScriptTextView.current?.flipHighlights() }
-                    .help("Highlight everything that is not highlighted now, and the reverse. ⌘Z undoes it.")
-                Text("Select words and press ⌘B · Flip swaps highlighted and plain").font(.system(size: 10)).foregroundStyle(.secondary)
+                Button(L("⇄ Flip")) { RichScriptTextView.current?.flipHighlights() }
+                    .help(L("Highlight everything that is not highlighted now, and the reverse. ⌘Z undoes it."))
+                Text(md: L("Select words and press ⌘B · Flip swaps highlighted and plain")).font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer()
             }.disabled(s.busy)
             RichScriptEditor(text: binding(\.script), editable: !s.busy, onPasteImage: { s.addScreenshot($0) })
                 .padding(10).background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 10)).frame(minHeight: 160).disabled(s.busy)
             if !s.project.script.isEmpty && s.targetCount == 0 {
-                Text("No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.").font(.system(size: 11)).foregroundStyle(.orange)
+                Text(md: L("No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.")).font(.system(size: 11)).foregroundStyle(.orange)
             }
             attachmentControls
             if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
             if let error = parseError { Text(error).font(.system(size: 11)).foregroundStyle(.orange) }
-            label("PARSED HIGHLIGHTS")
+            label(L("PARSED HIGHLIGHTS"))
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(s.parsed.filter { !$0.highlights.isEmpty }) { line in
@@ -383,10 +383,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let next = s.nextTarget {
                 HStack(spacing: 8) {
-                    Text("NEXT").font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
+                    Text(md: L("NEXT")).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
                     Text("“\(next)”").font(.system(size: 12, weight: .semibold)).foregroundStyle(accent)
                     Spacer()
-                    Text("whichever phrase is on screen goes first").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(md: L("whichever phrase is on screen goes first")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }.padding(.bottom, 4)
             }
             ForEach(Array(s.targets.enumerated()), id: \.offset) { _, phrase in
@@ -400,14 +400,14 @@ struct ContentView: View {
                     Spacer(minLength: 6)
                     Text("\(done)/\(total)").font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(done > 0 && done < total ? .orange : .secondary)
-                    Button("Redo") { s.clearProgress(of: phrase) }.font(.system(size: 9)).disabled(s.busy || done == 0)
+                    Button(L("Redo")) { s.clearProgress(of: phrase) }.font(.system(size: 9)).disabled(s.busy || done == 0)
                 }
             }
             HStack {
-                Text("Words count separately, so a phrase split across caption clips shows partial progress. Redo clears one phrase.")
+                Text(md: L("Words count separately, so a phrase split across caption clips shows partial progress. Redo clears one phrase."))
                     .font(.system(size: 9)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Reset progress") { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords(graphics: s.progressGraphics).isEmpty)
+                Button(L("Reset progress")) { s.resetProgress() }.font(.system(size: 10)).disabled(s.busy || s.project.styledWords(graphics: s.progressGraphics).isEmpty)
             }.padding(.top, 4)
         }
     }
@@ -415,11 +415,11 @@ struct ContentView: View {
     var stages: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("In order, for every phrase. The boxes choose what Test selected stages does; a run follows Each phrase gets.")
+                Text(md: L("In order, for every phrase. The boxes choose what Test selected stages does; a run follows Each phrase gets."))
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer()
-                Button("All") { s.steps = Set(OCRStep.allCases.map(\.rawValue)) }.font(.system(size: 10)).disabled(s.busy)
-                Button("None") { s.steps = [] }.font(.system(size: 10)).disabled(s.busy)
+                Button(L("All")) { s.steps = Set(OCRStep.allCases.map(\.rawValue)) }.font(.system(size: 10)).disabled(s.busy)
+                Button(L("None")) { s.steps = [] }.font(.system(size: 10)).disabled(s.busy)
             }
             ForEach(OCRStep.allCases) { step in stageRow(step) }
         }
@@ -432,8 +432,8 @@ struct ContentView: View {
                     Image(systemName: s.enabled(step) ? "checkmark.square.fill" : "square")
                         .foregroundStyle(s.enabled(step) ? accent : .secondary).font(.system(size: 14))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(step.label).font(.system(size: 12, weight: .semibold))
-                        Text(step.detail).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(L(step.label)).font(.system(size: 12, weight: .semibold))
+                        Text(L(step.detail)).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())
@@ -452,44 +452,44 @@ struct ContentView: View {
 
     var routine: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("A routine you can teach").font(.system(size: 23, weight: .semibold))
-            Text("OCR mode below needs no instructions at all. The routine text and confidence threshold apply only to model-driven runs from the footer.").font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
+            Text(md: L("A routine you can teach")).font(.system(size: 23, weight: .semibold))
+            Text(md: L("OCR mode below needs no instructions at all. The routine text and confidence threshold apply only to model-driven runs from the footer.")).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
             TextEditor(text: binding(\.routine)).font(.system(size: 13)).scrollContentBackground(.hidden).padding(12).background(panel, in: RoundedRectangle(cornerRadius: 12)).disabled(s.busy)
-            label("CURRENT RUN")
-            TextField("What should this run do?", text: $s.runInstruction, axis: .vertical).lineLimit(3...5).textFieldStyle(.roundedBorder).disabled(s.busy)
+            label(L("CURRENT RUN"))
+            TextField(L("What should this run do?"), text: $s.runInstruction, axis: .vertical).lineLimit(3...5).textFieldStyle(.roundedBorder).disabled(s.busy)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    label("PAUSE BELOW")
+                    label(L("PAUSE BELOW"))
                     Spacer()
                     Text("\(Int(s.minConfidence * 100))% confidence").font(.system(size: 11, design: .monospaced)).foregroundStyle(accent)
                 }
                 Slider(value: $s.minConfidence, in: 0.3...0.95, step: 0.05).disabled(s.busy)
-                Text("The model scores its own certainty and is not well calibrated: sound decisions often report around 0.7. Raise this to stop more often and review, lower it to let the routine keep moving.")
+                Text(md: L("The model scores its own certainty and is not well calibrated: sound decisions often report around 0.7. Raise this to stop more often and review, lower it to let the routine keep moving."))
                     .font(.system(size: 10)).foregroundStyle(.secondary).lineSpacing(2)
             }
-            Text("Starts from the current Adobe state. Pause playback first. Run pauses after 40 actions so you can review progress.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(md: L("Starts from the current Adobe state. Pause playback first. Run pauses after 40 actions so you can review progress.")).font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 
     var inspector: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack { label("SCREEN OBSERVATION"); Spacer(); Button("Capture", systemImage: "camera") { s.capture() }.font(.system(size: 11)).disabled(s.busy || s.window == nil) }
+                HStack { label(L("SCREEN OBSERVATION")); Spacer(); Button(L("Capture"), systemImage: "camera") { s.capture() }.font(.system(size: 11)).disabled(s.busy || s.window == nil) }
                 if let observation = s.observation {
                     CaptureView(image: observation.image, action: s.proposal?.action) { rect in s.rememberStyle(rect) }
                         .disabled(s.busy).clipShape(RoundedRectangle(cornerRadius: 10))
-                    Text("Drag a rectangle around your chosen style tile to remember its appearance.").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(md: L("Drag a rectangle around your chosen style tile to remember its appearance.")).font(.system(size: 10)).foregroundStyle(.secondary)
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "viewfinder").font(.system(size: 30)).foregroundStyle(accent.opacity(0.65))
-                        Text("Your Adobe window will appear here").font(.system(size: 12))
-                        Text("Capture to inspect it or teach a style.").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Text(md: L("Your Adobe window will appear here")).font(.system(size: 12))
+                        Text(md: L("Capture to inspect it or teach a style.")).font(.system(size: 11)).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity).frame(height: 190).background(panel, in: RoundedRectangle(cornerRadius: 12))
                 }
                 Divider()
                 if let proposal = s.proposal {
                     Divider()
-                    label("NEXT STEP / LAST DECISION")
+                    label(L("NEXT STEP / LAST DECISION"))
                     Text(proposal.message).font(.system(size: 12, weight: .medium))
                     Text(proposal.evidence).font(.system(size: 11)).foregroundStyle(.secondary)
                     Text("\(proposal.action.kind) · \(Int(proposal.confidence * 100))% model confidence").font(.system(size: 10, design: .monospaced)).foregroundStyle(accent)
@@ -502,12 +502,12 @@ struct ContentView: View {
     var legacyStyle: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            label("ASSISTANT RUNS ONLY")
-            TextField("Describe the style for the assistant", text: binding(\.style), axis: .vertical).font(.system(size: 12)).lineLimit(2...4).textFieldStyle(.roundedBorder).disabled(s.busy)
+            label(L("ASSISTANT RUNS ONLY"))
+            TextField(L("Describe the style for the assistant"), text: binding(\.style), axis: .vertical).font(.system(size: 12)).lineLimit(2...4).textFieldStyle(.roundedBorder).disabled(s.busy)
             HStack {
-                Button("Import style reference…") { importStyle() }
-                Button("Choose from editor") { contextOpen = true; s.capture() }.disabled(s.window == nil)
-                if s.project.styleImage != nil { Button("Clear reference") { s.update(\.styleImage, nil) } }
+                Button(L("Import style reference…")) { importStyle() }
+                Button(L("Choose from editor")) { contextOpen = true; s.capture() }.disabled(s.window == nil)
+                if s.project.styleImage != nil { Button(L("Clear reference")) { s.update(\.styleImage, nil) } }
             }.font(.system(size: 10)).disabled(s.busy)
         }
     }
@@ -515,20 +515,20 @@ struct ContentView: View {
     var diagnostics: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button("Dump OCR") { s.dumpOCR() }.disabled(s.busy)
-                Button("Test selected stages") { s.runChecklist() }.disabled(s.busy || s.targets.isEmpty)
-                Button("Select next phrase") { s.runOCR(all: false) }.disabled(s.busy || s.nextTarget == nil)
-                if !s.ocrOnly { Button("Preview assistant step") { s.run(limit: 1, preview: true) }.disabled(s.busy) }
+                Button(L("Dump OCR")) { s.dumpOCR() }.disabled(s.busy)
+                Button(L("Test selected stages")) { s.runChecklist() }.disabled(s.busy || s.targets.isEmpty)
+                Button(L("Select next phrase")) { s.runOCR(all: false) }.disabled(s.busy || s.nextTarget == nil)
+                if !s.ocrOnly { Button(L("Preview assistant step")) { s.run(limit: 1, preview: true) }.disabled(s.busy) }
             }.font(.system(size: 11))
-            Text("Stage tests do not record phrase progress. Logs show recognition and action results.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(md: L("Stage tests do not record phrase progress. Logs show recognition and action results.")).font(.system(size: 11)).foregroundStyle(.secondary)
             Divider()
             // Safeguard: a run that worked becomes a test every build replays, so a later change that
             // would decide differently on those screens is caught before it reaches a run.
             HStack(spacing: 10) {
-                Toggle("Record the next run", isOn: $s.recordNextRun).toggleStyle(.switch).controlSize(.small).disabled(s.busy)
+                Toggle(L("Record the next run"), isOn: $s.recordNextRun).toggleStyle(.switch).controlSize(.small).disabled(s.busy)
                 Spacer()
                 if s.lastRecording != nil {
-                    Button("Keep last recording as a test") { s.keepLastRecording() }.font(.system(size: 11)).disabled(s.busy)
+                    Button(L("Keep last recording as a test")) { s.keepLastRecording() }.font(.system(size: 11)).disabled(s.busy)
                 }
             }
             Text("\(s.keptRecordings) recorded run\(s.keptRecordings == 1 ? "" : "s") kept as tests. Every build replays them and refuses to install if a decision changes.")
@@ -537,10 +537,10 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Text("Edit Assist \(Updater.current)").font(.system(size: 11))
                 Spacer()
-                if s.update != nil { Button("Update now") { s.installUpdate() }.font(.system(size: 11)).disabled(s.busy) }
-                Button("Check for updates") { s.checkForUpdates(manual: true) }.font(.system(size: 11))
+                if s.update != nil { Button(L("Update now")) { s.installUpdate() }.font(.system(size: 11)).disabled(s.busy) }
+                Button(L("Check for updates")) { s.checkForUpdates(manual: true) }.font(.system(size: 11))
             }
-            if !s.updateStatus.isEmpty { Text(s.updateStatus).font(.system(size: 10)).foregroundStyle(.secondary) }
+            if !s.updateStatus.isEmpty { Text(L(s.updateStatus)).font(.system(size: 10)).foregroundStyle(.secondary) }
             ForEach(Array(s.activity.suffix(30).enumerated()), id: \.offset) { _, entry in
                 Text(entry).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
             }
@@ -549,34 +549,43 @@ struct ContentView: View {
 
     var settingsSheet: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Settings").font(.title2.weight(.semibold))
-            Toggle("Use OCR for editing routines", isOn: $s.ocrOnly).disabled(s.busy)
-            Text("OCR follows the caption styling workflow. Turn this off to use assistant-driven routines.").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(md: L("Settings")).font(.title2.weight(.semibold))
+            // The interface language; the activity log stays in English.
+            HStack {
+                Text(md: L("Language")).font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Picker(L("Language"), selection: Binding(get: { s.language }, set: { s.language = $0 })) {
+                    ForEach(AppLanguage.allCases) { Text($0.name).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            Divider()
+            Toggle(L("Use OCR for editing routines"), isOn: $s.ocrOnly).disabled(s.busy)
+            Text(md: L("OCR follows the caption styling workflow. Turn this off to use assistant-driven routines.")).font(.system(size: 12)).foregroundStyle(.secondary)
             Divider()
             Button("Assistant provider · \(s.provider)") { settingsDestination = "provider"; settingsOpen = false }.disabled(s.busy)
-            Button("macOS permissions") { settingsDestination = "permissions"; settingsOpen = false }
-            Text(s.permissionsReady ? "Screen recording and mouse control are allowed." : s.missingPermissions)
+            Button(L("macOS permissions")) { settingsDestination = "permissions"; settingsOpen = false }
+            Text(L(s.permissionsReady ? "Screen recording and mouse control are allowed." : s.missingPermissions))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            HStack { Spacer(); Button("Done") { settingsOpen = false }.buttonStyle(.borderedProminent) }
+            HStack { Spacer(); Button(L("Done")) { settingsOpen = false }.buttonStyle(.borderedProminent) }
         }.padding(26).frame(width: 440)
     }
 
     var detectionControls: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Detection settings").font(.system(size: 16, weight: .semibold))
+            Text(md: L("Detection settings")).font(.system(size: 16, weight: .semibold))
             // When detection shows is the header switch (Off · During runs · Always): two separate toggles here
             // could disagree with it.
-            Picker("Show", selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
-                ForEach(Store.DetectionLevel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            Picker(L("Show"), selection: Binding(get: { s.detectionLevel }, set: { s.detectionLevel = $0 })) {
+                ForEach(Store.DetectionLevel.allCases, id: \.self) { Text(L($0.rawValue)).tag($0) }
             }.pickerStyle(.segmented)
             Divider()
-            label("SHOW ON SCREEN")
-            Toggle("Boxes", isOn: $s.detectionBoxes)
-            Toggle("Recognized text", isOn: $s.detectionText)
-            Toggle("Details and coordinates", isOn: $s.detectionDetails)
+            label(L("SHOW ON SCREEN"))
+            Toggle(L("Boxes"), isOn: $s.detectionBoxes)
+            Toggle(L("Recognized text"), isOn: $s.detectionText)
+            Toggle(L("Details and coordinates"), isOn: $s.detectionDetails)
             Divider()
-            label("RECOGNIZE")
-            Toggle("Faces and bodies", isOn: $s.detectPeople)
+            label(L("RECOGNIZE"))
+            Toggle(L("Faces and bodies"), isOn: $s.detectPeople)
         }.toggleStyle(.switch).controlSize(.small).padding(22).frame(width: 290)
     }
 
@@ -589,8 +598,8 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(systemName: job.icon).frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(job.title).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                        Text(s.activeFunction == job ? (s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? "No script yet" : "\(s.project.completed(graphics: job == .highlightGraphics).count) of \(s.targets.count) done")
+                        Text(L(job.title)).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
+                        Text(s.activeFunction == job ? L(s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? L("No script yet") : L("%@ of %@ done", s.project.completed(graphics: job == .highlightGraphics).count, s.targets.count))
                             .font(.system(size: 9)).foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
                     }
                     Spacer(minLength: 0)
@@ -601,14 +610,14 @@ struct ContentView: View {
                     Image(systemName: s.runPaused ? "play.fill" : "pause.fill").font(.system(size: 10))
                         .frame(width: 26, height: 26).background((s.runPaused ? Color.orange : accent).opacity(0.2), in: Circle())
                         .foregroundStyle(s.runPaused ? .orange : accent)
-                }.buttonStyle(.plain).help(s.runPaused ? "Continue" : "Pause")
+                }.buttonStyle(.plain).help(L(s.runPaused ? "Continue" : "Pause"))
             } else {
                 Button { s.start(job) } label: {
                     Image(systemName: "play.fill").font(.system(size: 10))
                         .frame(width: 26, height: 26).background(accent.opacity(s.busy ? 0.06 : 0.2), in: Circle())
                         .foregroundStyle(s.busy ? Color.secondary : accent)
                 }.buttonStyle(.plain).disabled(s.busy || (job.highlightsPhrases && s.ocrOnly && s.targets.isEmpty))
-                    .help(s.busy ? "Another function is running" : "\(job.runLabel) — start \(job.title.lowercased()) now")
+                    .help(s.busy ? L("Another function is running") : "\(L(job.runLabel)) — \(L(job.title))")
             }
         }.padding(.leading, 12).padding(.trailing, 8).padding(.top, 10).padding(.bottom, 14).frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .bottom) {
@@ -642,29 +651,29 @@ struct ContentView: View {
                     .frame(width: 30, height: 30).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(job.title).font(.system(size: 12, weight: .semibold))
-                        Text(s.running ? (s.runPaused ? "Paused" : "Running") : s.busy ? "Working" : "Ready")
+                        Text(L(job.title)).font(.system(size: 12, weight: .semibold))
+                        Text(L(s.running ? (s.runPaused ? "Paused" : "Running") : s.busy ? "Working" : "Ready"))
                             .font(.system(size: 9, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 2)
                             .background((!s.running ? Color.secondary : s.runPaused ? .orange : accent).opacity(0.18), in: Capsule())
                             .foregroundStyle(!s.running ? Color.secondary : s.runPaused ? .orange : accent)
                     }
-                    Text(s.status).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    Text(L(s.status)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 12)
-                Button { s.toggleRunPause() } label: { Label(s.runPaused ? "Continue" : "Pause", systemImage: s.runPaused ? "play" : "pause") }
-                    .disabled(!s.running).help("Pause between gestures; Continue resumes the same pass")
-                Button { s.stop() } label: { Label("Stop", systemImage: "stop.fill") }.disabled(!s.busy).tint(.orange)
-                Button { s.start(s.function) } label: { Label(s.function.runLabel, systemImage: "play.fill") }
+                Button { s.toggleRunPause() } label: { Label(L(s.runPaused ? "Continue" : "Pause"), systemImage: s.runPaused ? "play" : "pause") }
+                    .disabled(!s.running).help(L("Pause between gestures; Continue resumes the same pass"))
+                Button { s.stop() } label: { Label(L("Stop"), systemImage: "stop.fill") }.disabled(!s.busy).tint(.orange)
+                Button { s.start(s.function) } label: { Label(L(s.function.runLabel), systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                     .disabled(s.busy || (s.function.highlightsPhrases && s.ocrOnly && s.targets.isEmpty))
                     .help(s.busy ? "\((s.activeFunction ?? s.function).title) is running; one function runs at a time" : "Start \(s.function.title.lowercased()) at the current playhead")
             }
             HStack(spacing: 10) {
                 ProgressView(value: progress.fraction).tint(s.runPaused ? .orange : accent)
-                Text("\(s.doneCount) of \(s.targets.count) phrases")
+                Text(L("%@ of %@ phrases", s.doneCount, s.targets.count))
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).fixedSize()
                 if let left = s.timeLeft(of: job) {
-                    Text("· about \(left < 60 ? "\(Int(left.rounded())) s" : "\(Int((left / 60).rounded())) min") left")
+                    Text(L("· about %@ left", left < 60 ? "\(Int(left.rounded())) s" : "\(Int((left / 60).rounded())) min"))
                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).fixedSize()
                 }
             }
@@ -677,33 +686,33 @@ struct ContentView: View {
         HStack(alignment: .top, spacing: 18) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    columnTitle("TASK")
-                    Text(s.function.summary).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+                    columnTitle(L("TASK"))
+                    Text(L(s.function.summary)).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
                     if s.targets.isEmpty {
-                        card("To do") {
+                        card(L("To do")) {
                             VStack(alignment: .leading, spacing: 10) {
-                                Text("No phrases yet. The script belongs to the project, so every function can use it.")
+                                Text(md: L("No phrases yet. The script belongs to the project, so every function can use it."))
                                     .font(.system(size: 12)).foregroundStyle(.secondary)
-                                Button("Add the script") { s.tab = "project" }.buttonStyle(.borderedProminent)
+                                Button(L("Add the script")) { s.tab = "project" }.buttonStyle(.borderedProminent)
                             }
                         }
                     } else {
-                        card("To do", trailing: "\(s.doneCount) of \(s.targets.count) done") { phraseList }
+                        card(L("To do"), trailing: L("%@ of %@ done", s.doneCount, s.targets.count)) { phraseList }
                     }
                 }.padding(.bottom, 10)
             }.frame(minWidth: 380, maxWidth: .infinity)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    columnTitle("SETUP")
-                    card("Style and size") {
+                    columnTitle(L("SETUP"))
+                    card(L("Style and size")) {
                         HStack(spacing: 10) {
-                            label("APPLY")
+                            label(L("APPLY"))
                             Spacer()
                             // What a run does to each phrase. The individual steps are under Diagnostics, for testing.
-                            Picker("Each phrase gets", selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
-                                Text("Style & size").tag("both")
-                                Text("Style only").tag("style")
-                                Text("Size only").tag("size")
+                            Picker(L("Each phrase gets"), selection: Binding(get: { s.project.runParts ?? "both" }, set: { s.update(\.runParts, $0 == "both" ? nil : $0) })) {
+                                Text(md: L("Style & size")).tag("both")
+                                Text(md: L("Style only")).tag("style")
+                                Text(md: L("Size only")).tag("size")
                             }.pickerStyle(.segmented).labelsHidden().fixedSize().disabled(s.busy)
                         }
                         HStack(alignment: .top, spacing: 12) {
@@ -715,23 +724,23 @@ struct ContentView: View {
                                 }
                             }.frame(width: 56, height: 56).background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(s.pickedStyleImage == nil ? "Picked on the first phrase" : "Last picked style")
+                                Text(L(s.pickedStyleImage == nil ? "Picked on the first phrase" : "Last picked style"))
                                     .font(.system(size: 12, weight: .semibold))
-                                Text(s.project.keepsStyle
+                                Text(L(s.project.keepsStyle
                                      ? (s.hasRememberedStyle ? "Reuse this style across runs. Reset it when you want to choose a different tile." : "Choose a tile on the first phrase. Remember it for the rest of this run and future runs.")
-                                     : "Choose a tile on the first phrase of each run; use it for the remaining phrases.")
+                                     : "Choose a tile on the first phrase of each run; use it for the remaining phrases."))
                                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         HStack {
-                            Toggle("Keep style", isOn: Binding(get: { s.project.keepsStyle }, set: { s.update(\.keepStyle, Optional($0)) }))
+                            Toggle(L("Keep style"), isOn: Binding(get: { s.project.keepsStyle }, set: { s.update(\.keepStyle, Optional($0)) }))
                                 .toggleStyle(.switch).controlSize(.small)
                             Spacer()
-                            Button("Reset style") { s.resetStyle() }
+                            Button(L("Reset style")) { s.resetStyle() }
                                 .disabled(!s.hasRememberedStyle)
                         }.disabled(s.busy).opacity(s.project.doesStyle ? 1 : 0.4)
                         HStack(spacing: 10) {
-                            label("FONT SIZE STEP")
+                            label(L("FONT SIZE STEP"))
                             Spacer()
                             // Type a number or use the arrows: 0 leaves the size as it is, below 0 makes it smaller.
                             // A step of 0 changes no size: Apply follows it to Style only, and back to Style & size when the
@@ -743,28 +752,28 @@ struct ContentView: View {
                                 else if was == 0, now != 0, s.project.runParts == "style" { s.update(\.runParts, nil) }
                             })
                             HStack(spacing: 4) {
-                                TextField("0", value: step, format: .number)
+                                TextField(L("0"), value: step, format: .number)
                                     .onSubmit { NSApp.keyWindow?.makeFirstResponder(nil) }
                                     .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
                                     .font(.system(size: 12, design: .monospaced)).frame(width: 56)
-                                    .help("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller.")
-                                Stepper("Font size step", value: step, in: -100...200).labelsHidden()
+                                    .help(L("Points added to the font size of each highlighted phrase. 0 leaves it unchanged; negative makes it smaller."))
+                                Stepper(L("Font size step"), value: step, in: -100...200).labelsHidden()
                             }.disabled(s.busy)
                         }.opacity(s.project.doesSize ? 1 : 0.4)
                         if !s.ocrOnly { legacyStyle }
                     }
-                    DisclosureGroup("Diagnostics") {
+                    DisclosureGroup(L("Diagnostics")) {
                         VStack(alignment: .leading, spacing: 16) {
                             // The individual steps: for testing one at a time (Test selected stages). A run follows
                             // "Each phrase gets" above, not these boxes.
-                            label("STEPS FOR EACH PHRASE (TESTING)")
+                            label(L("STEPS FOR EACH PHRASE (TESTING)"))
                             stages
                             Divider()
                             diagnostics
                         }.padding(.top, 12)
                     }
                     if !s.ocrOnly {
-                        DisclosureGroup("Assistant routine instructions") { routine.frame(minHeight: 420).padding(.top, 12) }
+                        DisclosureGroup(L("Assistant routine instructions")) { routine.frame(minHeight: 420).padding(.top, 12) }
                     }
                 }.padding(.bottom, 10)
             }.frame(width: 400)
@@ -779,23 +788,23 @@ struct ContentView: View {
     var projectPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("What this project is about. Functions read from here: Highlight phrases takes its bold phrases from the script.")
+                Text(md: L("What this project is about. Functions read from here: Highlight phrases takes its bold phrases from the script."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
-                card("Details") {
+                card(L("Details")) {
                     HStack(spacing: 12) {
-                        label("NAME")
-                        TextField("Project name", text: binding(\.name)).textFieldStyle(.roundedBorder).disabled(s.busy)
+                        label(L("NAME"))
+                        TextField(L("Project name"), text: binding(\.name)).textFieldStyle(.roundedBorder).disabled(s.busy)
                     }
                     HStack(spacing: 12) {
-                        label("EDITOR")
+                        label(L("EDITOR"))
                         Text(s.target.map { "\($0.app) · \(($0.title as NSString).lastPathComponent)" } ?? s.project.app).font(.system(size: 12))
                         Spacer()
                     }
                 }
-                card("Script", trailing: "\(s.targetCount) phrases") { script.frame(minHeight: 420) }
+                card(L("Script"), trailing: L("%@ phrases", s.targetCount)) { script.frame(minHeight: 420) }
                 HStack {
                     Spacer()
-                    Button { s.function = .highlight; s.tab = "function" } label: { Label("Go to Highlight phrases", systemImage: "arrow.right") }
+                    Button { s.function = .highlight; s.tab = "function" } label: { Label(L("Go to Highlight phrases"), systemImage: "arrow.right") }
                         .disabled(s.targets.isEmpty)
                 }
             }.padding(.bottom, 10)
@@ -816,9 +825,9 @@ struct ContentView: View {
 
     var attachmentControls: some View {
         HStack(spacing: 8) {
-            Button("Add screenshots…", systemImage: "photo.badge.plus") { importScreenshots() }
-            Button("Paste image") { s.pasteScreenshot() }
-            if !s.attachments.isEmpty { Button("Read as script") { s.readScriptScreenshot() } }
+            Button(L("Add screenshots…"), systemImage: "photo.badge.plus") { importScreenshots() }
+            Button(L("Paste image")) { s.pasteScreenshot() }
+            if !s.attachments.isEmpty { Button(L("Read as script")) { s.readScriptScreenshot() } }
         }.font(.system(size: 10)).disabled(s.busy)
     }
     func imageStrip(_ images: [Data], removable: Bool) -> some View {
@@ -846,7 +855,7 @@ struct ContentView: View {
         Button { s.command = text } label: { HStack { Text(text).font(.system(size: 12)); Spacer(); Image(systemName: "arrow.up.left").font(.system(size: 10)).foregroundStyle(.secondary) }.padding(12).background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain)
     }
     func permission(_ name: String, ready: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { HStack { Image(systemName: ready ? "checkmark.circle.fill" : "circle").foregroundStyle(ready ? accent : .secondary); Text(name).font(.system(size: 11)); Spacer(); if !ready { Text("Enable").font(.system(size: 9)).foregroundStyle(accent) } } }.buttonStyle(.plain)
+        Button(action: action) { HStack { Image(systemName: ready ? "checkmark.circle.fill" : "circle").foregroundStyle(ready ? accent : .secondary); Text(name).font(.system(size: 11)); Spacer(); if !ready { Text(md: L("Enable")).font(.system(size: 9)).foregroundStyle(accent) } } }.buttonStyle(.plain)
     }
     func importScript() {
         let picker = NSOpenPanel(); picker.allowedContentTypes = [.plainText, .rtf, .html]; picker.allowsMultipleSelection = false
@@ -910,8 +919,8 @@ struct PermissionsView: View {
                 Image(systemName: s.permissionsReady ? "checkmark.seal.fill" : "hand.raised.fill")
                     .font(.system(size: 26)).foregroundStyle(s.permissionsReady ? accent : .orange)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(s.permissionsReady ? "All set" : "Two quick permissions").font(.system(size: 22, weight: .semibold))
-                    Text(s.permissionsReady ? "Edit Assist can see and work in Premiere." : "Edit Assist needs to see Premiere and click in it for you. About a minute, once.")
+                    Text(L(s.permissionsReady ? "All set" : "Two quick permissions")).font(.system(size: 22, weight: .semibold))
+                    Text(L(s.permissionsReady ? "Edit Assist can see and work in Premiere." : "Edit Assist needs to see Premiere and click in it for you. About a minute, once."))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
@@ -921,11 +930,11 @@ struct PermissionsView: View {
                     HStack(spacing: 8) {
                         // Asking macOS first is what puts Edit Assist in the list; Settings opened at the same
                         // moment could show the list without it.
-                        Button { s.desktop.requestControl() } label: { Label("Ask macOS", systemImage: "hand.raised") }
+                        Button { s.desktop.requestControl() } label: { Label(L("Ask macOS"), systemImage: "hand.raised") }
                             .buttonStyle(.borderedProminent)
-                        Button("Open System Settings") { openAfterAsking(control: true) }
+                        Button(L("Open System Settings")) { openAfterAsking(control: true) }
                     }
-                    Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. Already on in the list (after an update)? Turn it **off and on again**. This step ticks itself as soon as it is on.")
+                    Text(md: L("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist**. No popup? Use **Open System Settings** here. Already on in the list (after an update)? Turn it **off and on again**. This step ticks itself as soon as it is on."))
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
@@ -934,28 +943,28 @@ struct PermissionsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if !screenRequested {
                         HStack(spacing: 8) {
-                            Button { screenRequested = true; s.desktop.requestCapture() } label: { Label("Ask macOS", systemImage: "hand.raised") }
+                            Button { screenRequested = true; s.desktop.requestCapture() } label: { Label(L("Ask macOS"), systemImage: "hand.raised") }
                                 .buttonStyle(.borderedProminent)
-                            Button("Open System Settings") { screenRequested = true; openAfterAsking(control: false) }
+                            Button(L("Open System Settings")) { screenRequested = true; openAfterAsking(control: false) }
                         }
-                        Text("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist** (already on after an update? turn it **off and on again**). When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done.")
+                        Text(md: L("**Ask macOS**, then in its popup choose **Open System Settings** and turn on **Edit Assist** (already on after an update? turn it **off and on again**). When macOS offers **Quit & Reopen**, choose it: Edit Assist comes back with this step done."))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     } else {
                         Button { s.restart() } label: {
-                            Label("Restart Edit Assist to finish", systemImage: "arrow.clockwise")
+                            Label(L("Restart Edit Assist to finish"), systemImage: "arrow.clockwise")
                         }.buttonStyle(.borderedProminent)
                         HStack(spacing: 6) {
-                            Text("Turned on **Edit Assist** in the list? macOS applies it after a restart.")
-                            Button("Open the list again") { openAfterAsking(control: false) }.buttonStyle(.link)
+                            Text(md: L("Turned on **Edit Assist** in the list? macOS applies it after a restart."))
+                            Button(L("Open the list again")) { openAfterAsking(control: false) }.buttonStyle(.link)
                         }.font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
             }
-            DisclosureGroup("Still not working?", isExpanded: $troubleOpen) { trouble.padding(.top, 10) }
+            DisclosureGroup(L("Still not working?"), isExpanded: $troubleOpen) { trouble.padding(.top, 10) }
                 .font(.system(size: 12))
             HStack {
                 Spacer()
-                Button(s.permissionsReady ? "Start using Edit Assist" : "Later") { s.permissionsOpen = false }
+                Button(L(s.permissionsReady ? "Start using Edit Assist" : "Later")) { s.permissionsOpen = false }
                     .buttonStyle(.borderedProminent).tint(s.permissionsReady ? accent : .secondary)
             }
         }
@@ -969,11 +978,11 @@ struct PermissionsView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if s.permissionsReady { s.permissionsOpen = false } }
             }
         }
-        .confirmationDialog("Reset Edit Assist's permissions?", isPresented: $resetting, titleVisibility: .visible) {
-            Button("Reset and reopen", role: .destructive) { screenRequested = false; s.restart(resetPermissions: true) }
-            Button("Cancel", role: .cancel) { }
+        .confirmationDialog(L("Reset Edit Assist's permissions?"), isPresented: $resetting, titleVisibility: .visible) {
+            Button(L("Reset and reopen"), role: .destructive) { screenRequested = false; s.restart(resetPermissions: true) }
+            Button(L("Cancel"), role: .cancel) { }
         } message: {
-            Text("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected.")
+            Text(md: L("Removes Edit Assist from Screen recording and Accessibility, then reopens it so macOS asks again. Only this app is affected."))
         }
     }
 
@@ -996,10 +1005,10 @@ struct PermissionsView: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text(name).font(.system(size: 14, weight: .semibold))
-                    if done { Text("Allowed").font(.system(size: 10, weight: .bold)).foregroundStyle(accent) }
+                    Text(L(name)).font(.system(size: 14, weight: .semibold))
+                    if done { Text(md: L("Allowed")).font(.system(size: 10, weight: .bold)).foregroundStyle(accent) }
                 }
-                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(L(detail)).font(.system(size: 11)).foregroundStyle(.secondary)
                 if current { action().padding(.top, 4) }
             }
             Spacer(minLength: 0)
@@ -1013,18 +1022,18 @@ struct PermissionsView: View {
     /// For when the steps did not take: old duplicate rows in System Settings, or a copy elsewhere.
     var trouble: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("If Edit Assist is turned on in System Settings but a step still is not ticked, the list may hold an old entry from an earlier copy. **Reset & re-register** removes Edit Assist's entries and reopens it so macOS asks again.")
+            Text(md: L("If Edit Assist is turned on in System Settings but a step still is not ticked, the list may hold an old entry from an earlier copy. **Reset & re-register** removes Edit Assist's entries and reopens it so macOS asks again."))
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
-            Text("After an update, macOS may ask again: each new version looks like a new app to it.")
+            Text(md: L("After an update, macOS may ask again: each new version looks like a new app to it."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
-                Text("THIS COPY").font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Text(md: L("THIS COPY")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(s.desktop.bundlePath).font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
             }
             HStack {
-                Button("Reset & re-register") { resetting = true }
-                Button("Restart Edit Assist") { s.restart() }
+                Button(L("Reset & re-register")) { resetting = true }
+                Button(L("Restart Edit Assist")) { s.restart() }
                 Spacer()
             }.font(.system(size: 11))
         }
@@ -1039,13 +1048,13 @@ struct ErrorLogButton: View {
         Button { open.toggle(); s.unseenProblems = 0 } label: {
             HStack(spacing: 6) {
                 Image(systemName: s.unseenProblems > 0 ? "exclamationmark.triangle.fill" : "exclamationmark.triangle")
-                Text(s.unseenProblems > 0 ? "\(s.unseenProblems) new" : "Errors").font(.system(size: 11, weight: .semibold))
+                Text(L(s.unseenProblems > 0 ? "\(s.unseenProblems) new" : "Errors")).font(.system(size: 11, weight: .semibold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background((s.unseenProblems > 0 ? Color.orange : Color.white).opacity(s.unseenProblems > 0 ? 0.22 : 0.07), in: Capsule())
             .foregroundStyle(s.unseenProblems > 0 ? Color.orange : .secondary)
         }
-        .buttonStyle(.plain).help("Error log")
+        .buttonStyle(.plain).help(L("Error log"))
         .popover(isPresented: $open, arrowEdge: .top) { ErrorLogView().environmentObject(s) }
     }
 }
@@ -1056,12 +1065,12 @@ struct ErrorLogView: View {
     var body: some View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Error log").font(.system(size: 15, weight: .semibold))
+                    Text(md: L("Error log")).font(.system(size: 15, weight: .semibold))
                     Spacer()
-                    Text("\(s.problems.count) this session").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(L("%@ this session", s.problems.count)).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 if s.problems.isEmpty {
-                    Text("Nothing has gone wrong this session.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(md: L("Nothing has gone wrong this session.")).font(.system(size: 12)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 60)
                 } else {
                     ScrollView {
@@ -1070,7 +1079,7 @@ struct ErrorLogView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(problem.time.formatted(date: .omitted, time: .standard))
                                         .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-                                    Text(problem.message).font(.system(size: 12)).textSelection(.enabled)
+                                    Text(L(problem.message)).font(.system(size: 12)).textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1080,14 +1089,14 @@ struct ErrorLogView: View {
                     }.frame(maxHeight: 360)
                 }
                 HStack {
-                    Button { s.revealLogPackage() } label: { Label("Show log file", systemImage: "folder") }
+                    Button { s.revealLogPackage() } label: { Label(L("Show log file"), systemImage: "folder") }
                         .buttonStyle(.borderedProminent)
-                        .help("Packs the errors, the full log and the screens saved on problems into one zip and shows it in Finder, to drag into a chat")
-                    Button("Copy all") {
+                        .help(L("Packs the errors, the full log and the screens saved on problems into one zip and shows it in Finder, to drag into a chat"))
+                    Button(L("Copy all")) {
                         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s.problemsText, forType: .string)
                     }.disabled(s.problems.isEmpty)
                     Spacer()
-                    Button("Clear") { s.problems = []; s.unseenProblems = 0 }.disabled(s.problems.isEmpty)
+                    Button(L("Clear")) { s.problems = []; s.unseenProblems = 0 }.disabled(s.problems.isEmpty)
                 }.font(.system(size: 11))
             }.padding(16).frame(width: 440).tint(accent)
     }
@@ -1097,9 +1106,9 @@ struct ConnectionView: View {
     @EnvironmentObject var s: Store
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Choose your assistant").font(.system(size: 24, weight: .semibold))
-            Text("Uses your existing CLI login. No API key setup in Edit Assist.").font(.system(size: 12)).foregroundStyle(.secondary)
-            Picker("Assistant", selection: $s.provider) {
+            Text(md: L("Choose your assistant")).font(.system(size: 24, weight: .semibold))
+            Text(md: L("Uses your existing CLI login. No API key setup in Edit Assist.")).font(.system(size: 12)).foregroundStyle(.secondary)
+            Picker(L("Assistant"), selection: $s.provider) {
                 ForEach(CLIProvider.allCases) { provider in Text(provider.rawValue).tag(provider.rawValue) }
             }.pickerStyle(.segmented).onChange(of: s.provider) { _, _ in s.model = "" }
             ForEach(CLIProvider.allCases) { provider in
@@ -1112,10 +1121,10 @@ struct ConnectionView: View {
                     }
                 }
             }
-            TextField("Model override (optional — CLI default)", text: $s.model).textFieldStyle(.roundedBorder)
+            TextField(L("Model override (optional — CLI default)"), text: $s.model).textFieldStyle(.roundedBorder)
             if let fastest = CLIProvider(rawValue: s.provider)?.fastestModel {
                 HStack(spacing: 8) {
-                    Button("Use fastest model") { s.model = fastest }.font(.system(size: 10))
+                    Button(L("Use fastest model")) { s.model = fastest }.font(.system(size: 10))
                     Text("Sets \(fastest), roughly a third of the default's time per step.")
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
@@ -1123,9 +1132,9 @@ struct ConnectionView: View {
             if let provider = CLIProvider(rawValue: s.provider) {
                 Text("If sign-in is needed, run “\(provider.loginHint)” in Terminal. Installed status does not confirm login.").font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            Text("The selected CLI receives the script and any captured images. Its account limits and data policies apply. Only one assistant is called per step.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
+            Text(md: L("The selected CLI receives the script and any captured images. Its account limits and data policies apply. Only one assistant is called per step.")).font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(3)
             HStack {
-                Button("Cancel") { s.connectionOpen = false }.keyboardShortcut(.cancelAction)
+                Button(L("Cancel")) { s.connectionOpen = false }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Use \(s.provider)") { s.saveConnection() }.buttonStyle(.borderedProminent)
             }

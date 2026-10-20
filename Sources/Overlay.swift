@@ -267,12 +267,12 @@ private struct OverlayView: View {
                 }
             }
             .buttonStyle(.plain).disabled(!model.canContinue)
-            .help(model.canContinue ? "Continue this pass" : "")
+            .help(model.canContinue ? L("Continue") : "")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
-                    Text(model.headline).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text(L(model.headline)).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     if model.limit > 1, model.step > 0 {
-                        Text("step \(model.step) of \(model.limit)").font(.system(size: 10))
+                        Text(L("step %@ of %@", model.step, model.limit)).font(.system(size: 10))
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(.white.opacity(0.12), in: Capsule()).foregroundStyle(.white.opacity(0.85))
                     }
@@ -282,9 +282,9 @@ private struct OverlayView: View {
                     }
                 }
                 if !model.detail.isEmpty {
-                    Text(model.detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
+                    Text(L(model.detail)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
                 }
-                Text("Move the mouse to pause · Escape stops")
+                Text(L("Move the mouse to pause · Escape stops"))
                     .font(.system(size: 9)).foregroundStyle(.white.opacity(0.45))
             }
             Spacer(minLength: 0)
@@ -313,7 +313,7 @@ private struct OverlayView: View {
                     .foregroundStyle(.white.opacity(model.canContinue ? 1 : 0.6))
             }
             .buttonStyle(.plain).disabled(!model.canContinue)
-            .help("Stop this run")
+            .help(L("Stop this run"))
             .padding(6)
         }
     }

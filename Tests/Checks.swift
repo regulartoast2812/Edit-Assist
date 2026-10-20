@@ -1071,6 +1071,18 @@ struct Checks {
                   && project.runSteps.contains(OCRStep.backFromStyle.rawValue) && project.runSteps.contains(OCRStep.increaseSize.rawValue),
                   "Size only skips the style steps but keeps Back")
         }
+        // Interface language: English passes through; Vietnamese by exact text, by number pattern, with values filled in.
+        do {
+            let saved = UserDefaults.standard.string(forKey: "appLanguage")
+            UserDefaults.standard.set("en", forKey: "appLanguage")
+            check(L("Run from playhead") == "Run from playhead", "English shows the English text")
+            UserDefaults.standard.set("vi", forKey: "appLanguage")
+            check(L("Run from playhead") == "Chạy từ playhead", "Vietnamese by exact text")
+            check(L("Starting in 3…") == "Bắt đầu sau 3…", "Vietnamese with the numbers kept (\(L("Starting in 3…")))")
+            check(L("%@ of %@ done", 8, 10) == "Xong 8 / 10", "Vietnamese with values filled in")
+            check(L("Something never translated") == "Something never translated", "Untranslated text shows as it is")
+            if let saved { UserDefaults.standard.set(saved, forKey: "appLanguage") } else { UserDefaults.standard.removeObject(forKey: "appLanguage") }
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.

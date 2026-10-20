@@ -200,6 +200,10 @@ final class Store: ObservableObject {
     /// What went wrong, newest last: alerts, runs that stopped, updates that failed. Shown by the error log button.
     struct Problem: Identifiable { let id = UUID(); let time: Date; let message: String }
     @Published var problems: [Problem] = []
+    /// The interface language (Settings). Changing it redraws every window at once.
+    @Published var language: AppLanguage = AppLanguage.current {
+        didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
+    }
     /// Problems since the log was last opened, for the badge.
     @Published var unseenProblems = 0
     func noteProblem(_ message: String) {
