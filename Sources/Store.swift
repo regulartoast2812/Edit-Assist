@@ -1344,7 +1344,14 @@ final class Store: ObservableObject {
                             if let again = nextVisible(in: sharp.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea) {
                                 log("OCR: read the caption again at higher resolution and found “\(again.phrase)”")
                                 shot = sharp; found = again
-                            } else if let picture = searchArea {
+                            } else if let picture = searchArea,
+                                      // Only on real evidence: at least two words and half of a phrase showing. One common word
+                                      // ("on", "the") showed on almost every caption, and these four extra readings then ran on
+                                      // every caption passed, seconds each on a busy machine.
+                                      remaining.contains(where: { index in
+                                          let shown = Desktop.coverage(for: targets[index], in: shot.text).matched
+                                          return shown >= 2 && shown * 2 >= words(of: targets[index]).count
+                                      }) {
                                 // Still not: read the Program Monitor's picture in other renderings (brightest and darkest
                                 // channel, grey with contrast, twice the size), each in place of that area's own reading.
                                 let image = shot.image, outside = shot.text.filter { !$0.rect.intersects(picture) }
