@@ -2043,6 +2043,17 @@ final class Store: ObservableObject {
 
                                 // 1. Memory: replay last time's scroll in one go, then look where the tile was.
                                 if let memory = styleMemory, memory.steps > 0 {
+                                    // Wait for the browser to finish opening (its tiles drawn and still) before scrolling: on a
+                                    // busy machine scroll steps sent while it opened were lost and the jump landed rows short.
+                                    var settled = 0, previous = try await quickLook()
+                                    for _ in 0 ..< 40 where settled < 2 {
+                                        try await Task.sleep(for: .milliseconds(60))
+                                        let next = try await quickLook()
+                                        let ready = !Desktop.styleCells(in: next.text, image: next.image, left: left).isEmpty
+                                            && Desktop.regionDifference(previous.image, next.image, rect: area) < 2
+                                        settled = ready ? settled + 1 : 0
+                                        previous = next
+                                    }
                                     rows.expected = 1
                                     for _ in 0 ..< memory.steps {
                                         let pixels = stylePixelScroll ?? false
@@ -2073,6 +2084,16 @@ final class Store: ObservableObject {
                                               let found = visible.first(where: { $0.column == best.value.column && $0.difference == best.value.difference }) {
                                         target = (found.cell, found.row ?? slot.row, found.column)
                                         log("OCR: your style moved a little since last time; clicked the clear match on screen (difference \(found.difference))")
+                                    } else if slot.positionKnown, let first = rows.offset {
+                                        // Landed short or past it (scroll steps lost on a slow machine): the row count says where the
+                                        // list is, so carry on from here toward your row instead of starting again from the top.
+                                        if slot.row < first {
+                                            log("OCR: the list went past your style (first row R\(first + 1)); scrolling back up to R\(slot.row + 1)")
+                                            var back = 0
+                                            while let now = rows.offset, slot.row < now, back < 20 { guard try await step(-1) else { break }; back += 1 }
+                                        } else {
+                                            log("OCR: the list stopped short of your style (first row R\(first + 1)); carrying on down to R\(slot.row + 1)")
+                                        }
                                     } else {
                                         // Somewhere else now: count from the top again rather than guess from here.
                                         log("OCR: your style is not where it was last time (closest: \(closest())); looking for it from the top")
