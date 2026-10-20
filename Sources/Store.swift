@@ -299,8 +299,8 @@ final class Store: ObservableObject {
         guard !running else { return }
         if steps.contains(step.rawValue) { steps.remove(step.rawValue) } else { steps.insert(step.rawValue) }
     }
-    // New installs show detection: Always (the live overlay) and during runs. Both were off by default, so on
-    // a fresh Mac the overlay never appeared while the switch read "During runs".
+    // New installs show detection during runs (both this and the live overlay were off by default once, so a
+    // fresh Mac showed nothing while the switch read "During runs").
     @Published var showOCRBoxes = (UserDefaults.standard.object(forKey: "showOCRBoxes") as? Bool) ?? true {
         didSet {
             UserDefaults.standard.set(showOCRBoxes, forKey: "showOCRBoxes")
@@ -331,16 +331,18 @@ final class Store: ObservableObject {
         }
     }
 
-    @Published var detectionMode = (UserDefaults.standard.object(forKey: "detectionMode") as? Bool) ?? true {
+    // New installs: detection shows during runs only (the live overlay all the time covered the screen at launch),
+    // boxes only, no text or details over them; faces and bodies on.
+    @Published var detectionMode = (UserDefaults.standard.object(forKey: "detectionMode") as? Bool) ?? false {
         didSet { UserDefaults.standard.set(detectionMode, forKey: "detectionMode"); restartDetectionMode() }
     }
     @Published var detectionBoxes = (UserDefaults.standard.object(forKey: "detectionBoxes") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(detectionBoxes, forKey: "detectionBoxes"); configureDetectionDisplay() }
     }
-    @Published var detectionText = (UserDefaults.standard.object(forKey: "detectionText") as? Bool) ?? true {
+    @Published var detectionText = (UserDefaults.standard.object(forKey: "detectionText") as? Bool) ?? false {
         didSet { UserDefaults.standard.set(detectionText, forKey: "detectionText"); configureDetectionDisplay() }
     }
-    @Published var detectionDetails = (UserDefaults.standard.object(forKey: "detectionDetails") as? Bool) ?? true {
+    @Published var detectionDetails = (UserDefaults.standard.object(forKey: "detectionDetails") as? Bool) ?? false {
         didSet { UserDefaults.standard.set(detectionDetails, forKey: "detectionDetails"); configureDetectionDisplay() }
     }
     /// Faces and bodies on the overlay. Reading only; runs never use it.
