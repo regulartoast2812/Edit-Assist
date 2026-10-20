@@ -356,42 +356,53 @@ struct ContentView: View {
         }
     }
 
+    /// The script: one toolbar, the editor as the page's main thing, one line of help, then the phrases it gives.
     var script: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(md: L("Paste formatted text from your script: its bold becomes the phrases to highlight, shown here in green. Select words and press ⌘B to mark or unmark one; ⌘Z undoes.")).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
-            HStack {
-                Button(L("Paste formatted text"), systemImage: "doc.on.clipboard") { s.pasteScript() }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button { s.pasteScript() } label: { Label(L("Paste formatted text"), systemImage: "doc.on.clipboard") }
+                    .buttonStyle(.borderedProminent)
                 Button(L("Import…")) { importScript() }
+                Divider().frame(height: 18).padding(.horizontal, 4)
+                Button { (NSApp.keyWindow?.firstResponder as? RichScriptTextView)?.toggleHighlight() } label: { Label(L("Highlight"), systemImage: "bold") }
+                    .help(L("Select words, then click here or press ⌘B to highlight them or take the highlight off"))
+                Button { RichScriptTextView.current?.flipHighlights() } label: { Label(L("Flip"), systemImage: "arrow.left.arrow.right") }
+                    .help(L("Highlight everything that is not highlighted now, and the reverse. ⌘Z undoes it."))
                 Spacer()
                 if s.project.script.isEmpty { Button(L("Use your example")) { s.sample() }.buttonStyle(.plain).foregroundStyle(accent) }
-            }.font(.system(size: 11)).disabled(s.busy)
-            HStack {
-                Button(L("B · Mark selection")) { (NSApp.keyWindow?.firstResponder as? RichScriptTextView)?.toggleHighlight() }
-                // Flip the whole script: highlighted becomes plain and plain becomes highlighted. ⌘Z undoes it.
-                Button(L("⇄ Flip")) { RichScriptTextView.current?.flipHighlights() }
-                    .help(L("Highlight everything that is not highlighted now, and the reverse. ⌘Z undoes it."))
-                Text(md: L("Select words and press ⌘B · Flip swaps highlighted and plain")).font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer()
-            }.disabled(s.busy)
+            }.font(.system(size: 12)).controlSize(.regular).disabled(s.busy)
             RichScriptEditor(text: binding(\.script), editable: !s.busy, onPasteImage: { s.addScreenshot($0) })
-                .padding(10).background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 10)).frame(minHeight: 160).disabled(s.busy)
+                .padding(12).background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.06)))
+                .frame(minHeight: 300).disabled(s.busy)
             if !s.project.script.isEmpty && s.targetCount == 0 {
                 Text(md: L("No bold phrases detected. The clipboard may contain only plain text. Mark phrases with ⌘B or read a screenshot of your formatted script.")).font(.system(size: 11)).foregroundStyle(.orange)
+            } else {
+                Text(md: L("Bold in what you paste becomes the phrases, in green. ⌘B highlights a selection · ⌘Z undoes."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            attachmentControls
-            if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
             if let error = parseError { Text(error).font(.system(size: 11)).foregroundStyle(.orange) }
-            label(L("PARSED HIGHLIGHTS"))
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(s.parsed.filter { !$0.highlights.isEmpty }) { line in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(line.text).font(.system(size: 11)).foregroundStyle(.secondary)
-                            Text(line.highlights.map(\.text).joined(separator: "  ·  ")).font(.system(size: 12, weight: .semibold)).foregroundStyle(accent)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
+            DisclosureGroup(L("Import from a screenshot")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    attachmentControls
+                    if !s.attachments.isEmpty { imageStrip(s.attachments, removable: true) }
+                }.padding(.top, 8)
+            }.font(.system(size: 12)).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The phrases the script gives, numbered, as chips: what every function will highlight.
+    var phraseChips: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(Array(s.targets.enumerated()), id: \.offset) { index, phrase in
+                HStack(spacing: 6) {
+                    Text("\(index + 1)").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(.black.opacity(0.7))
+                        .frame(minWidth: 16).padding(.vertical, 1).background(accent.opacity(0.85), in: Capsule())
+                    Text(phrase.trimmingCharacters(in: .whitespaces)).font(.system(size: 12, weight: .medium)).foregroundStyle(accent)
                 }
-            }.frame(maxHeight: 185)
+                .padding(.leading, 4).padding(.trailing, 10).padding(.vertical, 5)
+                .background(accent.opacity(0.10), in: Capsule())
+            }
         }
     }
 
@@ -817,25 +828,24 @@ struct ContentView: View {
     /// The project's own information, shared by every function that works on it.
     var projectPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(md: L("What this project is about. Functions read from here: Highlight phrases takes its bold phrases from the script."))
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                card(L("Details")) {
-                    HStack(spacing: 12) {
-                        label(L("NAME"))
-                        TextField(L("Project name"), text: binding(\.name)).textFieldStyle(.roundedBorder).disabled(s.busy)
-                    }
-                    HStack(spacing: 12) {
-                        label(L("EDITOR"))
-                        Text(s.target.map { "\($0.app) · \(($0.title as NSString).lastPathComponent)" } ?? s.project.app).font(.system(size: 12))
-                        Spacer()
-                    }
-                }
-                card(L("Script"), trailing: L("%@ phrases", s.targetCount)) { script.frame(minHeight: 420) }
-                HStack {
+            VStack(alignment: .leading, spacing: 16) {
+                // Name and editor in one quiet row.
+                HStack(spacing: 12) {
+                    TextField(L("Project name"), text: binding(\.name))
+                        .textFieldStyle(.plain).font(.system(size: 15, weight: .semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)).frame(maxWidth: 360).disabled(s.busy)
+                    Label(s.target.map { "\($0.app) · \(($0.title as NSString).lastPathComponent)" } ?? s.project.app, systemImage: "film")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    Button { s.function = .highlight; s.tab = "function" } label: { Label(L("Go to Highlight phrases"), systemImage: "arrow.right") }
-                        .disabled(s.targets.isEmpty)
+                }
+                card(L("Script")) { script }
+                card(L("Phrases to highlight"), trailing: L("%@ phrases", s.targetCount)) {
+                    if s.targets.isEmpty {
+                        Text(md: L("Paste your script above: its bold phrases show here.")).font(.system(size: 12)).foregroundStyle(.secondary)
+                    } else {
+                        phraseChips
+                    }
                 }
             }.padding(.bottom, 10)
         }
@@ -856,6 +866,7 @@ struct ContentView: View {
     var attachmentControls: some View {
         HStack(spacing: 8) {
             Button(L("Add screenshots…"), systemImage: "photo.badge.plus") { importScreenshots() }
+                .help(L("Screenshots of your formatted script, read by the assistant"))
             Button(L("Paste image")) { s.pasteScreenshot() }
             if !s.attachments.isEmpty { Button(L("Read as script")) { s.readScriptScreenshot() } }
         }.font(.system(size: 10)).disabled(s.busy)
@@ -1169,5 +1180,30 @@ struct ConnectionView: View {
                 Button("Use \(s.provider)") { s.saveConnection() }.buttonStyle(.borderedProminent)
             }
         }.padding(30).frame(width: 490).background(canvasBackground).tint(accent)
+    }
+}
+
+
+/// Lays out views left to right, wrapping onto new lines, like words in a paragraph.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0, widest: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width { x = 0; y += row + spacing; row = 0 }
+            x += size.width + spacing; row = max(row, size.height); widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, width), height: y + row)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, row: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += row + spacing; row = 0 }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing; row = max(row, size.height)
+        }
     }
 }
