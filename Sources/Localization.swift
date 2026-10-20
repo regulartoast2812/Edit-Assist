@@ -312,6 +312,8 @@ enum Vietnamese {
         "Finds your script's **bold phrases** in **graphic text** on the video tracks": "Tìm các **cụm in đậm** của kịch bản trong **chữ đồ hoạ** trên các track video",
         "Applies **your style** (Linked style) and the **font size step**": "Áp **kiểu chữ của bạn** (Linked style) và **mức tăng cỡ chữ**",
         "**Hide the caption track** if it shows the same words": "**Ẩn track phụ đề** nếu nó hiện cùng nội dung",
+        "Run ended: {n} of {n} phrases done.": "Lần chạy đã kết thúc: xong {n} / {n} cụm.",
+        "%@% done": "Xong %@%",
         // Guide
         "Click your **project**": "Bấm vào **dự án** của bạn",
         "**Paste formatted text** from your script": "**Dán văn bản có định dạng** từ kịch bản",

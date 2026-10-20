@@ -238,23 +238,8 @@ struct ContentView: View {
                 Label(L("Tech stack"), systemImage: "square.stack.3d.up").font(.system(size: 12))
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
-            // The error log: new problems counted beside it.
-            // A walk-through of a function, pointing at its controls.
-            Menu {
-                ForEach(EditFunction.allCases) { job in Button(L(job.title)) { s.startGuide(job) } }
-            } label: {
-                Label(L("Guide"), systemImage: "questionmark.circle").font(.system(size: 12))
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(s.busy).tint(.primary)
-            Button { logOpen.toggle(); s.unseenProblems = 0 } label: {
-                HStack(spacing: 6) {
-                    Label(L("Log"), systemImage: "doc.text.magnifyingglass").font(.system(size: 12))
-                    if s.unseenProblems > 0 {
-                        Text("\(s.unseenProblems)").font(.system(size: 10, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Color.orange.opacity(0.25), in: Capsule()).foregroundStyle(.orange)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
+            // The error log: glows in the colour of the worst new problem until it is opened.
+            LogSidebarItem(open: $logOpen).environmentObject(s)
                 .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
                 .guideTarget("log")
             Text(md: L("Edit Assist · Preview")).font(.system(size: 10)).foregroundStyle(.secondary)
@@ -1112,13 +1097,24 @@ struct ErrorLogView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(s.problems.reversed()) { problem in
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(problem.time.formatted(date: .omitted, time: .standard))
-                                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                                    HStack(spacing: 8) {
+                                        Text(problem.time.formatted(date: .omitted, time: .standard))
+                                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                                        if let done = problem.done {
+                                            Text(L("%@% done", Int((done * 100).rounded()))).font(.system(size: 10, weight: .semibold))
+                                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                                .background(severityColor(done).opacity(0.2), in: Capsule()).foregroundStyle(severityColor(done))
+                                        }
+                                    }
                                     Text(L(problem.message)).font(.system(size: 12)).textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                .padding(10).padding(.leading, 4).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(alignment: .leading) {
+                                    // How bad it was: red for nothing done, through orange, to green.
+                                    RoundedRectangle(cornerRadius: 2).fill(severityColor(problem.done)).frame(width: 4).padding(.vertical, 6)
+                                }
                             }
                         }
                     }.frame(maxHeight: 360)
@@ -1239,5 +1235,49 @@ struct Tip: View {
         }
         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
         .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+
+/// Red when a run got nothing done, through orange, to green when it got nearly all done; orange outside a run.
+func severityColor(_ done: Double?) -> Color {
+    guard let done else { return .orange }
+    return Color(hue: 0.33 * min(1, max(0, done)), saturation: 0.75, brightness: 0.95)
+}
+
+/// The sidebar's Log: an orange count of new problems, and a soft pulse in the colour of the worst of them.
+struct LogSidebarItem: View {
+    @EnvironmentObject var s: Store
+    @Binding var open: Bool
+    @State private var pulse = false
+    var worst: Color {
+        let fresh = s.problems.suffix(s.unseenProblems)
+        let shares = fresh.compactMap(\.done)
+        return severityColor(shares.min() ?? (fresh.isEmpty ? nil : nil))
+    }
+    var body: some View {
+        let alerting = s.unseenProblems > 0
+        Button { open.toggle(); s.unseenProblems = 0 } label: {
+            HStack(spacing: 6) {
+                Label(L("Log"), systemImage: alerting ? "exclamationmark.triangle.fill" : "doc.text.magnifyingglass").font(.system(size: 12))
+                    .foregroundStyle(alerting ? worst : .primary)
+                if alerting {
+                    Text("\(s.unseenProblems)").font(.system(size: 10, weight: .bold)).padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(worst.opacity(0.25), in: Capsule()).foregroundStyle(worst)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, alerting ? 6 : 0).padding(.horizontal, alerting ? 8 : 0)
+            .background {
+                if alerting {
+                    RoundedRectangle(cornerRadius: 8).fill(worst.opacity(pulse ? 0.22 : 0.08))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(worst.opacity(pulse ? 0.8 : 0.3), lineWidth: 1))
+                        .shadow(color: worst.opacity(pulse ? 0.6 : 0), radius: pulse ? 10 : 2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onAppear { pulse = false; withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { pulse = true } }
     }
 }

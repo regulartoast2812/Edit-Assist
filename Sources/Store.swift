@@ -52,6 +52,15 @@ final class Store: ObservableObject {
     @Published var running = false {
         didSet {
             desktop.runActive = running
+            // A run that ended, not stopped by you, with phrases left: how much it got done, as a log entry.
+            if oldValue && !running, !stoppedByYou, let job = activeFunction, job.highlightsPhrases {
+                let now = progress(of: job)
+                let phrases = project.completed(graphics: job == .highlightGraphics).count
+                if now.total > 0, now.done < now.total {
+                    noteProblem("Run ended: \(phrases) of \(targets.count) phrases done.", done: now.fraction)
+                }
+            }
+            stoppedByYou = false
             if !running { activeFunction = nil; runStarted = nil }
             // An update found during the run is offered once it ends.
             if oldValue && !running { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.offerUpdate() } }
@@ -205,7 +214,9 @@ final class Store: ObservableObject {
     @Published var error: String? { didSet { if let error { noteProblem(error) } } }
 
     /// What went wrong, newest last: alerts, runs that stopped, updates that failed. Shown by the error log button.
-    struct Problem: Identifiable { let id = UUID(); let time: Date; let message: String }
+    /// `done`: during a run, the share of its phrases finished when it went wrong (0 nothing, 1 all), which is how
+    /// bad it was: red for nothing done, through orange, to green. Nil outside a run.
+    struct Problem: Identifiable { let id = UUID(); let time: Date; let message: String; var done: Double? = nil }
     @Published var problems: [Problem] = []
     /// The guide being shown (Guide in the sidebar), and its step.
     @Published var guide: EditFunction?
@@ -220,10 +231,11 @@ final class Store: ObservableObject {
     }
     /// Problems since the log was last opened, for the badge.
     @Published var unseenProblems = 0
-    func noteProblem(_ message: String) {
+    func noteProblem(_ message: String, done: Double? = nil) {
         // The same message twice in a row (a run retrying) is one entry.
         if problems.last?.message == message, let last = problems.last, Date().timeIntervalSince(last.time) < 5 { return }
-        problems.append(Problem(time: Date(), message: message))
+        let share = done ?? activeFunction.map { progress(of: $0).fraction }
+        problems.append(Problem(time: Date(), message: message, done: share))
         if problems.count > 100 { problems.removeFirst(problems.count - 100) }
         unseenProblems += 1
     }
@@ -867,7 +879,10 @@ final class Store: ObservableObject {
         } catch { self.error = "Could not start the update: \(error.localizedDescription)" }
     }
 
+    /// Set when you stop a run (Stop, Escape, the overlay's ✕): that is not a problem to log.
+    private var stoppedByYou = false
     func stop(_ reason: String = "Stopped") {
+        if running { stoppedByYou = true }
         generation = UUID(); task?.cancel(); task = nil; desktop.armed = false
         // Hide now rather than waiting for the cancelled task to unwind through a running CLI call.
         overlay.hide(); desktop.overlayWindowID = 0; desktop.inspectionWindowID = 0
