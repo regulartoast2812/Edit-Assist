@@ -81,6 +81,19 @@ final class RunOverlay {
         inspection.boxes = Self.panelBoxes(shot.panels) + Self.ocrBoxes(shot.text, image: shot.image, section: shot.section) + Self.peopleBoxes(shot.people, picture: shot.picture)
         // The legend shows when the text was read; the grid boxes are redrawn from every look's pixels.
         inspection.stamp = shot.textTimestamp.formatted(date: .omitted, time: .standard)
+        place(over: shot.window)
+    }
+
+    /// Asks you to click your style: a thick pulsing yellow outline round the style browser with a label, and the
+    /// status panel in the same yellow. Shown whatever the detection setting is; nil clears it.
+    func showPickHint(_ area: CGRect?, window: WindowChoice) {
+        model.prompting = area != nil
+        inspection.pickHint = area
+        if area != nil { place(over: window) }
+        else if inspection.boxes.isEmpty { inspectionPanel?.orderOut(nil) }
+    }
+
+    private func place(over window: WindowChoice) {
         if inspectionPanel == nil {
             let created = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             created.contentView = NSHostingView(rootView: InspectionView(model: inspection))
@@ -91,7 +104,7 @@ final class RunOverlay {
             created.animationBehavior = .none          // appear at once, without the zoom-in
             inspectionPanel = created
         }
-        let frame = shot.window.frame
+        let frame = window.frame
         let screenHeight = NSScreen.screens.first?.frame.height ?? frame.maxY
         // Live looks arrive up to 30 times a second; only move or raise the panel when that changes something.
         let placed = CGRect(x: frame.minX, y: screenHeight - frame.maxY, width: frame.width, height: frame.height)
@@ -228,7 +241,7 @@ final class RunOverlay {
         inspection.boxes.append(InspectionBox(rect: rect, label: label, kind: kind))
     }
 
-    func hideInspection() { inspectionPanel?.orderOut(nil); inspection.boxes = [] }
+    func hideInspection() { inspectionPanel?.orderOut(nil); inspection.boxes = []; inspection.pickHint = nil; model.prompting = false }
     func hide() { panel?.orderOut(nil); hideInspection() }
 
 }
@@ -243,6 +256,8 @@ private final class OverlayModel: ObservableObject {
     @Published var reference: NSImage?
     /// The run is paused and the circle continues it when clicked.
     @Published var canContinue = false
+    /// Waiting for you to click your style: the panel turns yellow.
+    @Published var prompting = false
     var onContinue: (() -> Void)?
     /// The ✕ in the corner: stops the run. Clickable while paused, like Continue; moving the mouse to it
     /// pauses the run on the way.
@@ -261,7 +276,7 @@ private struct OverlayView: View {
                 ZStack {
                     Circle().fill((model.canContinue ? accent : model.paused ? Color.orange : accent).opacity(model.canContinue ? 0.28 : 0.18))
                         .frame(width: 34, height: 34)
-                    Image(systemName: model.canContinue ? "play.fill" : model.paused ? "pause.fill" : "cursorarrow.motionlines")
+                    Image(systemName: model.prompting ? "hand.point.up.left.fill" : model.canContinue ? "play.fill" : model.paused ? "pause.fill" : "cursorarrow.motionlines")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(model.canContinue ? accent : model.paused ? .orange : accent)
                 }
@@ -270,7 +285,7 @@ private struct OverlayView: View {
             .help(model.canContinue ? L("Continue") : "")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
-                    Text(L(model.headline)).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text(L(model.headline)).font(.system(size: model.prompting ? 15 : 13, weight: .semibold)).foregroundStyle(model.prompting ? Color.yellow : .white)
                     if model.limit > 1, model.step > 0 {
                         Text(L("step %@ of %@", model.step, model.limit)).font(.system(size: 10))
                             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -303,7 +318,8 @@ private struct OverlayView: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .frame(width: 460, height: 96, alignment: .leading)
         .background(Color(red: 0.07, green: 0.09, blue: 0.11).opacity(0.96), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.white.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(model.prompting ? Color.yellow : .white.opacity(0.14), lineWidth: model.prompting ? 2.5 : 1))
+        .shadow(color: model.prompting ? Color.yellow.opacity(0.55) : .clear, radius: 12)
         .overlay(alignment: .topLeading) {
             // Stop: the run ends, as Escape or Stop in Edit Assist would.
             Button { model.onStop?() } label: {
@@ -366,6 +382,8 @@ private final class InspectionModel: ObservableObject {
     @Published var showBoxes = true
     @Published var showText = true
     @Published var showDetails = true
+    /// The style browser while waiting for your pick (window fractions).
+    @Published var pickHint: CGRect?
 }
 
 private struct InspectionView: View {
@@ -416,6 +434,28 @@ private struct InspectionView: View {
                                        y: max(0, rect.minY - measured.height - 1), width: measured.width + 6, height: measured.height)
                 context.fill(Path(labelRect), with: .color(.black.opacity(0.85)))
                 context.draw(resolved, in: labelRect.insetBy(dx: 3, dy: 0))
+            }
+        }
+        .overlay {
+            // Click your style: the whole browser in a thick pulsing yellow outline, with a label.
+            if let hint = model.pickHint {
+                GeometryReader { space in
+                    let rect = CGRect(x: hint.minX * space.size.width, y: hint.minY * space.size.height,
+                                      width: hint.width * space.size.width, height: hint.height * space.size.height).insetBy(dx: -10, dy: -10)
+                    TimelineView(.animation) { time in
+                        let pulse = (sin(time.date.timeIntervalSinceReferenceDate * 4) + 1) / 2
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 12).stroke(Color.yellow, lineWidth: 4 + 2 * pulse)
+                                .shadow(color: .yellow.opacity(0.4 + 0.4 * pulse), radius: 6 + 10 * pulse)
+                                .frame(width: rect.width, height: rect.height).offset(x: rect.minX, y: rect.minY)
+                            Text("👆 " + L("Click your style here"))
+                                .font(.system(size: 15, weight: .bold)).foregroundStyle(.black)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(Color.yellow, in: Capsule())
+                                .offset(x: rect.minX + 8, y: max(4, rect.minY - 34))
+                        }
+                    }
+                }
             }
         }
         .overlay(alignment: .bottomLeading) {

@@ -2273,6 +2273,7 @@ final class Store: ObservableObject {
                                 overlay.update(step: doneCount, limit: targets.count, headline: "Click your style",
                                                detail: "The same row and column is used for every remaining phrase", confidence: nil, paused: true)
                                 status = "Waiting for you to click a style in the browser"
+                                overlay.showPickHint(area, window: window)
                                 var lastLook = Date.distantPast
                                 var latestCells = look(latest)
                                 while pendingStyleClick == nil {
@@ -2309,6 +2310,7 @@ final class Store: ObservableObject {
                                     }
                                     try await Task.sleep(for: .milliseconds(15))
                                 }
+                                overlay.showPickHint(nil, window: window)
                                 // Frames up to the click: the list does not move when a tile is clicked.
                                 for frame in streamed {
                                     latest = Observation(image: frame, window: window).reusing(layout)
