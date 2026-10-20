@@ -49,7 +49,14 @@ final class Store: ObservableObject {
     @Published var observation: Observation?
     @Published var proposal: Decision?
     @Published var busy = false { didSet { if busy != oldValue { updateLiveFeed() } } }
-    @Published var running = false { didSet { desktop.runActive = running; if !running { activeFunction = nil; runStarted = nil } } }
+    @Published var running = false {
+        didSet {
+            desktop.runActive = running
+            if !running { activeFunction = nil; runStarted = nil }
+            // An update found during the run is offered once it ends.
+            if oldValue && !running { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.offerUpdate() } }
+        }
+    }
     @Published var runPaused = false {
         // The overlay's circle continues a paused run; it takes no clicks otherwise.
         didSet {
@@ -272,7 +279,10 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(minConfidence, forKey: "minConfidence") }
     }
     @Published var connectionOpen = false
-    @Published var permissionsOpen = false
+    @Published var permissionsOpen = false {
+        // An update found while the permission setup was open is offered once it closes.
+        didSet { if oldValue && !permissionsOpen { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.offerUpdate() } } }
+    }
     /// When on, nothing in the app calls a CLI. OCR mode is the only way to act.
     @Published var ocrOnly: Bool = (UserDefaults.standard.object(forKey: "ocrOnly") as? Bool) ?? true {
         didSet { UserDefaults.standard.set(ocrOnly, forKey: "ocrOnly") }
@@ -805,11 +815,25 @@ final class Store: ObservableObject {
             do {
                 update = try await Updater.check()
                 updateStatus = update.map { "Edit Assist \($0.label) is available." } ?? "Edit Assist \(Updater.current) is the newest."
+                offerUpdate()
             } catch {
                 // Offline or GitHub unreachable: say so when asked, stay quiet otherwise.
                 if manual { updateStatus = "Could not check for updates: \(error.localizedDescription)" }
             }
         }
+    }
+
+    /// The popup offering a new version. Shown once per new build: Later keeps it quiet until a newer one, and the
+    /// bottom-left item stays until it is installed. Never over a run: it waits until the run ends.
+    @Published var updatePromptOpen = false
+    private var declinedUpdateBuild: Int { UserDefaults.standard.integer(forKey: "declinedUpdateBuild") }
+    func offerUpdate() {
+        guard let update, !busy, !installingUpdate, update.build > declinedUpdateBuild, !permissionsOpen else { return }
+        updatePromptOpen = true
+    }
+    func declineUpdate() {
+        if let update { UserDefaults.standard.set(update.build, forKey: "declinedUpdateBuild") }
+        updatePromptOpen = false
     }
 
     /// Downloads and installs the update; the installer quits this app and opens the new one.

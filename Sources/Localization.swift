@@ -127,6 +127,11 @@ enum Vietnamese {
         "RECOGNIZE": "NHẬN DIỆN",
         "Faces and bodies": "Khuôn mặt và cơ thể",
         "Update to %@": "Cập nhật lên %@",
+        "Update available": "Có bản cập nhật",
+        "Update to latest version": "Cập nhật lên bản mới nhất",
+        "Installing the update…": "Đang cài bản cập nhật…",
+        "Edit Assist %@ is available. You have %@. Updating takes a few seconds and reopens the app; your projects stay as they are.":
+            "Đã có Edit Assist %@. Bạn đang dùng %@. Cập nhật mất vài giây và ứng dụng sẽ tự mở lại; các dự án của bạn vẫn giữ nguyên.",
         "Installing %@…": "Đang cài %@…",
         "Download and install, then reopen Edit Assist": "Tải về và cài đặt, rồi mở lại Edit Assist",
         "Finish or stop the run first": "Hãy kết thúc hoặc dừng lần chạy trước",

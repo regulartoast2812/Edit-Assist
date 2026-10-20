@@ -161,6 +161,14 @@ struct ContentView: View {
         .alert(L("Edit Assist"), isPresented: Binding(get: { s.error != nil }, set: { if !$0 { s.error = nil } })) {
             Button(L("OK")) { s.error = nil }
         } message: { Text(L(s.error ?? "")) }
+        // A new version: offered once; Later leaves it in the sidebar.
+        .alert(L("Update available"), isPresented: Binding(get: { s.updatePromptOpen }, set: { if !$0 { s.updatePromptOpen = false } })) {
+            Button(L("Update now")) { s.updatePromptOpen = false; s.installUpdate() }
+            Button(L("Later"), role: .cancel) { s.declineUpdate() }
+        } message: {
+            Text(L("Edit Assist %@ is available. You have %@. Updating takes a few seconds and reopens the app; your projects stay as they are.",
+                   s.update?.label ?? "", Updater.current))
+        }
         // The error log, bottom right: a count of new problems, and the list of what went wrong.
         .overlay(alignment: .bottomTrailing) { ErrorLogButton().environmentObject(s).padding(14) }
     }
@@ -195,6 +203,23 @@ struct ContentView: View {
                 ForEach(EditFunction.allCases) { job in functionRow(job) }
             }
             Spacer()
+            if let update = s.update {
+                // Until it is installed: a newer version, one click away.
+                Button { s.installUpdate() } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill").font(.system(size: 16))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L(s.installingUpdate ? "Installing the update…" : "Update to latest version")).font(.system(size: 12, weight: .semibold))
+                            Text(update.label).font(.system(size: 10)).opacity(0.8)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 9))
+                    .foregroundStyle(accent).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(s.busy || s.installingUpdate)
+                    .help(s.busy ? L("Finish or stop the run first") : L("Download and install, then reopen Edit Assist"))
+            }
             Button { s.tab = "Assistant" } label: {
                 Label(L("Assistant"), systemImage: "bubble.left.and.bubble.right").font(.system(size: 12))
                     .foregroundStyle(s.tab == "Assistant" ? accent : .primary)
@@ -253,15 +278,6 @@ struct ContentView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 20)
-            if let update = s.update {
-                // A newer build is out: one click installs it and reopens the app.
-                Button { s.installUpdate() } label: {
-                    Label(s.installingUpdate ? L("Installing %@…", update.label) : L("Update to %@", update.label), systemImage: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill")
-                }
-                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(s.busy || s.installingUpdate)
-                    .help(s.busy ? L("Finish or stop the run first") : L("Download and install, then reopen Edit Assist"))
-                    .padding(.trailing, 12)
-            }
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 6) {
                     Image(systemName: s.detectionLevel == .off ? "eye.slash" : "eye").foregroundStyle(s.detectionLevel == .off ? Color.secondary : accent)
