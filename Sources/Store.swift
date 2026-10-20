@@ -2020,6 +2020,15 @@ final class Store: ObservableObject {
                                           ranked.count < 2 || ranked[1].value.difference >= best.value.difference + 8 else { return nil }
                                     return best
                                 }
+                                /// At your row and column: your colour and, though over 30 in shape, plainly the best of everything
+                                /// seen (under 150, every other tile at least 4 times as far and 100 more). Your image is taken under
+                                /// the pointer's hover tint, which lifts a dark tile's background: a dark red pick measured 72 at its
+                                /// own spot against 563 for the next tile, and was refused. Twins sit a few apart and still need under 30.
+                                func plainlyYours(_ difference: Int, row: Int?, column: Int, among others: [Int]) -> Bool {
+                                    slot.positionKnown && row == slot.row && column == slot.column && difference < 150
+                                        && others.allSatisfy { $0 >= difference * 4 && $0 >= difference + 100 }
+                                }
+                                var refreshAppearance = false
                                 func closest() -> String {
                                     scores.sorted { $0.value.difference < $1.value.difference }.prefix(3).map { "\($0.key) \($0.value.difference)" }.joined(separator: ", ")
                                 }
@@ -2086,6 +2095,14 @@ final class Store: ObservableObject {
                                             log("OCR: R\(slot.row + 1) C\(slot.column + 1) matches your image (difference \(exact.difference))")
                                             break
                                         }
+                                        if let exact = visible.first(where: { $0.row == slot.row && $0.column == slot.column }),
+                                           plainlyYours(exact.difference, row: exact.row, column: exact.column,
+                                                        among: scores.values.filter { $0.row != exact.row || $0.column != exact.column }.map(\.difference)) {
+                                            target = (exact.cell, slot.row, slot.column)
+                                            refreshAppearance = true
+                                            log("OCR: R\(slot.row + 1) C\(slot.column + 1) is plainly your style (difference \(exact.difference), next \(closest()))")
+                                            break
+                                        }
                                         // A tile that is plainly yours — your colour, nearly your shape, and nothing else
                                         // seen so far comes close — is clicked at once, row number or not. Look-alike twins
                                         // fail this and are told apart by your row and column instead.
@@ -2112,7 +2129,12 @@ final class Store: ObservableObject {
 
                                 // 3. Reached the end first: go back up to the best tile seen, if it is a clear one.
                                 if target == nil {
-                                    if let best = clearBest() {
+                                    let ranked = scores.sorted { $0.value.difference < $1.value.difference }
+                                    let atYours = ranked.first.flatMap { best in
+                                        plainlyYours(best.value.difference, row: best.value.row, column: best.value.column, among: ranked.dropFirst().map(\.value.difference)) ? best : nil
+                                    }
+                                    if clearBest() == nil, atYours != nil { refreshAppearance = true }
+                                    if let best = clearBest() ?? atYours {
                                         for _ in 0 ..< max(0, steps - best.value.step) { guard try await step(-1) else { break } }
                                         for attempt in 0 ..< 3 where target == nil {
                                             let visible = scoreView()
@@ -2133,6 +2155,15 @@ final class Store: ObservableObject {
                                     return false
                                 }
                                 showGrid(cells, picked: (chosen.row, chosen.column))
+                                // Taken plainly by position, not by a close image: keep your tile's image as it looks here, without
+                                // the hover tint of your pick, so the next phrases match it closely.
+                                if refreshAppearance {
+                                    let fresh = Desktop.cellPatch(panel.image, cell: chosen.cell)
+                                    styleSlot?.appearance = fresh
+                                    projects[index].rememberedStyle?.appearance = fresh
+                                    save()
+                                    log("OCR: updated your style's image from R\(chosen.row + 1) C\(chosen.column + 1) as it looks without the pointer over it")
+                                }
                                 recordDecision(Snapshot(kind: "tile", note: "R\(chosen.row + 1) C\(chosen.column + 1)", hits: panel.text.map(RecordedHit.init),
                                                 left: Double(left), appearance: slot.appearance, cell: chosen.cell.recorded,
                                                 rows: cells.map(\.count), difference: slot.difference(from: Desktop.cellPatch(panel.image, cell: chosen.cell))),
