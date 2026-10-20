@@ -1324,7 +1324,16 @@ final class Store: ObservableObject {
                         overlay.update(step: doneSoFar + 1, limit: targets.count, headline: "Reading the screen…", detail: "", confidence: nil, paused: false)
                         let began = Date()
                         var shot = try await desktop.capture(window, readText: true)
-                        var found = nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: captionReach)
+                        // Captions are only ever in the Program Monitor's picture, from the first phrase on: text
+                        // elsewhere (a sequence tab "Shelara Bra v1.2" matched the phrase "a bra" once, and the
+                        // click and double-click that followed maximised the timeline) is never a caption. Found on
+                        // this screen; where captions were already seen is the fallback.
+                        let searchArea = Desktop.programPicture(in: shot.text, image: shot.image) ?? captionReach
+                        guard searchArea != nil else {
+                            try await stop(OCRStep.clickClip, "The Program Monitor is not visible, so no caption can be found.\n→ Show the Program Monitor, the Timeline and Properties in Premiere, then run again.")
+                            return
+                        }
+                        var found = nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
                         // The rest of a split phrase is on the next clip, so it cannot be on this screen: anything
                         // matching it here is somewhere else (a timeline label). Step on first.
                         if mustAdvance { found = nil }
@@ -1332,16 +1341,16 @@ final class Store: ObservableObject {
                         // outlines, gradients) read less reliably at the usual size. Read once more, sharper.
                         if found == nil, !mustAdvance, remaining.contains(where: { Desktop.coverage(for: targets[$0], in: shot.text).matched > 0 }) {
                             let sharp = try await desktop.capture(window, readText: true, sharper: true)
-                            if let again = nextVisible(in: sharp.text, anyTarget: anyTarget, minHeight: captionFloor, area: captionReach) {
+                            if let again = nextVisible(in: sharp.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea) {
                                 log("OCR: read the caption again at higher resolution and found “\(again.phrase)”")
                                 shot = sharp; found = again
-                            } else if let picture = Desktop.programPicture(in: shot.text, image: shot.image) ?? captionReach {
+                            } else if let picture = searchArea {
                                 // Still not: read the Program Monitor's picture in other renderings (brightest and darkest
                                 // channel, grey with contrast, twice the size), each in place of that area's own reading.
                                 let image = shot.image, outside = shot.text.filter { !$0.rect.intersects(picture) }
                                 let readings = await Task.detached(priority: .userInitiated) { Desktop.readEnhanced(image, area: picture) }.value
                                 for (number, lines) in readings.enumerated() {
-                                    if let again = nextVisible(in: outside + lines, anyTarget: anyTarget, minHeight: captionFloor, area: captionReach) {
+                                    if let again = nextVisible(in: outside + lines, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea) {
                                         log("OCR: found “\(again.phrase)” in another rendering of the caption (\(["twice the size", "brightest channel", "darkest channel", "grey with contrast"][number]))")
                                         shot.text = outside + lines; found = again
                                         break
@@ -1359,7 +1368,7 @@ final class Store: ObservableObject {
                             let candidates = phraseCandidates(anyTarget: anyTarget)
                             recordDecision(Snapshot(kind: "phrase", note: found.map { "found “\($0.phrase)”" } ?? "nothing found",
                                             hits: shot.text.map(RecordedHit.init), candidates: candidates.map(\.tokens),
-                                            minHeight: Double(captionFloor), area: captionReach?.recorded,
+                                            minHeight: Double(captionFloor), area: searchArea?.recorded,
                                             found: found.flatMap { hit in candidates.firstIndex { $0.index == hit.index && $0.from == hit.from } },
                                             matched: found?.matched,
                                             span: found.map { [Double($0.span.start.x), Double($0.span.start.y), Double($0.span.end.x), Double($0.span.end.y)] }))
@@ -1622,11 +1631,14 @@ final class Store: ObservableObject {
                         // A drag outside caption text moves whatever is under it — over a timeline clip, that clip
                         // lands on its neighbour and replaces it. Only drag where caption-sized text is now.
                         let check = try await desktop.capture(window, readText: true, notifyOCR: false)
-                        let captionHere = Desktop.captionBlocks(in: check.text, minHeight: captionFloor, area: captionReach).flatMap { $0 }.contains {
+                        // Only inside the Program Monitor's picture on this screen: a maximised panel or a changed layout
+                        // leaves no caption to drag.
+                        let checkArea = Desktop.programPicture(in: check.text, image: check.image) ?? captionReach
+                        let captionHere = checkArea != nil && Desktop.captionBlocks(in: check.text, minHeight: captionFloor, area: checkArea).flatMap { $0 }.contains {
                             $0.rect.insetBy(dx: -0.01, dy: -0.01).contains(CGPoint(x: span.start.x + 0.002, y: span.start.y))
                         }
                         recordDecision(Snapshot(kind: "dragGuard", note: hit.phrase, hits: check.text.map(RecordedHit.init),
-                                        minHeight: Double(captionFloor), area: captionReach?.recorded,
+                                        minHeight: Double(captionFloor), area: checkArea?.recorded,
                                         point: [Double(span.start.x + 0.002), Double(span.start.y)], bool: captionHere))
                         guard captionHere else {
                             try await stop(OCRStep.selectRange, "The phrase moved before it could be selected; nothing was dragged.\n→ Make sure the Program Monitor shows the caption, then run again.")
