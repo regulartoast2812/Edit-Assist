@@ -252,8 +252,11 @@ final class Store: ObservableObject {
             .flatMap { $0.bundleURL }.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String } ?? "not running"
         let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")
         let logs = folder.appendingPathComponent("Logs", isDirectory: true)
-        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Edit Assist log \(stamp)", isDirectory: true)
-        let zip = logs.appendingPathComponent("Edit Assist log \(stamp).zip")
+        // Named by the project, so a log sent in a chat says which project it is (the file on disk keeps the project's ID,
+        // which does not change when the project is renamed).
+        let name = project.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("Edit Assist log – \(name) – \(stamp)", isDirectory: true)
+        let zip = logs.appendingPathComponent("Edit Assist log – \(name) – \(stamp).zip")
         do {
             try? FileManager.default.removeItem(at: staging)
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -266,7 +269,7 @@ final class Store: ObservableObject {
             """
             try summary.write(to: staging.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
             if FileManager.default.fileExists(atPath: activityLogURL.path) {
-                try FileManager.default.copyItem(at: activityLogURL, to: staging.appendingPathComponent("activity.log"))
+                try FileManager.default.copyItem(at: activityLogURL, to: staging.appendingPathComponent("activity – \(name).log"))
             }
             let diagnostics = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
             let recent = ((try? FileManager.default.contentsOfDirectory(at: diagnostics, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
@@ -1325,6 +1328,7 @@ final class Store: ObservableObject {
                     overlay.setReference(nil, label: "")
                     var advances = 0
                     var stalled = 0
+                    log("Run in project “\(project.name)” · \(graphics ? EditFunction.highlightGraphics.title : EditFunction.highlight.title) · font size step \(project.fontSizeStep), apply \(project.effectiveRunParts)")
                     if all { log("OCR: new pass from the current playhead; prior progress cleared") }
                     /// The screen read after stepping to the next caption: it is the next scan, not read again.
                     var nextShot: Observation?
