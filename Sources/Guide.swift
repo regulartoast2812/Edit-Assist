@@ -7,7 +7,12 @@ import SwiftUI
 struct GuideStep {
     var target: String
     var title: String
-    var text: String
+    /// One short line under the title, optional.
+    var lead: String = ""
+    /// The points, one idea each; **bold** marks the key words.
+    var points: [String] = []
+    /// A tip at the end, optional.
+    var tip: String = ""
 }
 
 enum Guide {
@@ -15,27 +20,32 @@ enum Guide {
         // No numbers in the titles: the popup counts the steps.
         var steps = [
             GuideStep(target: "project", title: "Your script",
-                      text: "Click your project, then paste your script with Paste formatted text. Its bold becomes the phrases to highlight, shown in green. ⌘B marks more."),
+                      points: ["Click your **project**", "**Paste formatted text** from your script", "**Bold** becomes the phrases to highlight, shown in **green**"],
+                      tip: "Select words and press **⌘B** to mark more."),
             GuideStep(target: "editor", title: "Premiere's panels",
-                      text: "Keep three panels visible in Premiere's main window: the Program Monitor (it reads and clicks the captions there), the Timeline, and Properties with its tab in front. Resize and arrange them as you like; just don't close them or make them float. Premiere in English, version 2025 or later."),
+                      lead: "Keep these visible in Premiere's main window:",
+                      points: ["**Program Monitor**: the captions are read and clicked here", "**Timeline**: the playhead steps clip by clip", "**Properties**, with its tab **in front**"],
+                      tip: "Resize and arrange them freely; don't close them or make them float. Premiere **2025 or later**, in **English**."),
             GuideStep(target: "function", title: "This function",
-                      text: "Pick the function here. Its page shows the phrases still to do and how they will be styled."),
+                      points: ["Pick the function here", "Its page shows the **phrases still to do**", "and **how they will be styled**"]),
             GuideStep(target: "apply", title: "What each phrase gets",
-                      text: "Style & size, Style only or Size only. The style is the tile you click in Premiere's style browser on the first phrase; Keep style reuses it next time. The step is how much the font size grows."),
+                      points: ["**Apply**: Style & size, Style only or Size only", "**Style**: the tile you click in Premiere's style browser on the first phrase", "**Keep style**: reuse it on the next run", "**Font size step**: how much the size grows; **0** leaves it"]),
             GuideStep(target: "todo", title: "Progress",
-                      text: "Every phrase and how much of it is done. Redo clears one; Reset progress clears all."),
+                      points: ["Every phrase and **how much is done**", "**Redo** clears one phrase", "**Reset progress** clears all"]),
         ]
         if function == .highlightGraphics {
             steps.append(GuideStep(target: "run", title: "Before you run",
-                                   text: "Graphic text sits on a video track. If the caption track shows the same words on top, hide it with its eye icon in the timeline, so clicks land on the graphics."))
+                                   lead: "Graphic text sits on a **video track**.",
+                                   points: ["If the **caption track** shows the same words on top, **hide it** (its eye icon in the timeline)", "Then clicks land on the **graphics**"]))
         }
         steps += [
             GuideStep(target: "run", title: "Run",
-                      text: "In Premiere, put the playhead before the first caption, then press Run. Let go of the mouse: moving it pauses the run, Escape stops it. The first time, click your style when it asks."),
+                      points: ["In Premiere, put the **playhead before the first caption**", "Press **Run**", "**Let go of the mouse** while it works", "The first time, **click your style** when it asks"],
+                      tip: "Moving the mouse **pauses**; **Escape** stops."),
             GuideStep(target: "detection", title: "Seeing what it sees",
-                      text: "During runs shows boxes over what the bot reads while it works. Off hides them; Always shows them all the time."),
+                      points: ["**During runs**: boxes over what the bot reads while it works", "**Off**: no boxes", "**Always**: boxes all the time"]),
             GuideStep(target: "log", title: "If something goes wrong",
-                      text: "Open Log, then Show log file: it gives one zip. Drag it into your chat and send it to the developer, so the problem can be fixed."),
+                      points: ["Open **Log**", "Click **Show log file**: you get **one zip**", "Drag it into your chat and **send it to the developer**"]),
         ]
         return steps
     }
@@ -90,7 +100,11 @@ struct GuideOverlay: View {
 
     /// Placed beside the control: to its right when it is in the sidebar, else below it, or above when there is no room.
     func popup(_ step: GuideStep, index: Int, count: Int, target: CGRect, in size: CGSize) -> some View {
-        let width: CGFloat = 350, height: CGFloat = 230, gap: CGFloat = 16
+        // Height from the content: about 46 characters a line at this width.
+        func lines(_ text: String) -> CGFloat { text.isEmpty ? 0 : CGFloat(max(1, (L(text).count + 45) / 46)) }
+        let width: CGFloat = 350, gap: CGFloat = 16
+        let height: CGFloat = 104 + lines(step.lead) * 17 + step.points.reduce(0) { $0 + lines($1) * 18 + 6 }
+            + (step.tip.isEmpty ? 0 : lines(step.tip) * 15 + 22)
         enum Side { case right, below, above }
         let side: Side = target.maxX + gap + width < size.width && target.minX < 260 ? .right
             : target.maxY + gap + height < size.height ? .below : .above
@@ -114,7 +128,25 @@ struct GuideOverlay: View {
                 Spacer()
                 Text(L("%@ of %@", index + 1, count)).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
             }
-            Text(L(step.text)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if !step.lead.isEmpty {
+                Text(md: L(step.lead)).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(step.points.enumerated()), id: \.offset) { _, point in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Circle().fill(accent).frame(width: 5, height: 5).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                        Text(md: L(point)).font(.system(size: 12.5)).foregroundStyle(.primary.opacity(0.88)).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if !step.tip.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "lightbulb").font(.system(size: 10)).foregroundStyle(accent)
+                    Text(md: L(step.tip)).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+            }
             Spacer(minLength: 0)
             HStack {
                 Button(L("Skip")) { s.guide = nil }.buttonStyle(.plain).foregroundStyle(.secondary).keyboardShortcut(.cancelAction)

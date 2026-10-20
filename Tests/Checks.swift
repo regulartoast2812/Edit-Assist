@@ -1083,6 +1083,12 @@ struct Checks {
             check(L("Something never translated") == "Something never translated", "Untranslated text shows as it is")
             if let saved { UserDefaults.standard.set(saved, forKey: "appLanguage") } else { UserDefaults.standard.removeObject(forKey: "appLanguage") }
         }
+        // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
+        do {
+            let missing = EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }
+                .filter { !$0.isEmpty && Vietnamese.text[$0] == nil }
+            check(missing.isEmpty, "Every guide line is translated (missing: \(Set(missing)))")
+        }
         print("\(count) checks passed. No desktop input was sent.")
         // Exit explicitly: AppKit objects created by the checks keep the process alive after main
         // returns, which left finished runs hanging and made ./test.sh appear to time out.
