@@ -41,7 +41,8 @@ enum RichScript {
 @MainActor
 final class Store: ObservableObject {
     @Published var projects: [Project] = []
-    @Published var selected: UUID?
+    /// The project you are on; remembered across restarts (the app used to open on the first project every time).
+    @Published var selected: UUID? { didSet { if let selected { UserDefaults.standard.set(selected.uuidString, forKey: "selectedProject") } } }
     @Published var target: WindowChoice? { didSet { updateLiveFeed() } }
     @Published var detectNote = ""
     /// Your click on a style tile while a pass waits to learn which style you want.
@@ -684,7 +685,8 @@ final class Store: ObservableObject {
             }
         } catch { self.error = "Could not load saved projects: \(error.localizedDescription). Your existing file has not been overwritten." }
         if projects.isEmpty { projects = [Project()] }
-        selected = projects.first?.id
+        let remembered = UserDefaults.standard.string(forKey: "selectedProject").flatMap(UUID.init(uuidString:))
+        selected = projects.first(where: { $0.id == remembered })?.id ?? projects.first?.id
         Desktop.styleRows.onReset = { [weak self] why, frame, before in
             guard let self else { return }
             self.log("Style rows: \(why)")
