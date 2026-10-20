@@ -323,8 +323,8 @@ enum Vietnamese {
         "During runs shows boxes over what the bot reads while it works. Off hides them; Always shows them all the time.":
             "Khi đang chạy sẽ hiện khung trên những gì bot đọc trong lúc làm việc. Tắt để ẩn; Luôn bật để hiện mọi lúc.",
         "If something goes wrong": "Nếu có sự cố",
-        "Open Log, then Show log file: it gives one zip to drag into a chat, so the problem can be looked at.":
-            "Mở Nhật ký, rồi Hiện tệp nhật ký: bạn sẽ có một tệp zip để kéo vào ứng dụng chat, giúp xem lại sự cố.",
+        "Open Log, then Show log file: it gives one zip. Drag it into your chat and send it to the developer, so the problem can be fixed.":
+            "Mở Nhật ký, rồi Hiện tệp nhật ký: bạn sẽ có một tệp zip. Kéo tệp vào ứng dụng chat và gửi cho nhà phát triển để sự cố được sửa.",
         "Screen recording and mouse control are allowed.": "Đã cho phép ghi màn hình và điều khiển chuột.",
         "Picked on the first phrase": "Chọn ở cụm đầu tiên",
         "Use OCR for editing routines": "Dùng OCR cho quy trình dựng",

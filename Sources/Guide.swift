@@ -32,7 +32,7 @@ enum Guide {
             GuideStep(target: "detection", title: "Seeing what it sees",
                       text: "During runs shows boxes over what the bot reads while it works. Off hides them; Always shows them all the time."),
             GuideStep(target: "log", title: "If something goes wrong",
-                      text: "Open Log, then Show log file: it gives one zip to drag into a chat, so the problem can be looked at."),
+                      text: "Open Log, then Show log file: it gives one zip. Drag it into your chat and send it to the developer, so the problem can be fixed."),
         ]
         return steps
     }
