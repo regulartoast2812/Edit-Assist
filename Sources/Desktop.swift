@@ -576,6 +576,43 @@ final class Desktop {
         }
     }
 
+    /// A caption block's words in reading order, one token each, with the word's box and its line's.
+    private static func tokens(of block: [TextHit]) -> [(text: String, rect: CGRect, line: CGRect)] {
+        var words: [(text: String, rect: CGRect, line: CGRect)] = []
+        for line in block {
+            if line.words.isEmpty {
+                for token in normalized(line.text) { words.append((token, line.rect, line.rect)) }
+            } else {
+                for word in line.words { for token in normalized(word.0) { words.append((token, word.1, line.rect)) } }
+            }
+        }
+        return words
+    }
+
+    /// A phrase split over two caption clips with only its first word on the first ("…it keeps everything secure." /
+    /// "No bounce around"): that word as the last word of a caption here. A one-word partial anywhere else is too weak
+    /// (see `selection`); at the very end of a caption, at least four letters and not a number, it is only a candidate,
+    /// taken once the next clip is seen to start with the rest (Store checks).
+    static func headAtCaptionEnd(_ word: String, in hits: [TextHit], minHeight: CGFloat = 0, area: CGRect? = nil) -> Span? {
+        guard word.count >= 4, !word.allSatisfy(\.isNumber) else { return nil }
+        for block in captionBlocks(in: hits, minHeight: minHeight, area: area) {
+            guard let last = tokens(of: block).last, last.text == word else { continue }
+            return Span(start: CGPoint(x: last.rect.minX, y: last.rect.midY), end: CGPoint(x: last.rect.maxX, y: last.rect.midY),
+                        firstWord: CGPoint(x: last.rect.midX, y: last.rect.midY))
+        }
+        return nil
+    }
+
+    /// Whether a caption here starts with these words: all of them, or as many as it holds.
+    static func captionStarts(with needle: [String], in hits: [TextHit], minHeight: CGFloat = 0, area: CGRect? = nil) -> Bool {
+        guard !needle.isEmpty else { return false }
+        return captionBlocks(in: hits, minHeight: minHeight, area: area).contains { block in
+            let words = tokens(of: block).map(\.text)
+            let count = min(words.count, needle.count)
+            return count >= 1 && sameWords(Array(words.prefix(count)), Array(needle.prefix(count)))
+        }
+    }
+
     private static func span(of needle: [String], in hits: [TextHit], minHeight: CGFloat = 0, area: CGRect? = nil) -> Span? {
         guard !needle.isEmpty else { return nil }
         let ordered = captionBlocks(in: hits, minHeight: minHeight, area: area)

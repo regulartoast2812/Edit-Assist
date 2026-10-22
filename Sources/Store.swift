@@ -1360,6 +1360,8 @@ final class Store: ObservableObject {
                     var timelineFocused = false
                     /// Times this run made the caption track taller because it was too small to read.
                     var trackGrowths = 0
+                    /// A phrase whose first word ends the clip just gone back to, the next clip starting with its rest.
+                    var splitHead: Int?
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1378,6 +1380,14 @@ final class Store: ObservableObject {
                             return
                         }
                         var found = nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
+                        // Back on the clip that ends with a split phrase's first word, the next clip having been seen to
+                        // start with the rest: style that word now; the rest follows on the next clip as usual.
+                        if found == nil, !mustAdvance, let head = splitHead, remaining.contains(head),
+                           let first = words(of: targets[head]).first,
+                           let span = Desktop.headAtCaptionEnd(first, in: shot.text, minHeight: captionFloor, area: searchArea) {
+                            found = (head, targets[head], span, 1, 0)
+                        }
+                        splitHead = nil
                         // The rest of a split phrase is on the next clip, so it cannot be on this screen: anything
                         // matching it here is somewhere else (a timeline label). Step on first.
                         if mustAdvance { found = nil }
@@ -1446,6 +1456,11 @@ final class Store: ObservableObject {
                                 }
                                 log("OCR: caption here reads \u{201c}\(caption)\u{201d}\(near.isEmpty ? "" : " — partial: " + near.joined(separator: ", "))")
                                 let was = Desktop.playheadTime(in: shot.text)
+                                // A phrase that may start with this caption's last word and go on in the next clip.
+                                let headHere = graphics || mustAdvance ? nil : phraseCandidates().first { candidate in
+                                    candidate.from == 0 && candidate.tokens.count >= 2
+                                        && Desktop.headAtCaptionEnd(candidate.tokens[0], in: shot.text, minHeight: captionFloor, area: searchArea) != nil
+                                }
                                 // Down only steps the playhead while the Timeline has keyboard focus.
                                 // After styling, focus is in the Properties panel, so the key does
                                 // nothing and the walk looks like it has reached the end. Click the
@@ -1515,7 +1530,9 @@ final class Store: ObservableObject {
                                     return (timeStill && after == caption && pixelsStill, now, after)
                                 }
                                 var state = standing(moved)
+                                var stepKeys = ["down"]
                                 if state.still {
+                                    stepKeys = ["shift", "down"]
                                     // Down only stops at edit points on targeted tracks, usually the captions. Graphics
                                     // and other clips on video tracks are reached with Shift+Down, any track.
                                     try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["shift", "down"], scroll: 0, purpose: "Next edit point on any track"), on: moved)
@@ -1552,7 +1569,42 @@ final class Store: ObservableObject {
                                     advances += 1
                                     mustAdvance = false   // on the next clip now: the rest of a split phrase may show
                                     timelineFocused = true
+                                    // Read only once the Program Monitor has drawn the new caption: 0.12 s after the step it can
+                                    // still be drawing (2026-10-22: "Fabric" read as nothing and was passed over; it was read
+                                    // at the same edit point two days before). Looked at again 0.06 s later; redrawn, it is read
+                                    // again once two looks agree.
+                                    if let picture = Desktop.programPicture(in: moved.text, image: moved.image) ?? searchArea {
+                                        try await Task.sleep(for: .milliseconds(60))
+                                        var last = try await desktop.capture(window)
+                                        if Desktop.regionDifference(moved.image, last.image, rect: picture) >= 2 {
+                                            for _ in 0 ..< 6 {
+                                                try await Task.sleep(for: .milliseconds(60))
+                                                let next = try await desktop.capture(window)
+                                                let still = Desktop.regionDifference(last.image, next.image, rect: picture) < 2
+                                                last = next
+                                                if still { break }
+                                            }
+                                            moved = try await desktop.capture(window, readText: true)
+                                            log("OCR: the Program Monitor was still drawing the new caption; read it again")
+                                        }
+                                    }
                                     nextShot = moved
+                                    // The clip before ended with a phrase's first word and this one starts with its rest: go back
+                                    // one edit point and style that word first. Only for a step the playhead really made, and only
+                                    // if going back lands on the same time; otherwise carry on from here.
+                                    if let head = headHere, let was, let now, abs(now - was) > 0.01,
+                                       Desktop.captionStarts(with: Array(head.tokens.dropFirst()), in: moved.text, minHeight: captionFloor, area: searchArea) {
+                                        log("OCR: “\(targets[head.index])” starts with the last word of the clip before and goes on here; going back to style its start")
+                                        try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: stepKeys.map { $0 == "down" ? "up" : $0 }, scroll: 0, purpose: "Previous edit point"), on: moved)
+                                        try await Task.sleep(for: .milliseconds(120))
+                                        let back = try await desktop.capture(window, readText: true)
+                                        if let at = Desktop.playheadTime(in: back.text), abs(at - was) < 0.01 {
+                                            nextShot = back; splitHead = head.index
+                                        } else {
+                                            log("OCR: going back did not return to \(String(format: "%.2fs", was)); carrying on from here")
+                                            nextShot = back
+                                        }
+                                    }
                                 }
                                 // Stuck: hand focus back again on the next step.
                                 if timeStill { timelineFocused = false }

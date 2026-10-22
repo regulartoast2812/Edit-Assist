@@ -1097,6 +1097,24 @@ struct Checks {
             check(Desktop.trackHeader(in: [TextHit(text: "Settings", rect: header.rect)]) == nil, "Other one-word labels are not the track")
             check(Desktop.letterDistance("sulotitle", "subtitle") == 2 && Desktop.letterDistance("", "ab") == 2, "Letter distance")
         }
+        // A phrase split over two caption clips, only its first word on the first (2026-10-20/22: "secure." / "No bounce around").
+        do {
+            let interface = (0 ..< 6).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.012)) }
+            let picture = CGRect(x: 0, y: 0.05, width: 0.3, height: 0.85)
+            let first = TextHit(text: "it keeps everything secure.", rect: CGRect(x: 0.05, y: 0.61, width: 0.2, height: 0.03))
+            let second = TextHit(text: "No bounce around", rect: CGRect(x: 0.08, y: 0.61, width: 0.15, height: 0.03))
+            let middle = TextHit(text: "secure and soft", rect: CGRect(x: 0.08, y: 0.61, width: 0.15, height: 0.03))
+            check(Desktop.headAtCaptionEnd("secure", in: interface + [first], area: picture) != nil, "A phrase's first word ending a caption is a split candidate")
+            check(Desktop.headAtCaptionEnd("secure", in: interface + [middle], area: picture) == nil, "Not when the word is not the caption's last")
+            check(Desktop.headAtCaptionEnd("on", in: interface + [TextHit(text: "carry on", rect: first.rect)], area: picture) == nil, "Not a short common word")
+            check(Desktop.headAtCaptionEnd("65", in: interface + [TextHit(text: "After 65", rect: first.rect)], area: picture) == nil, "Not a number")
+            check(Desktop.captionStarts(with: ["no", "bounce", "around"], in: interface + [second], area: picture), "The next clip starting with the rest is seen")
+            check(!Desktop.captionStarts(with: ["no", "bounce", "around"], in: interface + [TextHit(text: "There is no bounce around", rect: second.rect)], area: picture),
+                  "A clip with the rest in its middle does not count")
+            check(Desktop.captionStarts(with: ["rounder"], in: interface + [TextHit(text: "rounder, and fuller", rect: second.rect)], area: picture), "A one-word rest at the start counts")
+            check(!Desktop.captionStarts(with: ["no", "bounce"], in: interface + [TextHit(text: "No bounce", rect: CGRect(x: 0.72, y: 0.4, width: 0.04, height: 0.012))], area: picture),
+                  "Interface text is never a caption")
+        }
         // A caption track too short to read is made taller; one of normal height is left alone.
         do {
             let v1 = TextHit(text: "V1", rect: CGRect(x: 0.368, y: 0.762, width: 0.010, height: 0.0139))
