@@ -1913,21 +1913,45 @@ final class Desktop {
     /// The caption track's header label. Clicking it gives the Timeline keyboard focus when the
     /// playhead itself is scrolled out of view and so cannot be clicked.
     static func trackHeader(in hits: [TextHit]) -> CGPoint? {
-        let names = ["subtitle", "caption", "captions"]
-        guard let row = hits.first(where: { hit in
+        guard let row = trackNames(in: hits).first else { return nil }
+        return CGPoint(x: row.rect.midX, y: row.rect.midY)
+    }
+
+    /// The caption track's name in the timeline header, read as one word. The name is small and grey, and
+    /// was read "Sulotitle" on 2026-10-22: then nothing could be clicked to give the Timeline focus, Down did
+    /// nothing and the run stopped mid-sequence. Up to two letters off still counts for these long names, at
+    /// about their length ("subtle" is not one) and in interface-sized text, never a caption's.
+    nonisolated static func trackNames(in hits: [TextHit]) -> [TextHit] {
+        let names = ["subtitle", "subtitles", "caption", "captions"]
+        let exact = hits.filter { hit in
             let words = normalized(hit.text)
             return words.count == 1 && names.contains(words[0])
-        }) else { return nil }
-        return CGPoint(x: row.rect.midX, y: row.rect.midY)
+        }
+        if !exact.isEmpty { return exact }
+        return hits.filter { hit in
+            let words = normalized(hit.text)
+            return words.count == 1 && words[0].count >= 6 && hit.rect.height < 0.02
+                && names.contains { abs(words[0].count - $0.count) <= 1 && letterDistance(words[0], $0) <= 2 }
+        }
+    }
+
+    /// Letters to change, add or remove to turn one word into the other.
+    nonisolated static func letterDistance(_ a: String, _ b: String) -> Int {
+        let x = Array(a), y = Array(b)
+        var row = Array(0 ... y.count)
+        for i in 1 ... max(1, x.count) where !x.isEmpty {
+            var next = [i] + Array(repeating: 0, count: y.count)
+            for j in 1 ... max(1, y.count) where !y.isEmpty {
+                next[j] = min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (x[i - 1] == y[j - 1] ? 0 : 1))
+            }
+            row = next
+        }
+        return x.isEmpty ? y.count : row[y.count]
     }
 
     /// The caption clip to click: the point on the caption track directly under the playhead.
     static func clipAtPlayhead(in hits: [TextHit], image: CGImage) -> CGPoint? {
-        let names = ["subtitle", "caption", "captions"]
-        let rows = hits.filter { hit in
-            let words = normalized(hit.text)
-            return words.count == 1 && names.contains(words[0])
-        }
+        let rows = trackNames(in: hits)
         let hint = playheadFromRuler(in: hits)
         for row in rows.sorted(by: { $0.rect.minY < $1.rect.minY }) {
             if let x = playheadX(inRowOf: row.rect, in: image, hint: hint) {

@@ -1086,6 +1086,17 @@ struct Checks {
             check(L("Something never translated") == "Something never translated", "Untranslated text shows as it is")
             if let saved { UserDefaults.standard.set(saved, forKey: "appLanguage") } else { UserDefaults.standard.removeObject(forKey: "appLanguage") }
         }
+        // The caption track's name misread (2026-10-22: "Sulotitle") still gives the click that focuses the Timeline.
+        do {
+            let header = TextHit(text: "Sulotitle", rect: CGRect(x: 0.41, y: 0.613, width: 0.023, height: 0.005))
+            check(Desktop.trackHeader(in: [header]) != nil, "A misread caption track name is still found")
+            check(Desktop.trackHeader(in: [TextHit(text: "Subtle", rect: header.rect), TextHit(text: "C1:Subtitle here", rect: header.rect)]) == nil,
+                  "Only one-word names of about the track name's length count")
+            check(Desktop.trackHeader(in: [TextHit(text: "Subtitel", rect: CGRect(x: 0.1, y: 0.6, width: 0.2, height: 0.03))]) == nil,
+                  "Caption-sized text is never taken for the track name")
+            check(Desktop.trackHeader(in: [TextHit(text: "Settings", rect: header.rect)]) == nil, "Other one-word labels are not the track")
+            check(Desktop.letterDistance("sulotitle", "subtitle") == 2 && Desktop.letterDistance("", "ab") == 2, "Letter distance")
+        }
         // Your pick's row, checked from the top before it is remembered (2026-10-22: counted R1, really R2).
         check(Store.confirmedStyleRow(reported: 0, differences: [0: 240, 1: 12, 2: 260, 3: 255]) == 1, "A picked row counted one short is corrected")
         check(Store.confirmedStyleRow(reported: 1, differences: [0: 240, 1: 12, 2: 9, 3: 255]) == 1, "A twin a few closer does not move the counted row")
