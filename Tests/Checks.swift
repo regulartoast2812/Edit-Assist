@@ -1086,6 +1086,13 @@ struct Checks {
             check(L("Something never translated") == "Something never translated", "Untranslated text shows as it is")
             if let saved { UserDefaults.standard.set(saved, forKey: "appLanguage") } else { UserDefaults.standard.removeObject(forKey: "appLanguage") }
         }
+        // Your pick's row, checked from the top before it is remembered (2026-10-22: counted R1, really R2).
+        check(Store.confirmedStyleRow(reported: 0, differences: [0: 240, 1: 12, 2: 260, 3: 255]) == 1, "A picked row counted one short is corrected")
+        check(Store.confirmedStyleRow(reported: 1, differences: [0: 240, 1: 12, 2: 9, 3: 255]) == 1, "A twin a few closer does not move the counted row")
+        check(Store.confirmedStyleRow(reported: 1, differences: [0: 20, 1: 240, 2: 22, 3: 255]) == 0 || Store.confirmedStyleRow(reported: 1, differences: [0: 20, 1: 240, 2: 22, 3: 255]) == 2,
+              "With yours not at the counted row, the nearest close row is taken")
+        check(Store.confirmedStyleRow(reported: 4, differences: [2: 72, 3: 563, 4: 600, 5: 590]) == 2, "A dark tile under the hover tint is still found when plainly the best")
+        check(Store.confirmedStyleRow(reported: 2, differences: [0: 90, 1: 95, 2: 100]) == nil, "Nothing clear keeps the counted row")
         // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
         do {
             let missing = (EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }

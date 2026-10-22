@@ -692,7 +692,9 @@ final class Store: ObservableObject {
             self.log("Style rows: \(why)")
             // A followed count being replaced is the failure worth seeing: keep the very frame that made it, and
             // the one before, during a run as in the overlay. The text is the newest reading of the same window size.
-            if why.contains("a count being followed"), Date().timeIntervalSince(self.lastGridDiagnostic) > 10 {
+            // A lost count recovered from the scrollbar is kept too: on 2026-10-22 one restarted at R1 on a list
+            // scrolled by part of a row, and without its frame the reading could not be checked.
+            if why.contains("a count being followed") || why.contains("the count was lost"), Date().timeIntervalSince(self.lastGridDiagnostic) > 10 {
                 self.lastGridDiagnostic = Date()
                 let reading = [self.styleTextForDiagnostics, self.reading, self.lastLook].compactMap { $0 }
                     .first { $0.image.width == frame.width && $0.image.height == frame.height }
@@ -2268,6 +2270,14 @@ final class Store: ObservableObject {
                             // Your scrolling is followed frame by frame through the step's live stream, and the
                             // tile under your click is taken from the newest frame, not an out-of-date look.
                             streamed = []
+                            /// The tiles on screen, cut-off rows included: the "Click your style" outline goes round
+                            /// these, not round the "Ag" letters the text reading found.
+                            @MainActor func tileArea(_ cells: [[CGRect]], image: CGImage) -> CGRect {
+                                let partial = Desktop.partialStyleRows(in: image, cells: cells, minimum: 0.10)
+                                let tiles = cells.flatMap { $0 } + partial.above + partial.below
+                                guard let first = tiles.first else { return area }
+                                return tiles.dropFirst().reduce(first) { $0.union($1) }
+                            }
                             while picked == nil {
                                 pendingStyleClick = nil
                                 desktop.onRecordedClick = { [weak self] point in self?.pendingStyleClick = point }
@@ -2275,9 +2285,10 @@ final class Store: ObservableObject {
                                 overlay.update(step: doneCount, limit: targets.count, headline: "Click your style",
                                                detail: "The same row and column is used for every remaining phrase", confidence: nil, paused: true)
                                 status = "Waiting for you to click a style in the browser"
-                                overlay.showPickHint(area, window: window)
                                 var lastLook = Date.distantPast
                                 var latestCells = look(latest)
+                                var hint = tileArea(latestCells, image: latest.image)
+                                overlay.showPickHint(hint, window: window)
                                 while pendingStyleClick == nil {
                                     try Task.checkCancellation()
                                     if Date().timeIntervalSince(since) > 600 {
@@ -2309,6 +2320,12 @@ final class Store: ObservableObject {
                                         }
                                         latestCells = look(latest)
                                         lastLook = Date()
+                                    }
+                                    // The outline follows the tiles as you scroll or resize the panel.
+                                    let now = tileArea(latestCells, image: latest.image)
+                                    if abs(now.minX - hint.minX) + abs(now.minY - hint.minY) + abs(now.maxX - hint.maxX) + abs(now.maxY - hint.maxY) > 0.004 {
+                                        hint = now
+                                        overlay.showPickHint(hint, window: window)
                                     }
                                     try await Task.sleep(for: .milliseconds(15))
                                 }
@@ -2346,17 +2363,50 @@ final class Store: ObservableObject {
                                     log("OCR: that click was not on a style tile; waiting for another")
                                 }
                             }
-                            guard let choice = picked else { return false }
+                            guard var choice = picked else { return false }
                             recordDecision(Snapshot(kind: "styleGrid", note: "you picked R\(choice.row + 1) C\(choice.column + 1)", hits: latest.text.map(RecordedHit.init),
                                             left: Double(left), cell: choice.cell.recorded, rows: Desktop.styleCells(in: latest.text, image: latest.image, left: left).map(\.count)), image: latest.image)
-                            // Two references: where the tile sits (row and column) and what it looks like.
+                            // Two references: where the tile sits (row and column) and what it looks like, both taken
+                            // from the frame you clicked on.
                             let picture = Desktop.crop(latest.image, cell: choice.cell)
+                            let pickedAppearance = Desktop.cellPatch(latest.image, cell: choice.cell)
+                            desktop.armed = true
+                            // The row number comes from following your scrolling, which can go wrong while you scroll and
+                            // resize (2026-10-22: a count lost and restarted at R1 with the list scrolled by part of a row
+                            // saved R1 C3 for R2 C3). The routine's own count from the top is reliable, so before the row is
+                            // remembered, go back to the top, count down to it, and check your tile is there.
+                            if choice.known {
+                                let check = Desktop.StyleSlot(row: choice.row, column: choice.column, positionKnown: true, appearance: pickedAppearance)
+                                latest = try await scrollToTop(over: area)
+                                var seen: [Int: Int] = [:]   // row: difference from your tile, in your column
+                                for _ in 0 ..< 60 {
+                                    let cells = look(latest)   // counted first: right after the top, the count restarts here
+                                    guard let first = rows.offset else { break }
+                                    for (row, inRow) in cells.enumerated() where choice.column < inRow.count {
+                                        seen[first + row] = check.difference(from: Desktop.cellPatch(latest.image, cell: inRow[choice.column]))
+                                    }
+                                    if let last = seen.keys.max(), last >= choice.row + 2 { break }
+                                    let moved = try await scrollStyles(-5, over: area)
+                                    latest = moved.shot
+                                    if !moved.moved { break }
+                                }
+                                if let confirmed = Self.confirmedStyleRow(reported: choice.row, differences: seen) {
+                                    if confirmed != choice.row {
+                                        log("OCR: your style is at R\(confirmed + 1) C\(choice.column + 1), not R\(choice.row + 1) as counted while you scrolled; remembering R\(confirmed + 1)")
+                                        choice.row = confirmed
+                                    } else {
+                                        log("OCR: checked from the top: your style is at R\(confirmed + 1) C\(choice.column + 1)")
+                                    }
+                                } else {
+                                    log("OCR: could not confirm your style's row from the top (\(seen.sorted { $0.key < $1.key }.map { "R\($0.key + 1) \($0.value)" }.joined(separator: ", "))); keeping R\(choice.row + 1), checked by its image on each phrase")
+                                }
+                            }
                             styleSlot = Desktop.StyleSlot(row: choice.row, column: choice.column, positionKnown: choice.known,
-                                                          appearance: Desktop.cellPatch(latest.image, cell: choice.cell), image: picture)
+                                                          appearance: pickedAppearance, image: picture)
                             let rememberedPNG = picture.flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }
                             projects[index].rememberedStyle = RememberedStyle(
                                 row: choice.row, column: choice.column, positionKnown: choice.known,
-                                appearance: Desktop.cellPatch(latest.image, cell: choice.cell), imagePNG: rememberedPNG)
+                                appearance: pickedAppearance, imagePNG: rememberedPNG)
                             save()
                             if let picture {
                                 overlay.setReference(picture, label: choice.known ? "R\(choice.row + 1) C\(choice.column + 1)" : "by image")
@@ -2370,7 +2420,6 @@ final class Store: ObservableObject {
                             log(choice.known
                                 ? "OCR: you picked R\(choice.row + 1) C\(choice.column + 1) — repeating it for every remaining phrase"
                                 : "OCR: you picked a style after scrolling further than could be followed; it will be found by appearance")
-                            desktop.armed = true
                             // Your click applied the style already; let Premiere settle.
                             try await Task.sleep(for: .milliseconds(300))
                             return true
@@ -2463,6 +2512,22 @@ final class Store: ObservableObject {
                 }
             }
         } catch { self.error = error.localizedDescription }
+    }
+
+    /// Your picked tile's row, from its image compared down your column after counting from the top.
+    /// The counted row stands when its tile is yours (under 30, within 3 of the best); otherwise the nearest
+    /// row that is (under 30 and within 8 of the best: presets come in near twins, and a count is off by a
+    /// row, not several). A dark tile picked under the hover tint can measure far over 30 at its own spot,
+    /// so a single plain best (under 150, every other row 4 times as far and 100 more) also counts.
+    /// Nil when nothing is clear: the counted row is kept.
+    nonisolated static func confirmedStyleRow(reported: Int, differences: [Int: Int]) -> Int? {
+        guard let best = differences.values.min() else { return nil }
+        if let here = differences[reported], here < 30, here <= best + 3 { return reported }
+        let close = differences.filter { $0.value < 30 && $0.value <= best + 8 }
+        if let nearest = close.min(by: { (abs($0.key - reported), $0.value) < (abs($1.key - reported), $1.value) }) { return nearest.key }
+        if let plain = differences.first(where: { $0.value == best }), best < 150,
+           differences.allSatisfy({ $0.key == plain.key || ($0.value >= best * 4 && $0.value >= best + 100) }) { return plain.key }
+        return nil
     }
 
     func rememberStyle(_ rect: CGRect) {
