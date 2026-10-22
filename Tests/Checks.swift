@@ -1097,6 +1097,14 @@ struct Checks {
             check(Desktop.trackHeader(in: [TextHit(text: "Settings", rect: header.rect)]) == nil, "Other one-word labels are not the track")
             check(Desktop.letterDistance("sulotitle", "subtitle") == 2 && Desktop.letterDistance("", "ab") == 2, "Letter distance")
         }
+        // Bold that starts or ends inside a word is widened to the whole word (2026-10-22: "oft stretch", "his much lift").
+        do {
+            let line = try ScriptParser.parse("Fabric has this really s**oft stretch** that, t**his much lift **from it, **hug**s and **plain** words")[0]
+            let phrases = line.highlights.map { Store.wholeWords($0, in: line.text) }
+            check(phrases == ["soft stretch", "this much lift ", "hugs", "plain"], "Mid-word bold covers whole words (\(phrases))")
+            let spaced = try ScriptParser.parse("My bust sits** higher, rounder,**")[0]
+            check(spaced.highlights.map { Store.wholeWords($0, in: spaced.text) } == [" higher, rounder,"], "Bold starting at a space is left as it is")
+        }
         // A phrase split over two caption clips, only its first word on the first (2026-10-20/22: "secure." / "No bounce around").
         do {
             let interface = (0 ..< 6).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.012)) }

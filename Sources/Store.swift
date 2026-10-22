@@ -1128,7 +1128,29 @@ final class Store: ObservableObject {
     // MARK: - OCR mode (no model)
 
     /// Every bold phrase in script order. OCR mode walks this list.
-    var targets: [String] { parsed.flatMap { $0.highlights.map(\.text) } }
+    var targets: [String] { parsed.flatMap { line in line.highlights.map { Self.wholeWords($0, in: line.text) } } }
+
+    /// A bold phrase widened to whole words when its bold starts or ends inside a word. Bold pasted from a sheet
+    /// once began a letter late ("s**oft stretch**", "t**his much lift**"): the run looked for "oft" and "his", which
+    /// no caption reads, and passed both phrases over without a word. A caption is styled word by word, so
+    /// the whole word is what can be styled; the script itself is left as it is.
+    nonisolated static func wholeWords(_ span: TextSpan, in line: String) -> String {
+        let chars = Array(line)
+        guard span.start >= 0, span.end <= chars.count, span.start < span.end else { return span.text }
+        func inWord(_ c: Character) -> Bool { c.isLetter || c.isNumber }
+        var start = span.start, end = span.end
+        if inWord(chars[start]) { while start > 0, inWord(chars[start - 1]) { start -= 1 } }
+        if inWord(chars[end - 1]) { while end < chars.count, inWord(chars[end]) { end += 1 } }
+        return String(chars[start ..< end])
+    }
+
+    /// The phrases whose bold starts or ends inside a word, as written and as they will be styled.
+    var widenedPhrases: [(written: String, styled: String)] {
+        parsed.flatMap { line in line.highlights.compactMap { span in
+            let whole = Self.wholeWords(span, in: line.text)
+            return whole == span.text ? nil : (span.text, whole)
+        } }
+    }
     func words(of phrase: String) -> [String] { Desktop.normalized(phrase) }
     /// Progress belongs to the function: the one running, else the one on screen.
     var progressGraphics: Bool { (activeFunction ?? function) == .highlightGraphics }
@@ -1353,6 +1375,9 @@ final class Store: ObservableObject {
                     var advances = 0
                     var stalled = 0
                     log("Run in project “\(project.name)” · \(graphics ? EditFunction.highlightGraphics.title : EditFunction.highlight.title) · font size step \(project.fontSizeStep), apply \(project.effectiveRunParts)")
+                    for phrase in widenedPhrases {
+                        log("Script: “\(phrase.written)” is bold from inside a word; styling the whole word: “\(phrase.styled)”")
+                    }
                     if all { log("OCR: new pass from the current playhead; prior progress cleared") }
                     /// The screen read after stepping to the next caption: it is the next scan, not read again.
                     var nextShot: Observation?
