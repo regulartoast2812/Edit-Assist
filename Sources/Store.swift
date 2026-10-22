@@ -1358,6 +1358,8 @@ final class Store: ObservableObject {
                     var nextShot: Observation?
                     /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
                     var timelineFocused = false
+                    /// Times this run made the caption track taller because it was too small to read.
+                    var trackGrowths = 0
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1466,6 +1468,30 @@ final class Store: ObservableObject {
                                     // is always on screen and deselects as well as focusing.
                                     focusPoint = Desktop.clipAtPlayhead(in: jump.text, image: jump.image)
                                         ?? Desktop.trackHeader(in: jump.text)
+                                    // A caption track drawn too short to read gives a misread name or none, and then
+                                    // nothing to click for focus: make it taller first, like Option + scroll by hand.
+                                    // View only, nothing in the sequence changes; at most twice a run.
+                                    if trackGrowths < 2, !graphics || Desktop.trackNames(in: jump.text).first != nil,
+                                       Desktop.captionTrackTooSmall(in: jump.text), let over = Desktop.captionTrackHeaderPoint(in: jump.text) {
+                                        trackGrowths += 1
+                                        let before = Desktop.trackNames(in: jump.text).first?.rect.height
+                                        log("OCR: the caption track is too small to read in the timeline; making it taller (Option + scroll over its header)")
+                                        @MainActor func grow(_ notches: Int) async throws {
+                                            try await perform(AgentAction(kind: "scroll", x: over.x, y: over.y, endX: 0, endY: 0, keys: ["option"], scroll: notches, purpose: "Make the caption track taller"), on: jump)
+                                            try await Task.sleep(for: .milliseconds(200))
+                                            jump = try await desktop.capture(window, readText: true)
+                                        }
+                                        try await grow(3)
+                                        // Went the wrong way (smaller, or gone): scroll back past where it was.
+                                        let after = Desktop.trackNames(in: jump.text).first?.rect.height
+                                        if let before, (after ?? 0) < before * 0.9 { try await grow(-6) }
+                                        let size = Desktop.trackNames(in: jump.text).first?.rect.height
+                                        log(size.map { String(format: "OCR: the caption track's name now reads at %.4f of the window%@", $0,
+                                                              Desktop.captionTrackTooSmall(in: jump.text) ? " — still small" : "") }
+                                            ?? "OCR: the caption track's name still cannot be read")
+                                        focusPoint = Desktop.clipAtPlayhead(in: jump.text, image: jump.image)
+                                            ?? Desktop.trackHeader(in: jump.text)
+                                    }
                                 }
                                 let focused = timelineFocused || focusPoint != nil
                                 if let focusPoint {

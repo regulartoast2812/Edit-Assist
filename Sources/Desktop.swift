@@ -1952,6 +1952,38 @@ final class Desktop {
         }
     }
 
+    /// The timeline's video and audio track labels (V1, A2…), which read reliably at any track height.
+    nonisolated static func trackLabels(in hits: [TextHit]) -> [TextHit] {
+        hits.filter { hit in
+            let words = normalized(hit.text)
+            guard words.count == 1, let first = words[0].first, first == "v" || first == "a" else { return false }
+            let number = words[0].dropFirst()
+            return (1 ... 2).contains(number.count) && number.allSatisfy(\.isNumber)
+        }
+    }
+
+    /// The caption track drawn too short to read: its name squashed to under two thirds of a track label's
+    /// height (2026-10-22: "Sulotitle" at 0.0046 of the window beside "V1" at 0.0139), or, with the timeline
+    /// on screen, not read at all.
+    nonisolated static func captionTrackTooSmall(in hits: [TextHit]) -> Bool {
+        let labels = trackLabels(in: hits)
+        guard !labels.isEmpty else { return false }   // no timeline in view: nothing to make taller
+        let label = labels.map(\.rect.height).sorted()[labels.count / 2]
+        guard let name = trackNames(in: hits).first else { return true }
+        return name.rect.height < label * 0.66
+    }
+
+    /// Where to hold Option and scroll to make the caption track taller: over its header. Its name when it is
+    /// read; otherwise the caption track's place in the header column, between the ruler and the top video track.
+    static func captionTrackHeaderPoint(in hits: [TextHit]) -> CGPoint? {
+        if let name = trackNames(in: hits).first { return CGPoint(x: name.rect.midX, y: name.rect.midY) }
+        let video = trackLabels(in: hits).filter { normalized($0.text)[0].hasPrefix("v") }
+        guard let top = video.min(by: { $0.rect.minY < $1.rect.minY }) else { return nil }
+        let ruler = timecodes(in: hits).ruler.filter { $0.rect.maxY < top.rect.minY && $0.rect.minX > top.rect.maxX }
+        guard let line = ruler.max(by: { $0.rect.maxY < $1.rect.maxY }), top.rect.minY - line.rect.maxY > 0.01 else { return nil }
+        return CGPoint(x: top.rect.midX + top.rect.width * 2, y: (line.rect.maxY + top.rect.minY) / 2)
+    }
+
     /// Letters to change, add or remove to turn one word into the other.
     nonisolated static func letterDistance(_ a: String, _ b: String) -> Int {
         let x = Array(a), y = Array(b)
@@ -2200,6 +2232,8 @@ final class Desktop {
             let wheel = CGEvent(scrollWheelEvent2Source: source, units: action.keys.contains("pixels") ? .pixel : .line,
                                 wheelCount: 1, wheel1: Int32(action.scroll), wheel2: 0, wheel3: 0)
             wheel?.location = p
+            // Option + scroll: Premiere's zoom; over a track header it changes the track's height.
+            if action.keys.contains("option") { wheel?.flags = .maskAlternate }
             emit(wheel)
         case "typeNumber":
             // Each digit on its own key: key code 0 (the A key) carrying the digit reached Premiere fine, but

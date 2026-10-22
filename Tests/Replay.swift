@@ -30,6 +30,11 @@ struct Replay {
                 if let problem = check(snapshot, image: image) {
                     failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent) [\(snapshot.kind)] \(snapshot.note): \(problem)")
                 } else { passed += 1 }
+                // Every saved screen shows its caption track at a readable height (checked by eye, 2026-10-22): none may
+                // read as too small, or a normal timeline would get its track resized.
+                if folder == folders.first, Desktop.captionTrackTooSmall(in: snapshot.hits.map(\.hit)) {
+                    failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent): a readable caption track reads as too small")
+                }
                 // Decisions about the Properties panel are also made from a reading of the panel alone (fast checks
                 // while a panel opens or closes): read just that region of the same screen and decide again.
                 if ["selected", "panel", "panelState", "styleButton", "fontSize"].contains(snapshot.kind), let image,

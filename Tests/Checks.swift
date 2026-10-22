@@ -1097,6 +1097,23 @@ struct Checks {
             check(Desktop.trackHeader(in: [TextHit(text: "Settings", rect: header.rect)]) == nil, "Other one-word labels are not the track")
             check(Desktop.letterDistance("sulotitle", "subtitle") == 2 && Desktop.letterDistance("", "ab") == 2, "Letter distance")
         }
+        // A caption track too short to read is made taller; one of normal height is left alone.
+        do {
+            let v1 = TextHit(text: "V1", rect: CGRect(x: 0.368, y: 0.762, width: 0.010, height: 0.0139))
+            let v4 = TextHit(text: "V4", rect: CGRect(x: 0.368, y: 0.650, width: 0.010, height: 0.0139))
+            let ruler = [TextHit(text: "00:01:20:00", rect: CGRect(x: 0.48, y: 0.578, width: 0.04, height: 0.012)),
+                         TextHit(text: "00:01:25:00", rect: CGRect(x: 0.59, y: 0.578, width: 0.04, height: 0.012))]
+            let squashed = TextHit(text: "Sulotitle", rect: CGRect(x: 0.41, y: 0.613, width: 0.023, height: 0.0046))
+            let normal = TextHit(text: "Subtitle", rect: CGRect(x: 0.41, y: 0.608, width: 0.03, height: 0.0125))
+            check(Desktop.captionTrackTooSmall(in: [v1, v4, squashed]), "A squashed caption track name is too small")
+            check(!Desktop.captionTrackTooSmall(in: [v1, v4, normal]), "A caption track of normal height is left alone")
+            check(Desktop.captionTrackTooSmall(in: [v1, v4] + ruler), "No caption track name read, with the timeline in view, is too small")
+            check(!Desktop.captionTrackTooSmall(in: [normal]), "No timeline in view: nothing to make taller")
+            check(Desktop.captionTrackHeaderPoint(in: [v1, v4, squashed]).map { abs($0.y - squashed.rect.midY) < 0.001 } == true, "Taller from over its name when read")
+            check(Desktop.captionTrackHeaderPoint(in: [v1, v4] + ruler).map { $0.y > 0.59 && $0.y < 0.65 && $0.x < 0.45 } == true,
+                  "Without a name, over the header column between the ruler and the top video track")
+            check(Desktop.trackLabels(in: [TextHit(text: "Va", rect: v1.rect), TextHit(text: "A12", rect: v1.rect), v1]).count == 2, "Track labels are V or A with a number")
+        }
         // Your pick's row, checked from the top before it is remembered (2026-10-22: counted R1, really R2).
         check(Store.confirmedStyleRow(reported: 0, differences: [0: 240, 1: 12, 2: 260, 3: 255]) == 1, "A picked row counted one short is corrected")
         check(Store.confirmedStyleRow(reported: 1, differences: [0: 240, 1: 12, 2: 9, 3: 255]) == 1, "A twin a few closer does not move the counted row")
