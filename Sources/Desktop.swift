@@ -250,7 +250,9 @@ final class Desktop {
 
     /// `sharper` captures at twice the window's point size, for text that reads poorly at the usual
     /// size, such as captions with heavy outlines. Reading takes correspondingly longer.
-    func capture(_ choice: WindowChoice, readText: Bool = false, notifyOCR: Bool = true, sharper: Bool = false) async throws -> Observation {
+    /// `region`: read the text of only this part of the window (normalized), returned in window coordinates.
+    /// The image is always the whole window.
+    func capture(_ choice: WindowChoice, readText: Bool = false, notifyOCR: Bool = true, sharper: Bool = false, region: CGRect? = nil) async throws -> Observation {
         try await beforeOperation?()
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard let window = content.windows.first(where: { $0.windowID == choice.id && $0.owningApplication?.processID == choice.pid }) else {
@@ -275,7 +277,7 @@ final class Desktop {
         updated.title = window.title ?? choice.title
         // Recognition takes about a third of a second on a full window; doing it off the main thread
         // keeps the app and the overlay responsive while it reads.
-        let text = readText ? await Task.detached(priority: .userInitiated) { Desktop.recognize(image) }.value : []
+        let text = readText ? await Task.detached(priority: .userInitiated) { region.map { Desktop.recognize(image, in: $0) } ?? Desktop.recognize(image) }.value : []
         let observation = Observation(image: image, window: updated, text: text)
         try Task.checkCancellation()
         if readText && notifyOCR { onOCRCapture?(observation) }
@@ -354,6 +356,21 @@ final class Desktop {
         }
     }
     nonisolated(unsafe) private static let enhanceContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// The text of one part of the window, in window coordinates. The Properties panel alone reads in about
+    /// 95 ms against 320 ms for the whole window (measured on a 2400-pixel capture), more on a busy machine.
+    nonisolated static func recognize(_ image: CGImage, in area: CGRect) -> [TextHit] {
+        let W = CGFloat(image.width), H = CGFloat(image.height)
+        let pixels = CGRect(x: area.minX * W, y: area.minY * H, width: area.width * W, height: area.height * H).integral
+            .intersection(CGRect(x: 0, y: 0, width: W, height: H))
+        guard pixels.width > 20, pixels.height > 20, let crop = image.cropping(to: pixels) else { return [] }
+        let region = CGRect(x: pixels.minX / W, y: pixels.minY / H, width: pixels.width / W, height: pixels.height / H)
+        func place(_ r: CGRect) -> CGRect {
+            CGRect(x: region.minX + r.minX * region.width, y: region.minY + r.minY * region.height,
+                   width: r.width * region.width, height: r.height * region.height)
+        }
+        return recognize(crop).map { TextHit(text: $0.text, rect: place($0.rect), words: $0.words.map { ($0.0, place($0.1)) }) }
+    }
 
     /// On-device text recognition. Roughly half a second for a full window, against ~25s for a model
     /// round trip, and it returns measured boxes instead of an estimate, which is what fixes misclicks.

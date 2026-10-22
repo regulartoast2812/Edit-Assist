@@ -65,6 +65,12 @@ can be slow or miss a click. Never re-click a remembered spot, and never click a
 searching the whole panel: once the browser is open a style tile can look like the four-square, and
 clicking it applies the wrong style to the selected text (this happened).
 
+**Reading the panel alone**: the quick checks after clicking the caption, the four-square and Back read only
+the Properties panel (`Store.readProperties`, `Desktop.propertiesReadRegion`): ~95 ms against ~320 ms for the
+whole window. Only positive answers are taken from it ("selected", "the browser is open", "back on the outer
+panel"); "not selected" and an unclear panel are read again from the whole window. Replay decides every
+Properties fixture a second time from the panel read alone, so a region that loses text fails the build.
+
 **Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
 whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the
 text layer (`graphic`): Text, Appearance, Align and Transform, then **Linked style** far below, whose row

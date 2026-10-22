@@ -500,6 +500,26 @@ final class Store: ObservableObject {
     /// When the overlay last read the whole window rather than only what changed.
     private var lastWholeRead = Date.distantPast
     private var lastGridDiagnostic = Date.distantPast
+    /// Where the Properties panel was on the last whole-window reading, for the window's size then.
+    private var propertiesRegion: (frame: CGRect, width: Int, rect: CGRect)?
+
+    /// The Properties panel read on its own: about a third of the time of a whole-window reading, for the quick
+    /// checks while a panel opens or closes. The image is still the whole window. Falls back to reading the whole
+    /// window when the window has changed size, the panel is not found in its reading, or it has grown past the
+    /// region read; that reading also learns the region for next time.
+    func readProperties(_ window: WindowChoice) async throws -> (shot: Observation, alone: Bool) {
+        if let known = propertiesRegion {
+            let read = try await desktop.capture(window, readText: true, notifyOCR: false, region: known.rect)
+            if read.window.frame == known.frame, read.image.width == known.width,
+               let area = Desktop.propertiesArea(in: read.text, image: read.image),
+               known.rect.insetBy(dx: -0.006, dy: -0.006).contains(area) {
+                return (read, true)
+            }
+        }
+        let full = try await desktop.capture(window, readText: true, notifyOCR: false)
+        propertiesRegion = Desktop.propertiesReadRegion(in: full.text, image: full.image).map { (full.window.frame, full.image.width, $0) }
+        return (full, false)
+    }
 
     /// Saves a screen where the style browser shows but its grid is not found, with what was read on it,
     /// to recordings/diagnostics, so the failure can be studied instead of guessed at.
@@ -1597,7 +1617,15 @@ final class Store: ObservableObject {
                         }
                         /// Reads whether a clip with editable text is selected now, and records the decision.
                         @MainActor func selectedNow() async throws -> Bool {
-                            let now = try await desktop.capture(window, readText: true)
+                            // The panel alone answers "selected" quickly; "not selected" leads to fallback clicks, so
+                            // that answer always comes from the whole window, as before.
+                            let quick = try await readProperties(window)
+                            if quick.alone, Desktop.clipIsSelected(in: quick.shot.text, graphics: graphics) {
+                                recordDecision(Snapshot(kind: "selected", hits: quick.shot.text.map(RecordedHit.init), graphics: graphics ? true : nil, bool: true))
+                                return true
+                            }
+                            let now = quick.alone ? try await desktop.capture(window, readText: true) : quick.shot
+                            if !quick.alone { desktop.onOCRCapture?(now) }   // the overlay shows whole-window readings, as before
                             let selected = Desktop.clipIsSelected(in: now.text, graphics: graphics)
                             recordDecision(Snapshot(kind: "selected", hits: now.text.map(RecordedHit.init), graphics: graphics ? true : nil, bool: selected))
                             return selected
@@ -1863,8 +1891,10 @@ final class Store: ObservableObject {
                             let began = Date()
                             var clicks = 1
                             while !opened, Date().timeIntervalSince(began) < 8 {
-                                try await Task.sleep(for: .milliseconds(300))
-                                let read = try await desktop.capture(window, readText: true, notifyOCR: false)
+                                // Checked every 0.1 s from the panel alone (was 0.3 s, then the whole window): a look
+                                // before Premiere has drawn it only looks again; clicking again goes by time.
+                                try await Task.sleep(for: .milliseconds(100))
+                                let read = try await readProperties(window).shot
                                 let now = Desktop.propertiesState(in: read.text, image: read.image)
                                 if now.isStyleBrowser { opened = true; break }
                                 guard let again = graphics ? now.styleButton : { if case let .caption(b) = now { return b } else { return nil } }(), clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
@@ -2441,9 +2471,15 @@ final class Store: ObservableObject {
                             let began = Date()
                             var clicks = 1
                             while !returned, Date().timeIntervalSince(began) < 8 {
-                                try await Task.sleep(for: .milliseconds(300))
-                                let read = try await desktop.capture(window, readText: true, notifyOCR: false)
-                                let now = Desktop.propertiesState(in: read.text, image: read.image)
+                                // As for opening: every 0.1 s from the panel alone. Only a panel read positively as
+                                // something else counts as back; an unclear one is read again from the whole window.
+                                try await Task.sleep(for: .milliseconds(100))
+                                var (read, alone) = try await readProperties(window)
+                                var now = Desktop.propertiesState(in: read.text, image: read.image)
+                                if alone, case .unknown = now {
+                                    read = try await desktop.capture(window, readText: true, notifyOCR: false)
+                                    now = Desktop.propertiesState(in: read.text, image: read.image)
+                                }
                                 guard case let .styleBrowser(again) = now else { returned = true; break }
                                 guard clicks < 3, Date().timeIntervalSince(began) > 1.5 * Double(clicks) else { continue }
                                 clicks += 1

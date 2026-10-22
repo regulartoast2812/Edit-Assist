@@ -607,6 +607,16 @@ extension Desktop {
         return (left, right, bottom)
     }
 
+    /// What to read when only the Properties panel matters: its area with its tab row, so the panel is found
+    /// again from that reading alone.
+    nonisolated static func propertiesReadRegion(in hits: [TextHit], image: CGImage) -> CGRect? {
+        guard let area = propertiesArea(in: hits, image: image),
+              let tab = hits.first(where: { normalized($0.text).first == "properties" && $0.rect.minY < 0.2 }) else { return nil }
+        let top = max(0, tab.rect.minY - 0.012)
+        let left = max(0, min(area.minX, tab.rect.minX) - 0.004), right = min(1, max(area.maxX, tab.rect.maxX) + 0.004)
+        return CGRect(x: left, y: top, width: right - left, height: min(1, area.maxY + 0.004) - top)
+    }
+
     nonisolated static func propertiesState(in hits: [TextHit], image: CGImage) -> PropertiesState {
         let area = propertiesArea(in: hits, image: image)
         let panel = area.map { area in hits.filter { $0.rect.intersects(area) } } ?? hits

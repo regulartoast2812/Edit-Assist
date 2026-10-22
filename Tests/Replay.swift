@@ -16,7 +16,7 @@ struct Replay {
         if let runs = try? FileManager.default.contentsOfDirectory(at: kept, includingPropertiesForKeys: nil) {
             folders += runs.filter { $0.hasDirectoryPath }.sorted { $0.path < $1.path }
         }
-        var passed = 0, failed: [String] = []
+        var passed = 0, failed: [String] = [], panelAlone = 0
         for folder in folders {
             let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
                 .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -30,9 +30,20 @@ struct Replay {
                 if let problem = check(snapshot, image: image) {
                     failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent) [\(snapshot.kind)] \(snapshot.note): \(problem)")
                 } else { passed += 1 }
+                // Decisions about the Properties panel are also made from a reading of the panel alone (fast checks
+                // while a panel opens or closes): read just that region of the same screen and decide again.
+                if ["selected", "panel", "panelState", "styleButton", "fontSize"].contains(snapshot.kind), let image,
+                   let region = Desktop.propertiesReadRegion(in: snapshot.hits.map(\.hit), image: image) {
+                    var alone = snapshot
+                    alone.hits = Desktop.recognize(image, in: region).map(RecordedHit.init)
+                    if let problem = check(alone, image: image) {
+                        failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent) [\(snapshot.kind), Properties read alone] \(snapshot.note): \(problem)")
+                    } else { passed += 1; panelAlone += 1 }
+                }
             }
         }
         for failure in failed { print("FAIL: \(failure)") }
+        print("\(panelAlone) of them from the Properties panel read alone.")
         print("\(passed) recorded decisions replayed unchanged, \(failed.count) changed (\(folders.count) source\(folders.count == 1 ? "" : "s")).")
         exit(failed.isEmpty ? 0 : 1)
     }
