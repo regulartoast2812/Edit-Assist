@@ -16,7 +16,7 @@ struct Replay {
         if let runs = try? FileManager.default.contentsOfDirectory(at: kept, includingPropertiesForKeys: nil) {
             folders += runs.filter { $0.hasDirectoryPath }.sorted { $0.path < $1.path }
         }
-        var passed = 0, failed: [String] = [], panelAlone = 0
+        var passed = 0, failed: [String] = [], panelAlone = 0, captionAlone = 0
         for folder in folders {
             let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
                 .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -30,6 +30,21 @@ struct Replay {
                 if let problem = check(snapshot, image: image) {
                     failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent) [\(snapshot.kind)] \(snapshot.note): \(problem)")
                 } else { passed += 1 }
+                // Caption steps read only the Program Monitor and the timeline's time afresh, the rest from an earlier
+                // whole-window reading: decide each caption screen again that way, and read the playhead's time.
+                if ["phrase", "dragGuard"].contains(snapshot.kind), let image,
+                   let regions = Desktop.captionRegions(in: snapshot.hits.map(\.hit), image: image) {
+                    let full = snapshot.hits.map(\.hit)
+                    let fresh = regions.flatMap { Desktop.recognize(image, in: $0) }
+                    let merged = Desktop.merged(base: full, fresh: fresh, regions: regions)
+                    var alone = snapshot
+                    alone.hits = merged.map(RecordedHit.init)
+                    if let problem = check(alone, image: image) {
+                        failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent) [\(snapshot.kind), caption areas read alone] \(snapshot.note): \(problem)")
+                    } else if let time = Desktop.playheadTime(in: full), Desktop.playheadTime(in: merged).map({ abs($0 - time) > 0.01 }) ?? true {
+                        failed.append("\(folder.lastPathComponent)/\(file.lastPathComponent): playhead read \(Desktop.playheadTime(in: merged).map { String($0) } ?? "none") from the caption areas, \(time) from the whole window")
+                    } else { passed += 1; captionAlone += 1 }
+                }
                 // Every saved screen shows its caption track at a readable height (checked by eye, 2026-10-22): none may
                 // read as too small, or a normal timeline would get its track resized.
                 if folder == folders.first, Desktop.captionTrackTooSmall(in: snapshot.hits.map(\.hit)) {
@@ -48,7 +63,7 @@ struct Replay {
             }
         }
         for failure in failed { print("FAIL: \(failure)") }
-        print("\(panelAlone) of them from the Properties panel read alone.")
+        print("\(panelAlone) of them from the Properties panel read alone, \(captionAlone) from the caption areas read alone.")
         print("\(passed) recorded decisions replayed unchanged, \(failed.count) changed (\(folders.count) source\(folders.count == 1 ? "" : "s")).")
         exit(failed.isEmpty ? 0 : 1)
     }

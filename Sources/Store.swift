@@ -1402,8 +1402,32 @@ final class Store: ObservableObject {
                     var nextShot: Observation?
                     /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
                     var timelineFocused = false
+                    desktop.tileWait = 0.15   // shorter first; back to 0.3 s for the run once Premiere ignores a press
                     /// Times this run made the caption track taller because it was too small to read.
                     var trackGrowths = 0
+                    /// The last whole-window reading and where its caption areas are: caption steps read only those afresh.
+                    var captionBase: (frame: CGRect, width: Int, height: Int, text: [TextHit], regions: [CGRect], uses: Int)?
+                    /// The screen for a caption step: the Program Monitor and the timeline's time read afresh (about a third of
+                    /// the time), the rest from the last whole-window reading. A whole-window reading again every ten steps, and
+                    /// whenever the window changed size or the areas do not show the Program Monitor's picture and the time.
+                    /// The same decisions as a whole-window reading on every saved caption screen (Replay checks).
+                    @MainActor func readCaptions(notify: Bool = true) async throws -> Observation {
+                        if var base = captionBase, base.uses < 10 {
+                            let read = try await desktop.captureCaptions(window, regions: base.regions, base: base.text)
+                            if read.window.frame == base.frame, read.image.width == base.width, read.image.height == base.height,
+                               let picture = Desktop.programPicture(in: read.text, image: read.image),
+                               base.regions[0].insetBy(dx: -0.01, dy: -0.01).contains(picture),   // a resized panel reads the whole window again
+                               Desktop.playheadTime(in: read.text) != nil {
+                                base.uses += 1; captionBase = base
+                                if notify { desktop.onOCRCapture?(read) }
+                                return read
+                            }
+                        }
+                        let full = try await desktop.capture(window, readText: true, notifyOCR: notify)
+                        captionBase = Desktop.captionRegions(in: full.text, image: full.image)
+                            .map { (full.window.frame, full.image.width, full.image.height, full.text, $0, 0) }
+                        return full
+                    }
                     /// A phrase whose first word ends the clip just gone back to, the next clip starting with its rest.
                     var splitHead: Int?
                     /// The phrase just styled in part; its rest is looked for on the next clip.
@@ -1417,7 +1441,7 @@ final class Store: ObservableObject {
                         overlay.update(step: doneSoFar + 1, limit: targets.count, headline: "Reading the screen…", detail: "", confidence: nil, paused: false)
                         let began = Date()
                         var shot: Observation
-                        if let ready = nextShot { shot = ready; nextShot = nil } else { shot = try await desktop.capture(window, readText: true) }
+                        if let ready = nextShot { shot = ready; nextShot = nil } else { shot = try await readCaptions() }
                         // Captions are only ever in the Program Monitor's picture, from the first phrase on: text
                         // elsewhere (a sequence tab "Shelara Bra v1.2" matched the phrase "a bra" once, and the
                         // click and double-click that followed maximised the timeline) is never a caption. Found on
@@ -1434,7 +1458,7 @@ final class Store: ObservableObject {
                         // everything up", read at once after styling), and styling the part sends the rest to look on the next
                         // clip. Read once more before taking the part.
                         if !mustAdvance, let part = found, part.from == 0, part.matched < words(of: part.phrase).count {
-                            let again = try await desktop.capture(window, readText: true)
+                            let again = try await readCaptions()
                             if let more = nextVisible(in: again.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea),
                                more.index == part.index, more.from == 0, more.matched > part.matched {
                                 log("OCR: read the caption again: \(more.matched) words of “\(part.phrase)” are here, not \(part.matched)")
@@ -1590,7 +1614,7 @@ final class Store: ObservableObject {
                                 let firstKeys = anyTrackFirst ? ["shift", "down"] : ["down"]
                                 try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: firstKeys, scroll: 0, purpose: "Next edit point"), on: jump)
                                 try await Task.sleep(for: .milliseconds(120))
-                                var moved = try await desktop.capture(window, readText: true)
+                                var moved = try await readCaptions()
                                 // The time read can come from a timecode that does not follow the playhead, and the
                                 // "caption" can be the ruler when no text shows. So the window's pixels count too:
                                 // the playhead line moves in the timeline even over a stretch with no captions.
@@ -1611,7 +1635,7 @@ final class Store: ObservableObject {
                                     // and other clips on video tracks are reached with Shift+Down, any track.
                                     try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: stepKeys, scroll: 0, purpose: anyTrackFirst ? "Next edit point" : "Next edit point on any track"), on: moved)
                                     try await Task.sleep(for: .milliseconds(120))
-                                    moved = try await desktop.capture(window, readText: true)
+                                    moved = try await readCaptions()
                                     state = standing(moved)
                                     if !state.still, !anyTrackFirst {
                                         downFailures += 1
@@ -1666,7 +1690,7 @@ final class Store: ObservableObject {
                                                 last = next
                                                 if still { break }
                                             }
-                                            moved = try await desktop.capture(window, readText: true)
+                                            moved = try await readCaptions()
                                             log("OCR: the Program Monitor was still drawing the new caption; read it again")
                                         }
                                     }
@@ -1679,7 +1703,7 @@ final class Store: ObservableObject {
                                         log("OCR: “\(targets[head.index])” starts with the last word of the clip before and goes on here; going back to style its start")
                                         try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: stepKeys.map { $0 == "down" ? "up" : $0 }, scroll: 0, purpose: "Previous edit point"), on: moved)
                                         try await Task.sleep(for: .milliseconds(120))
-                                        let back = try await desktop.capture(window, readText: true)
+                                        let back = try await readCaptions()
                                         if let at = Desktop.playheadTime(in: back.text), abs(at - was) < 0.01 {
                                             nextShot = back; splitHead = head.index
                                         } else {
@@ -1794,8 +1818,16 @@ final class Store: ObservableObject {
                         @MainActor func send(_ step: OCRStep, _ action: AgentAction, pause: Int = 40) async throws {
                             guard gestures.contains(step.rawValue) else { log("OCR skip: \(step.label)"); return }
                             let at = Date()
-                            let shot = try await desktop.capture(window)
-                            try await perform(action, on: shot)
+                            // Only the window's place is needed to send input, not a picture of it: the window list gives it
+                            // without a screenshot. A window that changed size since the screen was read is captured as before.
+                            let reference = observation ?? shot
+                            let target: Observation
+                            if let now = desktop.current(window), now.frame.size == reference.window.frame.size {
+                                target = Observation(image: reference.image, window: now)
+                            } else {
+                                target = try await desktop.capture(window)
+                            }
+                            try await perform(action, on: target)
                             let where_ = ["click", "doubleClick", "drag"].contains(action.kind)
                                 ? String(format: " at %.3f, %.3f", action.x, action.y) : ""
                             log(String(format: "OCR ok: %@%@ (%.2fs)", step.label, where_, Date().timeIntervalSince(at)))
@@ -1863,7 +1895,7 @@ final class Store: ObservableObject {
                         try await send(.enterText, AgentAction(kind: "doubleClick", x: span.firstWord.x, y: span.firstWord.y, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Enter text edit on \(hit.phrase)"))
                         // A drag outside caption text moves whatever is under it — over a timeline clip, that clip
                         // lands on its neighbour and replaces it. Only drag where caption-sized text is now.
-                        let check = try await desktop.capture(window, readText: true, notifyOCR: false)
+                        let check = try await readCaptions(notify: false)
                         // Only inside the Program Monitor's picture on this screen: a maximised panel or a changed layout
                         // leaves no caption to drag.
                         let checkArea = Desktop.programPicture(in: check.text, image: check.image) ?? captionReach
@@ -2242,7 +2274,10 @@ final class Store: ObservableObject {
                                         try await Task.sleep(for: .milliseconds(20))
                                         item = try await find()
                                     }
-                                    if item == nil, press == 1 { log("OCR: your style's menu did not open on the first right-click; right-clicking again") }
+                                    if item == nil, press == 1 {
+                                        log("OCR: your style's menu did not open on the first right-click; right-clicking again")
+                                        desktop.tilePressIgnored()
+                                    }
                                 }
                                 guard let item else {
                                     log("OCR: “\(Desktop.withoutFontItem)” did not show in your style's menu after two right-clicks")
@@ -2478,7 +2513,10 @@ final class Store: ObservableObject {
                                         let after = try await quickLook()
                                         landed = Desktop.regionDifference(beforeClick.image, after.image, rect: caption) >= 2
                                     }
-                                    if !landed && attempt < 3 { log("OCR: the caption did not change after clicking your style; clicking it again") }
+                                    if !landed && attempt < 3 {
+                                        log("OCR: the caption did not change after clicking your style; clicking it again")
+                                        desktop.tilePressIgnored()
+                                    }
                                 }
                                 log("OCR: clicked your style at R\(chosen.row + 1) C\(chosen.column + 1)\(steps > 0 ? ", \(steps) scroll step\(steps == 1 ? "" : "s") down" : "")"
                                     + (landed ? " — the caption changed" : " — no visible change in the caption (already this style?)"))

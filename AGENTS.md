@@ -80,6 +80,15 @@ repeated a misread item ("wlthout") and a misclick on every phrase (2026-10-26).
 (you asked for none). Premiere's style menu is not a window the window list finds; `clickMenu` clicks only where
 something covers Premiere.
 
+**Reading only the caption areas**: caption steps (the scan after each step, the drag check, a re-read of a
+partial match) read afresh only the Program Monitor's picture with its time display and the timeline's time and
+ruler (`Desktop.captionRegions`, `captureCaptions`), about half the time of the whole window; everything else
+comes from the last whole-window reading (`Store.readCaptions`), redone every ten steps and whenever the window
+changed size or the picture or time is not found where expected. Replay decides every caption screen a second
+time that way and compares the playhead time. Input is sent without a screenshot first (the window list gives
+its place). The pause before pressing a style tile starts at 0.15 s and goes to 0.3 s for the run once a press
+is ignored.
+
 **Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
 whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the
 text layer (`graphic`): Text, Appearance, Align and Transform, then **Linked style** far below, whose row

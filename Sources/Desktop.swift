@@ -148,6 +148,15 @@ final class Desktop {
     func recordNextClick(in window: WindowChoice) { recordingFor = window }
     func cancelRecording() { recordingFor = nil; menuRecording = false }
 
+    /// The window as it is now, from the window list: no screenshot. Nil when it has closed.
+    func current(_ choice: WindowChoice) -> WindowChoice? {
+        let rows = CGWindowListCopyWindowInfo([.optionIncludingWindow], choice.id) as? [[String: Any]] ?? []
+        guard let row = rows.first, let bounds = row[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds) else { return nil }
+        var now = choice; now.frame = frame
+        return now
+    }
+
     // MARK: A style tile's right-click menu
 
     /// The screen around a point as it shows now, the editor's pop-up menus included (Premiere's style menu is not
@@ -445,6 +454,42 @@ final class Desktop {
         }
     }
     nonisolated(unsafe) private static let enhanceContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// What a caption step needs read afresh: the Program Monitor's panel (its tab, the picture with the caption, the
+    /// current time under it) and the timeline's time display with its ruler. Found on a whole-window reading; the rest
+    /// of the window (panels, track names) is taken from that reading, which is what lets these two areas alone be read
+    /// in about a third of the time of the whole window.
+    static func captionRegions(in hits: [TextHit], image: CGImage) -> [CGRect]? {
+        guard let picture = programPicture(in: hits, image: image) else { return nil }
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let centre = CGPoint(x: picture.midX, y: picture.midY)
+        let panel = panels(in: hits, image: image).map(\.rect).filter { $0.contains(centre) }.min { $0.width * $0.height < $1.width * $1.height }
+            ?? picture.insetBy(dx: -0.02, dy: -0.06)
+        let found = timecodes(in: hits)
+        // The picture and the time display under it; the panel's rulers, buttons and tab come from the base reading.
+        let monitorTimes = found.others.filter { panel.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }.map(\.rect)
+        let program = monitorTimes.reduce(picture) { $0.union($1) }.insetBy(dx: -0.008, dy: -0.008).intersection(unit)
+        let current = found.others.filter { !panel.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }.min { $0.rect.minY < $1.rect.minY }
+        let stamps = found.ruler.map(\.rect) + (current.map { [$0.rect] } ?? [])
+        guard let first = stamps.first else { return [program] }
+        let band = stamps.dropFirst().reduce(first) { $0.union($1) }
+        let left = max(0, band.minX - 0.02)
+        let timeline = CGRect(x: left, y: max(0, band.minY - 0.012), width: 1 - left, height: band.height + 0.024).intersection(unit)
+        return [program, timeline]
+    }
+
+    /// The caption areas read afresh, everything else from `base` (a whole-window reading of the same layout).
+    func captureCaptions(_ choice: WindowChoice, regions: [CGRect], base: [TextHit]) async throws -> Observation {
+        var shot = try await capture(choice)
+        let image = shot.image
+        let fresh = await Task.detached(priority: .userInitiated) { regions.flatMap { Desktop.recognize(image, in: $0) } }.value
+        shot.text = Self.merged(base: base, fresh: fresh, regions: regions)
+        return shot
+    }
+
+    nonisolated static func merged(base: [TextHit], fresh: [TextHit], regions: [CGRect]) -> [TextHit] {
+        base.filter { hit in !regions.contains { $0.contains(CGPoint(x: hit.rect.midX, y: hit.rect.midY)) } } + fresh
+    }
 
     /// The text of one part of the window, in window coordinates. The Properties panel alone reads in about
     /// 95 ms against 320 ms for the whole window (measured on a 2400-pixel capture), more on a busy machine.
@@ -2246,9 +2291,13 @@ final class Desktop {
     /// right after the list scrolled, with the pointer barely arrived: on 2026-10-20-26 152 of 169 first clicks and
     /// every first right-click did nothing, the second, after the pointer had rested there, always worked. So: the
     /// scroll over for 0.3 s, then arrive, move within the tile and rest about 0.15 s.
+    /// The pause after the list's last scroll before a tile is pressed: 0.15 s to start with; once Premiere ignores a
+    /// press anyway (`tilePressIgnored`), 0.3 s for the rest of the run, the wait that has never been ignored.
+    var tileWait = 0.15
+    func tilePressIgnored() { tileWait = 0.3 }
     private func settleOnTile(_ p: CGPoint, source: CGEventSource?, button: CGMouseButton) async throws {
         let sinceScroll = Date().timeIntervalSince(lastScroll)
-        if sinceScroll < 0.3 { try await Task.sleep(for: .milliseconds(Int((0.3 - sinceScroll) * 1000))) }
+        if sinceScroll < tileWait { try await Task.sleep(for: .milliseconds(Int((tileWait - sinceScroll) * 1000))) }
         for (dx, dy, wait) in [(-6.0, -4.0, 25), (-2.0, -1.0, 40), (1.0, 0.0, 40), (0.0, 0.0, 50)] {
             emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x + dx, y: p.y + dy), mouseButton: button))
             try await Task.sleep(for: .milliseconds(wait))
