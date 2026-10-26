@@ -2293,10 +2293,19 @@ final class Desktop {
     /// right after the list scrolled, with the pointer barely arrived: on 2026-10-20-26 152 of 169 first clicks and
     /// every first right-click did nothing, the second, after the pointer had rested there, always worked. So: the
     /// scroll over for 0.3 s, then arrive, move within the tile and rest about 0.15 s.
-    /// The pause after the list's last scroll before a tile is pressed: 0.15 s to start with; once Premiere ignores a
-    /// press anyway (`tilePressIgnored`), 0.3 s for the rest of the run, the wait that has never been ignored.
-    var tileWait = 0.15
-    func tilePressIgnored() { tileWait = 0.3 }
+    /// The pause after the list's last scroll before a tile is pressed, learnt on this Mac: doubled each time Premiere
+    /// ignores a press anyway (0.15, 0.3, 0.6, at most 0.8 s), and shortened by 0.05 s after ten first presses in a row
+    /// that worked. A fixed 0.3 s was still ignored after an 8-step scroll on 29 of 30 phrases (2026-10-26).
+    var tileWait: Double {
+        get { UserDefaults.standard.object(forKey: "tilePause") as? Double ?? 0.15 }
+        set { UserDefaults.standard.set(newValue, forKey: "tilePause") }
+    }
+    private var tilePressesWorked = 0
+    func tilePressIgnored() { tileWait = min(0.8, max(0.3, tileWait * 2)); tilePressesWorked = 0 }
+    func tilePressWorked() {
+        tilePressesWorked += 1
+        if tilePressesWorked >= 10 { tileWait = max(0.15, tileWait - 0.05); tilePressesWorked = 0 }
+    }
     private func settleOnTile(_ p: CGPoint, source: CGEventSource?, button: CGMouseButton) async throws {
         let sinceScroll = Date().timeIntervalSince(lastScroll)
         if sinceScroll < tileWait { try await Task.sleep(for: .milliseconds(Int((tileWait - sinceScroll) * 1000))) }

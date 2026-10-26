@@ -1402,7 +1402,6 @@ final class Store: ObservableObject {
                     var nextShot: Observation?
                     /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
                     var timelineFocused = false
-                    desktop.tileWait = 0.15   // shorter first; back to 0.3 s for the run once Premiere ignores a press
                     /// Times this run made the caption track taller because it was too small to read.
                     var trackGrowths = 0
                     /// The last whole-window reading and where its caption areas are: caption steps read only those afresh.
@@ -2274,7 +2273,9 @@ final class Store: ObservableObject {
                                     Desktop.menuItem(Desktop.withoutFontItem, in: try await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)))
                                 }
                                 var item = try await find()
+                                var presses = 0
                                 for (press, patience) in [(1, 0.6), (2, 1.0)] where item == nil {
+                                    presses = press
                                     try await perform(AgentAction(kind: "rightClick", x: cell.midX, y: cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: shot)
                                     let pressed = Date()
                                     while item == nil, Date().timeIntervalSince(pressed) < patience {
@@ -2282,10 +2283,11 @@ final class Store: ObservableObject {
                                         item = try await find()
                                     }
                                     if item == nil, press == 1 {
-                                        log("OCR: your style's menu did not open on the first right-click; right-clicking again")
                                         desktop.tilePressIgnored()
+                                        log(String(format: "OCR: your style's menu did not open on the first right-click; right-clicking again (pausing %.2f s after a scroll from now on)", desktop.tileWait))
                                     }
                                 }
+                                if item != nil, presses == 1 { desktop.tilePressWorked() }
                                 guard let item else {
                                     log("OCR: “\(Desktop.withoutFontItem)” did not show in your style's menu after two right-clicks")
                                     try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Close the menu"), on: shot)
@@ -2365,7 +2367,11 @@ final class Store: ObservableObject {
                                     rows.expected = 1
                                     for _ in 0 ..< memory.steps {
                                         let pixels = stylePixelScroll ?? false
-                                        try await perform(AgentAction(kind: "scroll", x: area.midX, y: area.midY, endX: 0, endY: 0, keys: pixels ? ["pixels"] : [],
+                                        // Over the spot your tile lands on, as a hand scrolls over the list and clicks where it is: the
+                                        // pointer is already on the tile when the list stops.
+                                        let spot = area.contains(CGPoint(x: memory.cell.midX, y: memory.cell.midY)) ? CGPoint(x: memory.cell.midX, y: memory.cell.midY)
+                                            : CGPoint(x: area.midX, y: area.midY)
+                                        try await perform(AgentAction(kind: "scroll", x: spot.x, y: spot.y, endX: 0, endY: 0, keys: pixels ? ["pixels"] : [],
                                                                       scroll: pixels ? -5 * 24 : -5, purpose: "Scroll the style browser to your style"), on: panel)
                                     }
                                     // Wait for the list to come to rest, following it frame by frame.
@@ -2522,8 +2528,9 @@ final class Store: ObservableObject {
                                     }
                                     if !landed && attempt < 3 {
                                         log("OCR: the caption did not change after clicking your style; clicking it again")
-                                        desktop.tilePressIgnored()
+                                        if !project.withoutFont { desktop.tilePressIgnored() }
                                     }
+                                    if landed, attempt == 1, !project.withoutFont { desktop.tilePressWorked() }
                                 }
                                 log("OCR: clicked your style at R\(chosen.row + 1) C\(chosen.column + 1)\(steps > 0 ? ", \(steps) scroll step\(steps == 1 ? "" : "s") down" : "")"
                                     + (landed ? " — the caption changed" : " — no visible change in the caption (already this style?)"))
