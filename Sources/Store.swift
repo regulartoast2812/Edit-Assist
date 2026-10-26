@@ -2270,9 +2270,11 @@ final class Store: ObservableObject {
                                 let frame = shot.window.frame
                                 let at = CGPoint(x: frame.minX + cell.midX * frame.width, y: frame.minY + cell.midY * frame.height)
                                 func find() async throws -> TextHit? {
-                                    Desktop.menuItem(Desktop.withoutFontItem, in: try await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)))
+                                    Desktop.menuItem(Desktop.withoutFontItem, in: try await desktop.readScreen(around: at, size: CGSize(width: 760, height: 760)))
                                 }
-                                var item = try await find()
+                                // Straight to the right-click: a look for a menu already open cost a screen reading on every
+                                // phrase, and no menu is ever open here (a right-click pick is applied by your own choice).
+                                var item: TextHit?
                                 var presses = 0
                                 for (press, patience) in [(1, 0.6), (2, 1.0)] where item == nil {
                                     presses = press

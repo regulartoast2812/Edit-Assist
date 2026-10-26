@@ -163,7 +163,7 @@ final class Desktop {
     /// a window of its own that the window list or a window capture finds), with its text in screen coordinates.
     /// Edit Assist's own windows are left out. The display list is fetched once a run step, not every look.
     func readScreen(around p: CGPoint, size: CGSize) async throws -> [TextHit] {
-        if screenContent == nil || Date().timeIntervalSince(screenContent!.at) > 5 {
+        if screenContent == nil || Date().timeIntervalSince(screenContent!.at) > 30 {
             screenContent = (Date(), try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true))
         }
         guard let content = screenContent?.content,
@@ -173,6 +173,8 @@ final class Desktop {
         let mine = content.applications.filter { $0.processID == getpid() }
         let config = SCStreamConfiguration()
         config.sourceRect = area.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        // 1.5 pixels per point: at one, the fast reading garbled menu items ("Apply StylewithDUt Font"); at 1.5 it read
+        // every item right in about 12 ms (measured on rendered menu text).
         config.width = Int(area.width * 1.5); config.height = Int(area.height * 1.5)
         config.showsCursor = false; config.captureResolution = .best
         let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: []),
@@ -2309,7 +2311,11 @@ final class Desktop {
     private func settleOnTile(_ p: CGPoint, source: CGEventSource?, button: CGMouseButton) async throws {
         let sinceScroll = Date().timeIntervalSince(lastScroll)
         if sinceScroll < tileWait { try await Task.sleep(for: .milliseconds(Int((tileWait - sinceScroll) * 1000))) }
-        for (dx, dy, wait) in [(-6.0, -4.0, 25), (-2.0, -1.0, 40), (1.0, 0.0, 40), (0.0, 0.0, 50)] {
+        // Already resting on the tile (the list was scrolled with the pointer over it): a nudge is enough.
+        let here = CGEvent(source: nil)?.location ?? .zero
+        let resting = hypot(here.x - p.x, here.y - p.y) < 12
+        let path: [(Double, Double, Int)] = resting ? [(1.0, 0.0, 30), (0.0, 0.0, 40)] : [(-6.0, -4.0, 25), (-2.0, -1.0, 40), (1.0, 0.0, 40), (0.0, 0.0, 50)]
+        for (dx, dy, wait) in path {
             emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x + dx, y: p.y + dy), mouseButton: button))
             try await Task.sleep(for: .milliseconds(wait))
         }
