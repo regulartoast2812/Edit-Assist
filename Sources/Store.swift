@@ -2427,23 +2427,31 @@ final class Store: ObservableObject {
                                 /// neither, is closed and the attempt counts as not landed.
                                 @MainActor func applyThroughMenu(_ choice: StyleMenuChoice) async throws {
                                     let began = Date()
-                                    try await perform(AgentAction(kind: "rightClick", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: panel)
                                     let frame = panel.window.frame
                                     let at = CGPoint(x: frame.minX + chosen.cell.midX * frame.width, y: frame.minY + chosen.cell.midY * frame.height)
-                                    // Your item by its text, read from the screen as soon as the menu shows it.
+                                    // Your item by its text, read from the screen as soon as the menu shows it. A right-click
+                                    // the menu does not answer within 0.6 s is sent once more at once, rather than waited on.
                                     if let label = choice.item {
                                         var item: TextHit?
-                                        while item == nil, Date().timeIntervalSince(began) < 1.5 {
-                                            try await Task.sleep(for: .milliseconds(30))
-                                            item = Desktop.menuItem(label, in: try await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)))
+                                        for (press, patience) in [(1, 0.6), (2, 1.0)] where item == nil {
+                                            try await perform(AgentAction(kind: "rightClick", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: panel)
+                                            let pressed = Date()
+                                            while item == nil, Date().timeIntervalSince(pressed) < patience {
+                                                try await Task.sleep(for: .milliseconds(20))
+                                                item = Desktop.menuItem(label, in: try await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)))
+                                            }
+                                            if item == nil, press == 1 { log("OCR: your style's menu did not open on the first right-click; right-clicking again") }
                                         }
                                         if let item {
                                             try await desktop.clickMenu(at: CGPoint(x: item.rect.midX, y: item.rect.midY), over: window.id)
                                             log(String(format: "OCR: chose “%@” in your style's menu (%.2fs)", label, Date().timeIntervalSince(began)))
                                             return
                                         }
-                                        log("OCR: “\(label)” did not show in your style's menu within 1.5 s")
+                                        log("OCR: “\(label)” did not show in your style's menu after two right-clicks")
+                                        try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Close the menu"), on: panel)
+                                        return
                                     }
+                                    try await perform(AgentAction(kind: "rightClick", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: panel)
                                     if let offset = choice.offset {
                                         try await Task.sleep(for: .milliseconds(200))
                                         try await desktop.clickMenu(at: CGPoint(x: at.x + offset.x, y: at.y + offset.y), over: window.id)
@@ -2464,7 +2472,7 @@ final class Store: ObservableObject {
                                 }
                                 for attempt in 1 ... 3 where !landed {
                                     if let choice = slot.menu { try await applyThroughMenu(choice) } else {
-                                    try await perform(AgentAction(kind: "click", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.applyStyle.label), on: panel)
+                                    try await perform(AgentAction(kind: "click", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: ["tile"], scroll: 0, purpose: OCRStep.applyStyle.label), on: panel)
                                     }
                                     // Through the menu, a second try costs a whole right-click and menu: give the first one up to
                                     // about a second to show in the caption before trying again.

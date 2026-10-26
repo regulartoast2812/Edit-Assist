@@ -178,7 +178,8 @@ final class Desktop {
         config.showsCursor = false; config.captureResolution = .best
         let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: []),
                                                               configuration: config)
-        let hits = await Task.detached(priority: .userInitiated) { Desktop.recognize(image) }.value
+        // Menu items are plain interface text: the fast reading takes a fraction of the time and reads them as well.
+        let hits = await Task.detached(priority: .userInitiated) { Desktop.recognize(image, fast: true) }.value
         func place(_ r: CGRect) -> CGRect {
             CGRect(x: area.minX + r.minX * area.width, y: area.minY + r.minY * area.height, width: r.width * area.width, height: r.height * area.height)
         }
@@ -466,9 +467,9 @@ final class Desktop {
 
     /// On-device text recognition. Roughly half a second for a full window, against ~25s for a model
     /// round trip, and it returns measured boxes instead of an estimate, which is what fixes misclicks.
-    nonisolated static func recognize(_ image: CGImage) -> [TextHit] {
+    nonisolated static func recognize(_ image: CGImage, fast: Bool = false) -> [TextHit] {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = fast ? .fast : .accurate
         request.usesLanguageCorrection = false
         // English and Vietnamese: Vietnamese captions (diacritics) are read too. Checked on all 42 saved screens:
         // English text reads identically, at the same speed.
@@ -2243,6 +2244,22 @@ final class Desktop {
         }
     }
 
+    /// When the last wheel event was sent.
+    private var lastScroll = Date.distantPast
+
+    /// Arrive on a style tile and rest there before pressing. Premiere ignored the first press on a tile sent
+    /// right after the list scrolled, with the pointer barely arrived: on 2026-10-20-26 152 of 169 first clicks and
+    /// every first right-click did nothing, the second, after the pointer had rested there, always worked. So: the
+    /// scroll over for 0.3 s, then arrive, move within the tile and rest about 0.15 s.
+    private func settleOnTile(_ p: CGPoint, source: CGEventSource?, button: CGMouseButton) async throws {
+        let sinceScroll = Date().timeIntervalSince(lastScroll)
+        if sinceScroll < 0.3 { try await Task.sleep(for: .milliseconds(Int((0.3 - sinceScroll) * 1000))) }
+        for (dx, dy, wait) in [(-6.0, -4.0, 25), (-2.0, -1.0, 40), (1.0, 0.0, 40), (0.0, 0.0, 50)] {
+            emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x + dx, y: p.y + dy), mouseButton: button))
+            try await Task.sleep(for: .milliseconds(wait))
+        }
+    }
+
     private func emit(_ event: CGEvent?) {
         event?.setIntegerValueField(.eventSourceUserData, value: Self.eventTag)
         event?.post(tap: .cghidEventTap)
@@ -2326,8 +2343,10 @@ final class Desktop {
             try checkHit(p, window: observation.window)
             // Some controls, the style browser's tiles among them, ignore a press that arrives with no
             // pointer movement before it and no time held: arrive, let the hover register, then press.
-            let deliberate = action.keys.contains("hover")
-            if deliberate {
+            let deliberate = action.keys.contains("hover") || action.keys.contains("tile")
+            if action.keys.contains("tile") {
+                try await settleOnTile(p, source: source, button: .left)
+            } else if deliberate {
                 emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x - 3, y: p.y - 3), mouseButton: .left))
                 try await Task.sleep(for: .milliseconds(12))
                 emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left))
@@ -2345,10 +2364,7 @@ final class Desktop {
         case "rightClick":
             // Like a hand: arrive, let the hover register, then press the right button.
             try checkHit(p, window: observation.window)
-            emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x - 3, y: p.y - 3), mouseButton: .right))
-            try await Task.sleep(for: .milliseconds(12))
-            emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .right))
-            try await Task.sleep(for: .milliseconds(45))
+            try await settleOnTile(p, source: source, button: .right)
             try validateWindow(observation)
             emit(CGEvent(mouseEventSource: source, mouseType: .rightMouseDown, mouseCursorPosition: p, mouseButton: .right))
             try await Task.sleep(for: .milliseconds(30))
@@ -2392,6 +2408,7 @@ final class Desktop {
             let wheel = CGEvent(scrollWheelEvent2Source: source, units: action.keys.contains("pixels") ? .pixel : .line,
                                 wheelCount: 1, wheel1: Int32(action.scroll), wheel2: 0, wheel3: 0)
             wheel?.location = p
+            lastScroll = Date()
             // Option + scroll: Premiere's zoom; over a track header it changes the track's height.
             if action.keys.contains("option") { wheel?.flags = .maskAlternate }
             emit(wheel)
