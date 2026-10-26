@@ -1105,6 +1105,17 @@ struct Checks {
             let spaced = try ScriptParser.parse("My bust sits** higher, rounder,**")[0]
             check(spaced.highlights.map { Store.wholeWords($0, in: spaced.text) } == [" higher, rounder,"], "Bold starting at a space is left as it is")
         }
+        // A highlighted word's outline swallowing the space: "perks rightup" is still "perks right up" (2026-10-26).
+        do {
+            let interface = (0 ..< 6).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.012)) }
+            let picture = CGRect(x: 0, y: 0.05, width: 0.3, height: 0.85)
+            let line = TextHit(text: "perks rightup", rect: CGRect(x: 0.097, y: 0.61, width: 0.111, height: 0.034),
+                               words: [("perks", CGRect(x: 0.097, y: 0.61, width: 0.045, height: 0.034)), ("rightup", CGRect(x: 0.146, y: 0.61, width: 0.062, height: 0.034))])
+            let match = Desktop.selection(forTokens: ["perks", "right", "up"], in: interface + [line], area: picture)
+            check(match?.matched == 3 && abs((match?.span.end.x ?? 0) - 0.208) < 0.002, "Two phrase words read joined still match, to the end of the joined word")
+            check(Desktop.selection(forTokens: ["perks", "rightly"], in: interface + [line], area: picture) == nil, "A joined word is only split into the phrase's own words")
+            check(!Desktop.captionStarts(with: ["up"], in: interface + [line], area: picture), "The rest of a split phrase at the end of a caption does not start it")
+        }
         // A phrase split over two caption clips, only its first word on the first (2026-10-20/22: "secure." / "No bounce around").
         do {
             let interface = (0 ..< 6).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.012)) }

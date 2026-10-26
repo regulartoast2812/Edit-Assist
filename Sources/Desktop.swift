@@ -631,6 +631,17 @@ final class Desktop {
                     }
                 }
             }
+            // Two of the phrase's words read as one: a highlighted word's outline can swallow the space before it
+            // ("perks rightup" for "perks right up", 2026-10-26). Such a word is split back into the two, its box
+            // shared by letter count.
+            words = words.flatMap { word -> [(text: String, rect: CGRect, line: CGRect)] in
+                guard !needle.contains(word.text), needle.count >= 2,
+                      let i = (0 ..< needle.count - 1).first(where: { needle[$0] + needle[$0 + 1] == word.text }) else { return [word] }
+                let share = CGFloat(needle[i].count) / CGFloat(word.text.count)
+                let left = CGRect(x: word.rect.minX, y: word.rect.minY, width: word.rect.width * share, height: word.rect.height)
+                let right = CGRect(x: left.maxX, y: word.rect.minY, width: word.rect.width - left.width, height: word.rect.height)
+                return [(needle[i], left, word.line), (needle[i + 1], right, word.line)]
+            }
             guard words.count >= needle.count else { continue }
             for start in 0...(words.count - needle.count) {
                 let slice = words[start ..< start + needle.count]
@@ -640,11 +651,18 @@ final class Desktop {
                 // tight, where two lines' centres can be closer than one line is tall; a line's own words
                 // must also sit level, or they are not one line however they were read.
                 let sameLine = head.line == tail.line && abs(tail.rect.midY - head.rect.midY) < max(head.rect.height, tail.rect.height)
+                // A two-tone line: the highlighted word read as a line of its own beside the rest, level with it
+                // ("perks right" / "up" once "up" had been styled, 2026-10-26). Level words left to right, each close
+                // after the one before, are one line however they were read.
+                let level = !sameLine && slice.allSatisfy { abs($0.rect.midY - head.rect.midY) < head.rect.height * 0.5 }
+                    && zip(slice, slice.dropFirst()).allSatisfy { $1.rect.minX >= $0.rect.maxX - 0.002 && $1.rect.minX - $0.rect.maxX < $0.rect.height * 1.5 }
                 if sameLine {
                     // No whole-line fallback: a span wider than its line means the words came from
                     // different places, and selecting a whole caption would restyle unmarked text.
                     guard tail.rect.maxX > head.rect.minX,
                           tail.rect.maxX - head.rect.minX <= head.line.width + 0.001 else { continue }
+                } else if level {
+                    // Checked word by word above; nothing more to bound.
                 } else {
                     // Wrapped: the drag runs from the first word down to the last, as a person would.
                     // A gap of more than a couple of lines is not a wrap, it is two unrelated places.

@@ -1175,8 +1175,18 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The phrase split on the clip just left: its rest may be a single word, on this clip only.
+    var continuingPhrase: Int?
+
     func nextVisible(in hits: [TextHit], anyTarget: Bool = false, minHeight: CGFloat = 0, area: CGRect? = nil) -> (index: Int, phrase: String, span: Desktop.Span, matched: Int, from: Int)? {
         for candidate in phraseCandidates(anyTarget: anyTarget) {
+            // The rest of a split phrase starts a caption, and a one-word rest is only looked for on the clip right
+            // after the split: "up", the rest of "scoops everything up", was matched two clips later at the end of
+            // "perks right up" and that "up" was styled (2026-10-26).
+            if candidate.from > 0 {
+                guard Desktop.captionStarts(with: candidate.tokens, in: hits, minHeight: minHeight, area: area) else { continue }
+                if candidate.tokens.count == 1, continuingPhrase != candidate.index { continue }
+            }
             if let found = Desktop.selection(forTokens: candidate.tokens, in: hits, minHeight: minHeight, area: area) {
                 // A one-letter word at the phrase's start or end ("I thought") is not matched; take it in when it
                 // sits right beside the match. Only at the phrase's real start, and its end when this reaches it.
@@ -1387,6 +1397,8 @@ final class Store: ObservableObject {
                     var trackGrowths = 0
                     /// A phrase whose first word ends the clip just gone back to, the next clip starting with its rest.
                     var splitHead: Int?
+                    /// The phrase just styled in part; its rest is looked for on the next clip.
+                    var justSplit: Int?
                     /// Down failed and Shift+Down worked, in a row; from two, Shift+Down goes first.
                     var downFailures = 0, anyTrackFirst = false
                     repeat {
@@ -1406,7 +1418,20 @@ final class Store: ObservableObject {
                             try await stop(OCRStep.clickClip, "The Program Monitor is not visible, so no caption can be found.\n→ Show the Program Monitor, the Timeline and Properties in Premiere, then run again.")
                             return
                         }
+                        continuingPhrase = mustAdvance ? nil : justSplit
+                        if !mustAdvance { justSplit = nil }
                         var found = nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
+                        // Only part of a phrase from its start: reading misses a word now and then ("up" of "it just scoops /
+                        // everything up", read at once after styling), and styling the part sends the rest to look on the next
+                        // clip. Read once more before taking the part.
+                        if !mustAdvance, let part = found, part.from == 0, part.matched < words(of: part.phrase).count {
+                            let again = try await desktop.capture(window, readText: true)
+                            if let more = nextVisible(in: again.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea),
+                               more.index == part.index, more.from == 0, more.matched > part.matched {
+                                log("OCR: read the caption again: \(more.matched) words of “\(part.phrase)” are here, not \(part.matched)")
+                                shot = again; found = more
+                            }
+                        }
                         // Back on the clip that ends with a split phrase's first word, the next clip having been seen to
                         // start with the rest: style that word now; the rest follows on the next clip as usual.
                         if found == nil, !mustAdvance, let head = splitHead, remaining.contains(head),
@@ -2647,6 +2672,7 @@ final class Store: ObservableObject {
                         let total = words(of: hit.phrase).count
                         let covered = hit.from + hit.matched
                         mustAdvance = covered < total
+                        justSplit = covered < total ? hit.index : nil
                         timelineFocused = false   // styling moved focus to Properties; the next step hands it back
                         log(String(format: "OCR: styled %d-%d of %d words of \"%@\" in %.2fs%@",
                                    hit.from + 1, covered, total, hit.phrase, Date().timeIntervalSince(began),
