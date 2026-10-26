@@ -2426,29 +2426,34 @@ final class Store: ObservableObject {
                                 /// where you clicked in the menu, else the keys you pressed. A menu that does not open, or holds
                                 /// neither, is closed and the attempt counts as not landed.
                                 @MainActor func applyThroughMenu(_ choice: StyleMenuChoice) async throws {
+                                    let began = Date()
                                     try await perform(AgentAction(kind: "rightClick", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: panel)
                                     let frame = panel.window.frame
                                     let at = CGPoint(x: frame.minX + chosen.cell.midX * frame.width, y: frame.minY + chosen.cell.midY * frame.height)
-                                    var menu: (id: CGWindowID, frame: CGRect)?
-                                    for _ in 0 ..< 40 where menu == nil {
-                                        try await Task.sleep(for: .milliseconds(25))
-                                        menu = desktop.popupMenu(of: window.pid, near: at)
-                                    }
-                                    guard let menu else { log("OCR: your style's menu did not open"); return }
-                                    try await Task.sleep(for: .milliseconds(60))   // let it draw
+                                    // Your item by its text, read from the screen as soon as the menu shows it.
                                     if let label = choice.item {
-                                        let items = try await desktop.readMenu(menu.id, frame: menu.frame)
-                                        if let item = Desktop.menuItem(label, in: items) {
-                                            try await desktop.clickMenu(at: CGPoint(x: item.rect.midX, y: item.rect.midY), menu: menu.id)
+                                        var item: TextHit?
+                                        while item == nil, Date().timeIntervalSince(began) < 1.5 {
+                                            try await Task.sleep(for: .milliseconds(30))
+                                            item = Desktop.menuItem(label, in: try await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)))
+                                        }
+                                        if let item {
+                                            try await desktop.clickMenu(at: CGPoint(x: item.rect.midX, y: item.rect.midY), over: window.id)
+                                            log(String(format: "OCR: chose “%@” in your style's menu (%.2fs)", label, Date().timeIntervalSince(began)))
                                             return
                                         }
-                                        log("OCR: “\(label)” is not in the menu (it reads: \(items.map(\.text).joined(separator: " · ")))")
+                                        log("OCR: “\(label)” did not show in your style's menu within 1.5 s")
                                     }
-                                    if let place = choice.position {
-                                        try await desktop.clickMenu(at: CGPoint(x: menu.frame.minX + place.x * menu.frame.width, y: menu.frame.minY + place.y * menu.frame.height), menu: menu.id)
+                                    if let offset = choice.offset {
+                                        try await Task.sleep(for: .milliseconds(200))
+                                        try await desktop.clickMenu(at: CGPoint(x: at.x + offset.x, y: at.y + offset.y), over: window.id)
                                         return
                                     }
+                                    if choice.keys.isEmpty, choice.item == nil {
+                                        log("OCR: this style's menu choice was saved by an earlier version and cannot be repeated; Reset style and pick it again")
+                                    }
                                     if !choice.keys.isEmpty {
+                                        try await Task.sleep(for: .milliseconds(200))
                                         for key in choice.keys {
                                             try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: [key], scroll: 0, purpose: "Choose in your style's menu"), on: panel)
                                             try await Task.sleep(for: .milliseconds(40))
@@ -2461,7 +2466,9 @@ final class Store: ObservableObject {
                                     if let choice = slot.menu { try await applyThroughMenu(choice) } else {
                                     try await perform(AgentAction(kind: "click", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.applyStyle.label), on: panel)
                                     }
-                                    for _ in 0 ..< 6 where !landed {
+                                    // Through the menu, a second try costs a whole right-click and menu: give the first one up to
+                                    // about a second to show in the caption before trying again.
+                                    for _ in 0 ..< (slot.menu != nil ? 15 : 6) where !landed {
                                         try await Task.sleep(for: .milliseconds(50))
                                         let after = try await quickLook()
                                         landed = Desktop.regionDifference(beforeClick.image, after.image, rect: caption) >= 2
@@ -2572,7 +2579,8 @@ final class Store: ObservableObject {
                                     let screenPoint = CGPoint(x: window.frame.minX + point.x * window.frame.width, y: window.frame.minY + point.y * window.frame.height)
                                     overlay.update(step: doneCount, limit: targets.count, headline: "Choose from the menu",
                                                    detail: "Click the item, or use the arrow keys and Return. The same choice is repeated on every phrase.", confidence: nil, paused: true)
-                                    var items: [TextHit] = [], menuFrame: CGRect?
+                                    var items: [TextHit] = []
+                                    var lastRead = Date.distantPast
                                     let opened = Date()
                                     func finished() -> Bool {
                                         menuEvents.contains { event in
@@ -2583,22 +2591,24 @@ final class Store: ObservableObject {
                                             }
                                         }
                                     }
+                                    // The screen around the tile is read while the menu is open (every half second, so the
+                                    // reading at your choice is current): the item under your click is taken from it.
                                     while !finished(), Date().timeIntervalSince(opened) < 30 {
                                         try Task.checkCancellation()
-                                        if items.isEmpty, let menu = desktop.popupMenu(of: window.pid, near: screenPoint) {
-                                            try await Task.sleep(for: .milliseconds(80))   // let it draw
-                                            menuFrame = menu.frame
-                                            items = (try? await desktop.readMenu(menu.id, frame: menu.frame)) ?? []
-                                            log("OCR: the style's menu reads: \(items.map(\.text).joined(separator: " · "))")
+                                        if Date().timeIntervalSince(opened) > 0.15, Date().timeIntervalSince(lastRead) > 0.5 {
+                                            if let read = try? await desktop.readScreen(around: screenPoint, size: CGSize(width: 900, height: 1000)), !read.isEmpty { items = read }
+                                            lastRead = Date()
                                         }
                                         try await Task.sleep(for: .milliseconds(20))
                                     }
                                     let keys = menuEvents.compactMap { event -> String? in if case let .key(name) = event { return name }; return nil }
                                     let click = menuEvents.lazy.compactMap { event -> CGPoint? in if case let .clicked(at) = event { return at }; return nil }.first
-                                    if let click, let frame = menuFrame, frame.contains(click) {
-                                        let item = items.first { click.y >= $0.rect.minY - 3 && click.y <= $0.rect.maxY + 3 }
-                                        menuChoice = StyleMenuChoice(item: item?.text,
-                                                                     position: CGPoint(x: (click.x - frame.minX) / frame.width, y: (click.y - frame.minY) / frame.height), keys: [])
+                                    if let click {
+                                        // The item is the line of text level with your click, starting at or left of it.
+                                        let item = items.filter { click.y >= $0.rect.minY - 4 && click.y <= $0.rect.maxY + 4 && $0.rect.minX - 60 <= click.x && click.x <= $0.rect.maxX + 300 }
+                                            .min { abs($0.rect.midX - click.x) < abs($1.rect.midX - click.x) }
+                                        menuChoice = StyleMenuChoice(item: item?.text, position: nil, keys: [],
+                                                                     offset: CGPoint(x: click.x - screenPoint.x, y: click.y - screenPoint.y))
                                     } else if keys.last == "return" {
                                         menuChoice = StyleMenuChoice(item: nil, position: nil, keys: keys)
                                     } else {

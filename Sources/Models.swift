@@ -72,9 +72,11 @@ struct RememberedStyle: Codable {
 /// where in the menu you clicked, and the keys you pressed instead of clicking.
 struct StyleMenuChoice: Codable, Equatable {
     var item: String?
-    /// The click's place in the menu, as fractions of its width and height.
+    /// Kept so styles saved by the first version still load; not used.
     var position: CGPoint?
     var keys: [String]
+    /// Where you clicked in the menu, from the point you right-clicked, in screen points.
+    var offset: CGPoint? = nil
 }
 
 struct Project: Codable, Identifiable {

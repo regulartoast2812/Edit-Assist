@@ -160,36 +160,31 @@ final class Desktop {
 
     // MARK: A style tile's right-click menu
 
-    /// The editor's pop-up menu: a window of its own above its normal windows, near where it was opened.
-    func popupMenu(of pid: pid_t, near p: CGPoint) -> (id: CGWindowID, frame: CGRect)? {
-        let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        for row in rows {
-            guard (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
-                  (row[kCGWindowLayer as String] as? Int ?? 0) > 0,
-                  (row[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,
-                  let bounds = row[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: bounds),
-                  frame.width > 60, frame.height > 20, frame.insetBy(dx: -400, dy: -400).contains(p),
-                  let id = row[kCGWindowNumber as String] as? NSNumber else { continue }
-            return (id.uint32Value, frame)
+    /// The screen around a point as it shows now, the editor's pop-up menus included (Premiere's style menu is not
+    /// a window of its own that the window list or a window capture finds), with its text in screen coordinates.
+    /// Edit Assist's own windows are left out. The display list is fetched once a run step, not every look.
+    func readScreen(around p: CGPoint, size: CGSize) async throws -> [TextHit] {
+        if screenContent == nil || Date().timeIntervalSince(screenContent!.at) > 5 {
+            screenContent = (Date(), try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true))
         }
-        return nil
-    }
-
-    /// The menu's text, with boxes in screen coordinates.
-    func readMenu(_ id: CGWindowID, frame: CGRect) async throws -> [TextHit] {
-        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-        guard let window = content.windows.first(where: { $0.windowID == id }) else { return [] }
+        guard let content = screenContent?.content,
+              let display = content.displays.first(where: { $0.frame.contains(p) }) ?? content.displays.first else { return [] }
+        let area = CGRect(x: p.x - size.width / 2, y: p.y - size.height / 2, width: size.width, height: size.height).intersection(display.frame)
+        guard area.width > 20, area.height > 20 else { return [] }
+        let mine = content.applications.filter { $0.processID == getpid() }
         let config = SCStreamConfiguration()
-        config.width = Int(frame.width * 2); config.height = Int(frame.height * 2)
+        config.sourceRect = area.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+        config.width = Int(area.width * 1.5); config.height = Int(area.height * 1.5)
         config.showsCursor = false; config.captureResolution = .best
-        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: []),
+                                                              configuration: config)
         let hits = await Task.detached(priority: .userInitiated) { Desktop.recognize(image) }.value
         func place(_ r: CGRect) -> CGRect {
-            CGRect(x: frame.minX + r.minX * frame.width, y: frame.minY + r.minY * frame.height, width: r.width * frame.width, height: r.height * frame.height)
+            CGRect(x: area.minX + r.minX * area.width, y: area.minY + r.minY * area.height, width: r.width * area.width, height: r.height * area.height)
         }
         return hits.map { TextHit(text: $0.text, rect: place($0.rect)) }
     }
+    private var screenContent: (at: Date, content: SCShareableContent)?
 
     /// The menu item with this text: the same words, or failing that the line holding them.
     nonisolated static func menuItem(_ label: String, in hits: [TextHit]) -> TextHit? {
@@ -199,17 +194,19 @@ final class Desktop {
             ?? hits.first { normalized($0.text).joined(separator: " ").contains(wanted.joined(separator: " ")) }
     }
 
-    /// Clicks a point in the open menu, only if the menu is what is there.
-    func clickMenu(at p: CGPoint, menu: CGWindowID) async throws {
+    /// Clicks a point of the open menu: only where something covers the editor's window there (the menu), so a
+    /// menu that has closed never turns this into a click in the editor.
+    func clickMenu(at p: CGPoint, over editor: CGWindowID) async throws {
         try await beforeOperation?()
         let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let ours = Set([overlayWindowID, inspectionWindowID].filter { $0 != 0 })
         let front = rows.first { row in
             guard let bounds = row[kCGWindowBounds as String] as? NSDictionary, let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(p),
+                  (row[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,
                   let id = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { return false }
             return !ours.contains(id)
         }
-        guard (front?[kCGWindowNumber as String] as? NSNumber)?.uint32Value == menu else {
+        guard let front, (front[kCGWindowNumber as String] as? NSNumber)?.uint32Value != editor else {
             throw AssistError.message("The style's menu closed before its item could be clicked.")
         }
         let source = CGEventSource(stateID: .privateState)
