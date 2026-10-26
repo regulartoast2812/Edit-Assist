@@ -85,20 +85,9 @@ final class Desktop {
     /// A run is going (paused or not), so Escape stops it even while input is not armed.
     var runActive = false
     /// One-shot capture of the user's next click, used to learn where the style control is.
-    var onRecordedClick: ((CGPoint) -> Void)?
+    /// Your next click in the window, as fractions of it, and whether it was a right-click.
+    var onRecordedClick: ((CGPoint, Bool) -> Void)?
     private var recordingFor: WindowChoice?
-    /// Your use of a style tile's right-click menu while a style is being picked.
-    enum MenuEvent {
-        /// Right-clicked here, as fractions of the window.
-        case opened(CGPoint)
-        /// Clicked here in the menu, in screen coordinates.
-        case clicked(CGPoint)
-        case key(String)
-        case cancelled
-    }
-    var onRecordedMenu: ((MenuEvent) -> Void)?
-    private var menuRecording = false
-    nonisolated static let menuKeyNames: [UInt16: String] = [125: "down", 126: "up", 123: "left", 124: "right", 36: "return", 76: "return", 53: "escape"]
 
     init() {
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel, .mouseMoved], handler: { [weak self] event in
@@ -109,27 +98,11 @@ final class Desktop {
                 let point = CGPoint(x: (screen.x - window.frame.minX) / window.frame.width,
                                     y: (top - window.frame.minY) / window.frame.height)
                 let inside = (0...1).contains(point.x) && (0...1).contains(point.y)
-                // A right-click on a tile opens its menu: what you do in the menu is the choice to repeat.
-                if event.type == .rightMouseDown, inside {
-                    self.menuRecording = true
-                    self.onRecordedMenu?(.opened(point)); return
-                }
-                if self.menuRecording {
-                    if event.type == .leftMouseDown {
-                        self.menuRecording = false; self.recordingFor = nil
-                        self.onRecordedMenu?(.clicked(CGPoint(x: screen.x, y: top))); return
-                    }
-                    if event.type == .keyDown, let name = Self.menuKeyNames[event.keyCode] {
-                        if name == "escape" { self.menuRecording = false; self.onRecordedMenu?(.cancelled); return }
-                        self.onRecordedMenu?(.key(name))
-                        if name == "return" { self.menuRecording = false; self.recordingFor = nil }
-                        return
-                    }
-                    return
-                }
-                if event.type == .leftMouseDown {
+                // Left or right: either picks the tile. What follows in a menu is not recorded; the style is applied
+                // the way the project's settings say.
+                if event.type == .leftMouseDown || event.type == .rightMouseDown {
                     self.recordingFor = nil
-                    if inside { self.onRecordedClick?(point) }
+                    if inside { self.onRecordedClick?(point, event.type == .rightMouseDown) }
                     return
                 }
             }
@@ -156,7 +129,7 @@ final class Desktop {
     }
 
     func recordNextClick(in window: WindowChoice) { recordingFor = window }
-    func cancelRecording() { recordingFor = nil; menuRecording = false }
+    func cancelRecording() { recordingFor = nil }
 
     // MARK: A style tile's right-click menu
 
@@ -187,13 +160,19 @@ final class Desktop {
     }
     private var screenContent: (at: Date, content: SCShareableContent)?
 
-    /// The menu item with this text: the same words, or failing that the line holding them.
+    /// The menu item with this text, allowing a few misread letters ("wlthout" for "without" was read once, and
+    /// an exact match then never found the item again), or the line holding it with a shortcut beside it.
     nonisolated static func menuItem(_ label: String, in hits: [TextHit]) -> TextHit? {
-        let wanted = normalized(label)
+        let wanted = normalized(label).joined(separator: " ")
         guard !wanted.isEmpty else { return nil }
-        return hits.first { normalized($0.text) == wanted }
-            ?? hits.first { normalized($0.text).joined(separator: " ").contains(wanted.joined(separator: " ")) }
+        let lines = hits.map { (hit: $0, text: normalized($0.text).joined(separator: " ")) }
+        return lines.first { $0.text == wanted }?.hit
+            ?? lines.filter { abs($0.text.count - wanted.count) <= 3 }.min { letterDistance($0.text, wanted) < letterDistance($1.text, wanted) }
+                .flatMap { letterDistance($0.text, wanted) <= 3 ? $0.hit : nil }
+            ?? lines.first { $0.text.hasPrefix(wanted) }?.hit
     }
+    /// The item that applies a style and keeps the text's font.
+    nonisolated static let withoutFontItem = "Apply Style without Font"
 
     /// Clicks a point of the open menu: only where something covers the editor's window there (the menu), so a
     /// menu that has closed never turns this into a click in the editor.
@@ -1831,8 +1810,7 @@ final class Desktop {
         /// The tile you clicked, as captured at full resolution: the second reference beside its row
         /// and column, shown during the run and saved with the project's files.
         var image: CGImage? = nil
-        /// Applied through the tile's right-click menu, as you did, instead of a click.
-        var menu: StyleMenuChoice? = nil
+
         static let side = 48
         /// Shape difference, with colour as a hard gate: a tile of another colour is never close,
         /// however alike the letters. The same tile measured 1-16 apart in colour across captures;

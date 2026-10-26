@@ -1113,6 +1113,9 @@ struct Checks {
             check(Desktop.menuItem("apply style without font", in: [TextHit(text: "Apply Style without Font ⌘", rect: .zero)]) != nil, "A shortcut beside the item does not hide it")
             check(Desktop.menuItem("Apply Style without Font", in: items.filter { !$0.text.hasPrefix("Apply") }) == nil, "A missing item is not guessed")
             check(!rejects(action("rightClick")), "Right-click is an allowed action")
+            check(Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: "Apply style wlthout font", rect: .zero)]) != nil, "A misread letter does not hide the item (2026-10-26)")
+            check(Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: "Set as Track Style", rect: .zero), TextHit(text: "Apply Style", rect: .zero)]) == nil,
+                  "Other items are never taken for Apply Style without Font")
         }
         // Bold that starts or ends inside a word is widened to the whole word (2026-10-22: "oft stretch", "his much lift").
         do {
