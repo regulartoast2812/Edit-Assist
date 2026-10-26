@@ -688,7 +688,10 @@ final class Desktop {
         // anything close to ordinary interface size is excluded.
         let heights = hits.map(\.rect.height).sorted()
         let interface = heights.isEmpty ? 0 : heights[heights.count / 2]
-        let floor = interface * 1.8
+        // Inside the Program Monitor's picture there is no interface text, only the video and its caption, so there
+        // the bar is lower: a caption with no tall or hanging letters ("on the outside?", 0.0234 against interface
+        // text 0.0139) fell under 1.8 times and the rest of a split phrase was never seen (2026-10-26).
+        let floor = interface * (area != nil ? 1.4 : 1.8)
         let all = blocks(of: hits).sorted { ($0.first?.rect.height ?? 0) > ($1.first?.rect.height ?? 0) }
         // Nothing larger than interface text means no caption is readable right now: never fall back to
         // the largest interface text. That once picked a caption clip's label in the timeline, and the
@@ -711,9 +714,17 @@ final class Desktop {
     }
 
     /// A caption block's words in reading order, one token each, with the word's box and its line's.
+    /// A block's lines in reading order: top to bottom, and left to right along one line. A two-tone caption can be read
+    /// as two pieces of one line ("a bra" styled, "with the wire" not), in either order.
+    nonisolated static func readingOrder(_ block: [TextHit]) -> [TextHit] {
+        block.sorted { a, b in
+            abs(a.rect.midY - b.rect.midY) < min(a.rect.height, b.rect.height) * 0.5 ? a.rect.minX < b.rect.minX : a.rect.midY < b.rect.midY
+        }
+    }
+
     private static func tokens(of block: [TextHit]) -> [(text: String, rect: CGRect, line: CGRect)] {
         var words: [(text: String, rect: CGRect, line: CGRect)] = []
-        for line in block {
+        for line in readingOrder(block) {
             if line.words.isEmpty {
                 for token in normalized(line.text) { words.append((token, line.rect, line.rect)) }
             } else {
@@ -755,16 +766,7 @@ final class Desktop {
             // One recognised word can normalize to several tokens: "ultra-light" is "ultra" and
             // "stretch". Each token keeps its word's box, so a phrase starting mid-hyphenation still
             // resolves to a real position.
-            var words: [(text: String, rect: CGRect, line: CGRect)] = []
-            for line in block {
-                if line.words.isEmpty {
-                    for token in normalized(line.text) { words.append((token, line.rect, line.rect)) }
-                } else {
-                    for word in line.words {
-                        for token in normalized(word.0) { words.append((token, word.1, line.rect)) }
-                    }
-                }
-            }
+            var words = tokens(of: block)
             // Two of the phrase's words read as one: a highlighted word's outline can swallow the space before it
             // ("perks rightup" for "perks right up", 2026-10-26). Such a word is split back into the two, its box
             // shared by letter count.

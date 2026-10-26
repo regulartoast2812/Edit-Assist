@@ -1434,6 +1434,9 @@ final class Store: ObservableObject {
                     var justSplit: Int?
                     /// Down failed and Shift+Down worked, in a row; from two, Shift+Down goes first.
                     var downFailures = 0, anyTrackFirst = false
+                    /// The time read has followed the playhead on a step of this run: from then on it alone says whether a
+                    /// step moved. Before, the caption and the pixels count too, for layouts whose time does not follow it.
+                    var timeFollows = false
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1624,6 +1627,9 @@ final class Store: ObservableObject {
                                         .max { ($0.first?.rect.height ?? 0) < ($1.first?.rect.height ?? 0) }?
                                         .map(\.text).joined(separator: " / ") ?? "(nothing)"
                                     let timeStill = was.flatMap { was in now.map { abs($0 - was) < 0.01 } } ?? true
+                                    // A redraw of the same caption (styling just ended, a selection box, the reading of the
+                                    // monitor's rulers) made a step that did not move count as one, every styled phrase.
+                                    if timeFollows, was != nil, now != nil { return (timeStill, now, after) }
                                     let pixelsStill = Desktop.regionDifference(jump.image, shot.image, rect: CGRect(x: 0, y: 0, width: 1, height: 1)) < 1
                                     return (timeStill && after == baseline && pixelsStill, now, after)
                                 }
@@ -1648,6 +1654,7 @@ final class Store: ObservableObject {
                                     }
                                 } else if !anyTrackFirst { downFailures = 0 }
                                 let now = state.now
+                                if let was, let now, abs(now - was) > 0.01 { timeFollows = true }
                                 let captionStill = state.after == caption
                                 let timeStill = state.still
                                 log(String(format: "OCR: next edit point %@ -> %@%@ in %.2fs",

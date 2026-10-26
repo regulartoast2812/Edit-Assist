@@ -1125,6 +1125,20 @@ struct Checks {
             let spaced = try ScriptParser.parse("My bust sits** higher, rounder,**")[0]
             check(spaced.highlights.map { Store.wholeWords($0, in: spaced.text) } == [" higher, rounder,"], "Bold starting at a space is left as it is")
         }
+        // Inside the Program Monitor's picture a caption with no tall or hanging letters is still a caption (2026-10-26:
+        // "on the outside?" at 0.0234 against interface text 0.0139); outside the picture the bar stays.
+        do {
+            let interface = (0 ..< 9).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.0139)) }
+            let picture = CGRect(x: 0.02, y: 0.07, width: 0.26, height: 0.75)
+            let low = TextHit(text: "on the outside?", rect: CGRect(x: 0.093, y: 0.613, width: 0.116, height: 0.0234))
+            check(Desktop.captionBlocks(in: interface + [low], area: picture).count == 1, "A low caption inside the picture is a caption")
+            check(Desktop.captionBlocks(in: interface + [low]).isEmpty, "Without the picture, the bar for interface text stays")
+            check(Desktop.captionStarts(with: ["on", "the", "outside"], in: interface + [low], area: picture), "The rest of a split phrase on a low caption is seen")
+            // A two-tone line read as two pieces, the styled one listed second: still "a bra with the wire".
+            let styled = TextHit(text: "a bra", rect: CGRect(x: 0.081, y: 0.611, width: 0.04, height: 0.026))
+            let plain = TextHit(text: "with the wire", rect: CGRect(x: 0.124, y: 0.612, width: 0.097, height: 0.025))
+            check(Desktop.headAtCaptionEnd("wire", in: interface + [plain, styled], area: picture) != nil, "The last word is taken in reading order")
+        }
         // A highlighted word's outline swallowing the space: "perks rightup" is still "perks right up" (2026-10-26).
         do {
             let interface = (0 ..< 6).map { TextHit(text: "Panel \($0)", rect: CGRect(x: 0.7, y: 0.1 + Double($0) * 0.03, width: 0.05, height: 0.012)) }

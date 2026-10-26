@@ -102,7 +102,8 @@ the four-square under Track Style. Fixtures 33-37 (graphics), 38-39 (captions mu
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates
-  must be well above interface text size, at least 65% of a caption height already seen, and, once
+  must be well above interface text size (1.8 times; 1.4 inside the Program Monitor's picture, where there is no
+  interface text and a caption without tall or hanging letters fell under 1.8), at least 65% of a caption height already seen, and, once
   a caption has been styled, inside the area captions appear in (the Program Monitor). There is no
   fallback to "the largest text" — that once dragged a clip over its neighbour and deleted it.
 - **Never drag without the drag check.** Re-read the screen and drag only if the start point is in
