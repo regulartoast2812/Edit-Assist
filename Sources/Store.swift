@@ -1387,6 +1387,8 @@ final class Store: ObservableObject {
                     var trackGrowths = 0
                     /// A phrase whose first word ends the clip just gone back to, the next clip starting with its rest.
                     var splitHead: Int?
+                    /// Down failed and Shift+Down worked, in a row; from two, Shift+Down goes first.
+                    var downFailures = 0, anyTrackFirst = false
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1481,6 +1483,9 @@ final class Store: ObservableObject {
                                 }
                                 log("OCR: caption here reads \u{201c}\(caption)\u{201d}\(near.isEmpty ? "" : " — partial: " + near.joined(separator: ", "))")
                                 let was = Desktop.playheadTime(in: shot.text)
+                                let stepBegan = Date()
+                                /// What "the caption has not changed" is measured against: this reading, or the one after Escape.
+                                var baseline = caption
                                 // A phrase that may start with this caption's last word and go on in the next clip.
                                 let headHere = graphics || mustAdvance ? nil : phraseCandidates().first { candidate in
                                     candidate.from == 0 && candidate.tokens.count >= 2
@@ -1503,6 +1508,12 @@ final class Store: ObservableObject {
                                     try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Leave text editing"), on: jump)
                                     try await Task.sleep(for: .milliseconds(50))
                                     jump = try await desktop.capture(window, readText: true)
+                                    // Escape takes the caption out of text editing, which redraws it (the selection and caret go):
+                                    // compared with the reading before Escape, a Down that did nothing looked like a step to a new
+                                    // caption, and every styled phrase cost a whole extra step. Compare with this reading instead.
+                                    baseline = Desktop.blocks(of: jump.text)
+                                        .max { ($0.first?.rect.height ?? 0) < ($1.first?.rect.height ?? 0) }?
+                                        .map(\.text).joined(separator: " / ") ?? "(nothing)"
                                     // Then hand the Timeline keyboard focus. The playhead is the natural
                                     // thing to click, but it can be scrolled out of view; the track header
                                     // is always on screen and deselects as well as focusing.
@@ -1539,7 +1550,11 @@ final class Store: ObservableObject {
                                     try await Task.sleep(for: .milliseconds(50))
                                     jump = try await desktop.capture(window)
                                 }
-                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["down"], scroll: 0, purpose: "Next edit point"), on: jump)
+                                // Down stops only at edit points on targeted tracks; where it has not moved the playhead twice in
+                                // a row and Shift+Down (any track) has, this run tries Shift+Down first: Down failing cost a key, a
+                                // wait and a whole-window reading on every step. Either way the other key follows if it does not move.
+                                let firstKeys = anyTrackFirst ? ["shift", "down"] : ["down"]
+                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: firstKeys, scroll: 0, purpose: "Next edit point"), on: jump)
                                 try await Task.sleep(for: .milliseconds(120))
                                 var moved = try await desktop.capture(window, readText: true)
                                 // The time read can come from a timecode that does not follow the playhead, and the
@@ -1552,27 +1567,35 @@ final class Store: ObservableObject {
                                         .map(\.text).joined(separator: " / ") ?? "(nothing)"
                                     let timeStill = was.flatMap { was in now.map { abs($0 - was) < 0.01 } } ?? true
                                     let pixelsStill = Desktop.regionDifference(jump.image, shot.image, rect: CGRect(x: 0, y: 0, width: 1, height: 1)) < 1
-                                    return (timeStill && after == caption && pixelsStill, now, after)
+                                    return (timeStill && after == baseline && pixelsStill, now, after)
                                 }
                                 var state = standing(moved)
-                                var stepKeys = ["down"]
+                                var stepKeys = firstKeys
                                 if state.still {
-                                    stepKeys = ["shift", "down"]
+                                    stepKeys = anyTrackFirst ? ["down"] : ["shift", "down"]
                                     // Down only stops at edit points on targeted tracks, usually the captions. Graphics
                                     // and other clips on video tracks are reached with Shift+Down, any track.
-                                    try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["shift", "down"], scroll: 0, purpose: "Next edit point on any track"), on: moved)
+                                    try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: stepKeys, scroll: 0, purpose: anyTrackFirst ? "Next edit point" : "Next edit point on any track"), on: moved)
                                     try await Task.sleep(for: .milliseconds(120))
                                     moved = try await desktop.capture(window, readText: true)
                                     state = standing(moved)
-                                    if !state.still { log("OCR: no more edit points on the caption track; stepped to the next one on any track") }
-                                }
+                                    if !state.still, !anyTrackFirst {
+                                        downFailures += 1
+                                        if downFailures >= 2 {
+                                            anyTrackFirst = true
+                                            log("OCR: Down has not moved the playhead twice in a row; stepping with Shift+Down (any track) first from now on")
+                                        } else {
+                                            log("OCR: no more edit points on the caption track; stepped to the next one on any track")
+                                        }
+                                    }
+                                } else if !anyTrackFirst { downFailures = 0 }
                                 let now = state.now
                                 let captionStill = state.after == caption
                                 let timeStill = state.still
-                                log(String(format: "OCR: next edit point %@ -> %@%@",
+                                log(String(format: "OCR: next edit point %@ -> %@%@ in %.2fs",
                                            was.map { String(format: "%.2fs", $0) } ?? "?",
                                            now.map { String(format: "%.2fs", $0) } ?? "?",
-                                           captionStill ? "" : " (caption changed)"))
+                                           captionStill ? "" : " (caption changed)", Date().timeIntervalSince(stepBegan)))
                                 if timeStill {
                                     stalled += 1
                                     if stalled >= 3 {
@@ -1650,6 +1673,7 @@ final class Store: ObservableObject {
                             return
                         }
                         advances = 0
+                        var timings: [String] = []
                         let span = hit.span
                         if showOCRBoxes || detectionMode {
                             let top = min(span.start.y, span.end.y)
@@ -2594,6 +2618,7 @@ final class Store: ObservableObject {
                             return true
                         }
 
+                        timings.append(String(format: "find and select %.2fs", Date().timeIntervalSince(began)))
                         let afterSelect = try await desktop.capture(window, readText: true)
                         let browserOpen = Desktop.button(labelled: "Back", in: afterSelect.text) != nil
                         recordDecision(Snapshot(kind: "panel", note: browserOpen ? "style browser" : "outer panel",
@@ -2601,10 +2626,17 @@ final class Store: ObservableObject {
                         if !browserOpen { outerReading = afterSelect }
                         log(browserOpen ? "OCR: style browser is open — tile, Back, then size"
                                         : "OCR: outer panel is showing — size, then open the browser and hit the tile")
+                        /// Each part's time, for the "styled" line: where a phrase's seconds go.
+                        @MainActor func timed(_ name: String, _ part: () async throws -> Bool) async throws -> Bool {
+                            let at = Date()
+                            let ok = try await part()
+                            timings.append(String(format: "%@ %.2fs", name, Date().timeIntervalSince(at)))
+                            return ok
+                        }
                         if browserOpen {
-                            guard try await doTile(), try await doBack(), try await doSize() else { return }
+                            guard try await timed("style", doTile), try await timed("back", doBack), try await timed("size", doSize) else { return }
                         } else {
-                            guard try await doSize(), try await doOpen(), try await doTile(), try await doBack() else { return }
+                            guard try await timed("size", doSize), try await timed("open", doOpen), try await timed("style", doTile), try await timed("back", doBack) else { return }
                         }
 
                         let firstWord = CGPoint(x: span.firstWord.x, y: span.firstWord.y)
@@ -2618,7 +2650,7 @@ final class Store: ObservableObject {
                         timelineFocused = false   // styling moved focus to Properties; the next step hands it back
                         log(String(format: "OCR: styled %d-%d of %d words of \"%@\" in %.2fs%@",
                                    hit.from + 1, covered, total, hit.phrase, Date().timeIntervalSince(began),
-                                   covered < total ? " — the rest is on the next caption clip" : ""))
+                                   covered < total ? " — the rest is on the next caption clip" : "") + " (" + timings.joined(separator: ", ") + ")")
                         if !record {
                             overlay.update(step: 1, limit: 1, headline: "Selected “\(hit.phrase)”",
                                            detail: "Check the Program Monitor. Nothing else was changed.", confidence: nil, paused: true)
