@@ -93,6 +93,13 @@ struct ContentView: View {
     @State private var techStackOpen = false
     @State private var logOpen = false
     @State private var renaming = false
+    @State private var renamingTitle = false
+    @FocusState private var titleFocused: Bool
+    /// Ends renaming in the header; an emptied name goes back to the default rather than leaving no title.
+    func endTitleEdit() {
+        if s.project.name.trimmingCharacters(in: .whitespaces).isEmpty { binding(\.name).wrappedValue = "Untitled project" }
+        renamingTitle = false; titleFocused = false
+    }
     @State private var settingsDestination: String?
     var body: some View {
         HStack(spacing: 0) {
@@ -276,11 +283,25 @@ struct ContentView: View {
     var header: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 5) {
-                // Plain text: an editable field here took keyboard focus at launch and looked stuck in editing.
-                // The name is edited on the Project page.
-                Button { s.tab = "project" } label: {
-                    Text(s.project.name).font(.system(size: 23, weight: .semibold)).lineLimit(1)
-                }.buttonStyle(.plain).help(L("Open the project"))
+                // Click the name to rename it here. Plain text until clicked: an always-editable field took keyboard
+                // focus at launch and looked stuck in editing. Return, Escape or clicking elsewhere ends the edit.
+                if renamingTitle {
+                    TextField(L("Project name"), text: binding(\.name))
+                        .textFieldStyle(.plain).font(.system(size: 23, weight: .semibold)).frame(maxWidth: 420)
+                        .focused($titleFocused)
+                        .onSubmit { endTitleEdit() }
+                        .onExitCommand { endTitleEdit() }
+                        .onChange(of: titleFocused) { _, focused in if !focused { endTitleEdit() } }
+                        .onAppear { titleFocused = true }
+                } else {
+                    HStack(spacing: 8) {
+                        Text(s.project.name).font(.system(size: 23, weight: .semibold)).lineLimit(1)
+                        Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if !s.busy { renamingTitle = true } }
+                    .help(L("Rename project"))
+                }
                 Text(s.target.map { L("Editing in %@ · %@", $0.app, ($0.title as NSString).lastPathComponent) } ?? L("Open Premiere or After Effects to connect"))
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).guideTarget("editor")
             }
