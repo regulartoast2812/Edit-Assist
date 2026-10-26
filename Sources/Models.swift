@@ -64,6 +64,17 @@ struct RememberedStyle: Codable {
     var positionKnown: Bool
     var appearance: [UInt8]
     var imagePNG: Data?
+    /// Applied through the tile's right-click menu (such as "Apply Style without Font") instead of a click.
+    var menu: StyleMenuChoice? = nil
+}
+
+/// What you chose in a style tile's right-click menu, kept three ways so it can be repeated: the item's text,
+/// where in the menu you clicked, and the keys you pressed instead of clicking.
+struct StyleMenuChoice: Codable, Equatable {
+    var item: String?
+    /// The click's place in the menu, as fractions of its width and height.
+    var position: CGPoint?
+    var keys: [String]
 }
 
 struct Project: Codable, Identifiable {
@@ -192,7 +203,7 @@ enum AssistError: LocalizedError {
 }
 
 enum ActionPolicy {
-    static let kinds = ["click", "doubleClick", "drag", "selectSpan", "typeNumber", "key", "scroll", "wait", "ask", "done"]
+    static let kinds = ["click", "doubleClick", "rightClick", "drag", "selectSpan", "typeNumber", "key", "scroll", "wait", "ask", "done"]
     // d is Premiere's Select Clip at Playhead, which needs no timeline visibility at all.
     static let navigationKeys = Set(["left", "right", "up", "down", "home", "end", "pageup", "pagedown", "tab", "escape", "return", "space", "t", "v", "d"])
     static let modifiers = Set(["shift", "option", "command", "control"])

@@ -71,6 +71,13 @@ whole window. Only positive answers are taken from it ("selected", "the browser 
 panel"); "not selected" and an unclear panel are read again from the whole window. Replay decides every
 Properties fixture a second time from the panel read alone, so a region that loses text fails the build.
 
+**A style through its right-click menu**: while you pick a style, a right-click on a tile is followed by what you
+do in its menu (a click on an item, or arrow keys and Return; Escape or a click outside starts the pick again).
+The menu is Premiere's own pop-up window (`Desktop.popupMenu`), read with its own capture (`readMenu`). The choice
+is saved with the style (`StyleMenuChoice`: the item's text, where in the menu you clicked, the keys) and repeated on
+every phrase instead of the tile click: right-click the tile, then the item by its text, else that place, else the
+keys. `clickMenu` clicks only when the menu is the front window at that point.
+
 **Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
 whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the
 text layer (`graphic`): Text, Appearance, Align and Transform, then **Linked style** far below, whose row

@@ -1097,6 +1097,23 @@ struct Checks {
             check(Desktop.trackHeader(in: [TextHit(text: "Settings", rect: header.rect)]) == nil, "Other one-word labels are not the track")
             check(Desktop.letterDistance("sulotitle", "subtitle") == 2 && Desktop.letterDistance("", "ab") == 2, "Letter distance")
         }
+        // A style applied through its right-click menu is remembered and found again.
+        do {
+            let old = #"{"row":4,"column":2,"positionKnown":true,"appearance":[1,2,3]}"#
+            let decoded = try? JSONDecoder().decode(RememberedStyle.self, from: Data(old.utf8))
+            check(decoded != nil && decoded?.menu == nil, "A style saved before menus still loads, with no menu")
+            var saved = decoded!
+            saved.menu = StyleMenuChoice(item: "Apply Style without Font", position: CGPoint(x: 0.4, y: 0.62), keys: [])
+            let again = try? JSONDecoder().decode(RememberedStyle.self, from: JSONEncoder().encode(saved))
+            check(again?.menu == saved.menu, "The menu choice is saved with the style")
+            let items = ["Set as Track Style", "Apply Style without Font", "Duplicate", "Delete"].enumerated().map {
+                TextHit(text: $0.element, rect: CGRect(x: 500, y: 300 + Double($0.offset) * 22, width: 160, height: 16))
+            }
+            check(Desktop.menuItem("Apply Style without Font", in: items)?.text == "Apply Style without Font", "The menu item is found by its text")
+            check(Desktop.menuItem("apply style without font", in: [TextHit(text: "Apply Style without Font ⌘", rect: .zero)]) != nil, "A shortcut beside the item does not hide it")
+            check(Desktop.menuItem("Apply Style without Font", in: items.filter { !$0.text.hasPrefix("Apply") }) == nil, "A missing item is not guessed")
+            check(!rejects(action("rightClick")), "Right-click is an allowed action")
+        }
         // Bold that starts or ends inside a word is widened to the whole word (2026-10-22: "oft stretch", "his much lift").
         do {
             let line = try ScriptParser.parse("Fabric has this really s**oft stretch** that, t**his much lift **from it, **hug**s and **plain** words")[0]

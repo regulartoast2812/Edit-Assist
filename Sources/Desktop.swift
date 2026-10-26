@@ -87,18 +87,51 @@ final class Desktop {
     /// One-shot capture of the user's next click, used to learn where the style control is.
     var onRecordedClick: ((CGPoint) -> Void)?
     private var recordingFor: WindowChoice?
+    /// Your use of a style tile's right-click menu while a style is being picked.
+    enum MenuEvent {
+        /// Right-clicked here, as fractions of the window.
+        case opened(CGPoint)
+        /// Clicked here in the menu, in screen coordinates.
+        case clicked(CGPoint)
+        case key(String)
+        case cancelled
+    }
+    var onRecordedMenu: ((MenuEvent) -> Void)?
+    private var menuRecording = false
+    nonisolated static let menuKeyNames: [UInt16: String] = [125: "down", 126: "up", 123: "left", 124: "right", 36: "return", 76: "return", 53: "escape"]
 
     init() {
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel, .mouseMoved], handler: { [weak self] event in
             guard let self, event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Self.eventTag else { return }
-            if let window = self.recordingFor, event.type == .leftMouseDown {
-                self.recordingFor = nil
+            if let window = self.recordingFor {
                 let screen = NSEvent.mouseLocation
                 let top = (NSScreen.screens.first?.frame.height ?? 0) - screen.y
                 let point = CGPoint(x: (screen.x - window.frame.minX) / window.frame.width,
                                     y: (top - window.frame.minY) / window.frame.height)
-                if (0...1).contains(point.x), (0...1).contains(point.y) { self.onRecordedClick?(point) }
-                return
+                let inside = (0...1).contains(point.x) && (0...1).contains(point.y)
+                // A right-click on a tile opens its menu: what you do in the menu is the choice to repeat.
+                if event.type == .rightMouseDown, inside {
+                    self.menuRecording = true
+                    self.onRecordedMenu?(.opened(point)); return
+                }
+                if self.menuRecording {
+                    if event.type == .leftMouseDown {
+                        self.menuRecording = false; self.recordingFor = nil
+                        self.onRecordedMenu?(.clicked(CGPoint(x: screen.x, y: top))); return
+                    }
+                    if event.type == .keyDown, let name = Self.menuKeyNames[event.keyCode] {
+                        if name == "escape" { self.menuRecording = false; self.onRecordedMenu?(.cancelled); return }
+                        self.onRecordedMenu?(.key(name))
+                        if name == "return" { self.menuRecording = false; self.recordingFor = nil }
+                        return
+                    }
+                    return
+                }
+                if event.type == .leftMouseDown {
+                    self.recordingFor = nil
+                    if inside { self.onRecordedClick?(point) }
+                    return
+                }
             }
             // Escape stops a run, paused or not (the overlay says so); other input only pauses an armed one.
             if event.type == .keyDown, event.keyCode == 53, self.armed || self.runActive {
@@ -123,7 +156,69 @@ final class Desktop {
     }
 
     func recordNextClick(in window: WindowChoice) { recordingFor = window }
-    func cancelRecording() { recordingFor = nil }
+    func cancelRecording() { recordingFor = nil; menuRecording = false }
+
+    // MARK: A style tile's right-click menu
+
+    /// The editor's pop-up menu: a window of its own above its normal windows, near where it was opened.
+    func popupMenu(of pid: pid_t, near p: CGPoint) -> (id: CGWindowID, frame: CGRect)? {
+        let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for row in rows {
+            guard (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                  (row[kCGWindowLayer as String] as? Int ?? 0) > 0,
+                  (row[kCGWindowAlpha as String] as? Double ?? 1) > 0.05,
+                  let bounds = row[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds),
+                  frame.width > 60, frame.height > 20, frame.insetBy(dx: -400, dy: -400).contains(p),
+                  let id = row[kCGWindowNumber as String] as? NSNumber else { continue }
+            return (id.uint32Value, frame)
+        }
+        return nil
+    }
+
+    /// The menu's text, with boxes in screen coordinates.
+    func readMenu(_ id: CGWindowID, frame: CGRect) async throws -> [TextHit] {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        guard let window = content.windows.first(where: { $0.windowID == id }) else { return [] }
+        let config = SCStreamConfiguration()
+        config.width = Int(frame.width * 2); config.height = Int(frame.height * 2)
+        config.showsCursor = false; config.captureResolution = .best
+        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+        let hits = await Task.detached(priority: .userInitiated) { Desktop.recognize(image) }.value
+        func place(_ r: CGRect) -> CGRect {
+            CGRect(x: frame.minX + r.minX * frame.width, y: frame.minY + r.minY * frame.height, width: r.width * frame.width, height: r.height * frame.height)
+        }
+        return hits.map { TextHit(text: $0.text, rect: place($0.rect)) }
+    }
+
+    /// The menu item with this text: the same words, or failing that the line holding them.
+    nonisolated static func menuItem(_ label: String, in hits: [TextHit]) -> TextHit? {
+        let wanted = normalized(label)
+        guard !wanted.isEmpty else { return nil }
+        return hits.first { normalized($0.text) == wanted }
+            ?? hits.first { normalized($0.text).joined(separator: " ").contains(wanted.joined(separator: " ")) }
+    }
+
+    /// Clicks a point in the open menu, only if the menu is what is there.
+    func clickMenu(at p: CGPoint, menu: CGWindowID) async throws {
+        try await beforeOperation?()
+        let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let ours = Set([overlayWindowID, inspectionWindowID].filter { $0 != 0 })
+        let front = rows.first { row in
+            guard let bounds = row[kCGWindowBounds as String] as? NSDictionary, let frame = CGRect(dictionaryRepresentation: bounds), frame.contains(p),
+                  let id = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { return false }
+            return !ours.contains(id)
+        }
+        guard (front?[kCGWindowNumber as String] as? NSNumber)?.uint32Value == menu else {
+            throw AssistError.message("The style's menu closed before its item could be clicked.")
+        }
+        let source = CGEventSource(stateID: .privateState)
+        emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left))
+        try await Task.sleep(for: .milliseconds(40))
+        emit(CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left))
+        try await Task.sleep(for: .milliseconds(30))
+        emit(CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left))
+    }
 
     var canCapture: Bool { CGPreflightScreenCaptureAccess() }
     var canControl: Bool { AXIsProcessTrusted() }
@@ -1738,6 +1833,8 @@ final class Desktop {
         /// The tile you clicked, as captured at full resolution: the second reference beside its row
         /// and column, shown during the run and saved with the project's files.
         var image: CGImage? = nil
+        /// Applied through the tile's right-click menu, as you did, instead of a click.
+        var menu: StyleMenuChoice? = nil
         static let side = 48
         /// Shape difference, with colour as a hard gate: a tile of another colour is never close,
         /// however alike the letters. The same tile measured 1-16 apart in colour across captures;
@@ -2248,6 +2345,17 @@ final class Desktop {
                 up?.setIntegerValueField(.mouseEventClickState, value: Int64(count)); emit(up)
                 if count == 1 && action.kind == "doubleClick" { try await Task.sleep(for: .milliseconds(45)) }
             }
+        case "rightClick":
+            // Like a hand: arrive, let the hover register, then press the right button.
+            try checkHit(p, window: observation.window)
+            emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: p.x - 3, y: p.y - 3), mouseButton: .right))
+            try await Task.sleep(for: .milliseconds(12))
+            emit(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .right))
+            try await Task.sleep(for: .milliseconds(45))
+            try validateWindow(observation)
+            emit(CGEvent(mouseEventSource: source, mouseType: .rightMouseDown, mouseCursorPosition: p, mouseButton: .right))
+            try await Task.sleep(for: .milliseconds(30))
+            emit(CGEvent(mouseEventSource: source, mouseType: .rightMouseUp, mouseCursorPosition: p, mouseButton: .right))
         case "drag":
             let end = point(action.endX, action.endY, in: observation.window.frame)
             for i in 0...12 {

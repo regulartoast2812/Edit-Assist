@@ -165,7 +165,7 @@ final class Store: ObservableObject {
             let image = memory.imagePNG.flatMap { NSImage(data: $0) }?
                 .cgImage(forProposedRect: nil, context: nil, hints: nil)
             return Desktop.StyleSlot(row: memory.row, column: memory.column, positionKnown: memory.positionKnown,
-                                     appearance: memory.appearance, image: image)
+                                     appearance: memory.appearance, image: image, menu: memory.menu)
         }
         // Older versions saved only a thumbnail. Reuse its appearance, never an invented grid position.
         guard let image = pickedStyleImage?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
@@ -2422,8 +2422,45 @@ final class Store: ObservableObject {
                                     .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
                                 let beforeClick = try await quickLook()
                                 var landed = false
+                                /// As you did when picking: right-click the tile, then your choice in its menu — the item by its text, else
+                                /// where you clicked in the menu, else the keys you pressed. A menu that does not open, or holds
+                                /// neither, is closed and the attempt counts as not landed.
+                                @MainActor func applyThroughMenu(_ choice: StyleMenuChoice) async throws {
+                                    try await perform(AgentAction(kind: "rightClick", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: panel)
+                                    let frame = panel.window.frame
+                                    let at = CGPoint(x: frame.minX + chosen.cell.midX * frame.width, y: frame.minY + chosen.cell.midY * frame.height)
+                                    var menu: (id: CGWindowID, frame: CGRect)?
+                                    for _ in 0 ..< 40 where menu == nil {
+                                        try await Task.sleep(for: .milliseconds(25))
+                                        menu = desktop.popupMenu(of: window.pid, near: at)
+                                    }
+                                    guard let menu else { log("OCR: your style's menu did not open"); return }
+                                    try await Task.sleep(for: .milliseconds(60))   // let it draw
+                                    if let label = choice.item {
+                                        let items = try await desktop.readMenu(menu.id, frame: menu.frame)
+                                        if let item = Desktop.menuItem(label, in: items) {
+                                            try await desktop.clickMenu(at: CGPoint(x: item.rect.midX, y: item.rect.midY), menu: menu.id)
+                                            return
+                                        }
+                                        log("OCR: “\(label)” is not in the menu (it reads: \(items.map(\.text).joined(separator: " · ")))")
+                                    }
+                                    if let place = choice.position {
+                                        try await desktop.clickMenu(at: CGPoint(x: menu.frame.minX + place.x * menu.frame.width, y: menu.frame.minY + place.y * menu.frame.height), menu: menu.id)
+                                        return
+                                    }
+                                    if !choice.keys.isEmpty {
+                                        for key in choice.keys {
+                                            try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: [key], scroll: 0, purpose: "Choose in your style's menu"), on: panel)
+                                            try await Task.sleep(for: .milliseconds(40))
+                                        }
+                                        return
+                                    }
+                                    try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Close the menu"), on: panel)
+                                }
                                 for attempt in 1 ... 3 where !landed {
+                                    if let choice = slot.menu { try await applyThroughMenu(choice) } else {
                                     try await perform(AgentAction(kind: "click", x: chosen.cell.midX, y: chosen.cell.midY, endX: 0, endY: 0, keys: ["hover"], scroll: 0, purpose: OCRStep.applyStyle.label), on: panel)
+                                    }
                                     for _ in 0 ..< 6 where !landed {
                                         try await Task.sleep(for: .milliseconds(50))
                                         let after = try await quickLook()
@@ -2445,9 +2482,13 @@ final class Store: ObservableObject {
                             styleOpenedFresh = false
                             showGrid(look(panel))
                             desktop.armed = false
-                            defer { desktop.cancelRecording(); desktop.onRecordedClick = nil }
+                            defer { desktop.cancelRecording(); desktop.onRecordedClick = nil; desktop.onRecordedMenu = nil }
                             var latest = panel
                             var picked: (row: Int, column: Int, cell: CGRect, known: Bool)?
+                            /// A right-click on a tile and what you did in its menu, in order.
+                            var menuEvents: [Desktop.MenuEvent] = []
+                            /// Your choice in that menu, to repeat on every phrase instead of a click.
+                            var menuChoice: StyleMenuChoice?
                             let since = Date()
                             // Your scrolling is followed frame by frame through the step's live stream, and the
                             // tile under your click is taken from the newest frame, not an out-of-date look.
@@ -2462,7 +2503,12 @@ final class Store: ObservableObject {
                             }
                             while picked == nil {
                                 pendingStyleClick = nil
+                                menuEvents = []; menuChoice = nil
                                 desktop.onRecordedClick = { [weak self] point in self?.pendingStyleClick = point }
+                                desktop.onRecordedMenu = { [weak self] event in
+                                    menuEvents.append(event)
+                                    if case let .opened(point) = event { self?.pendingStyleClick = point }
+                                }
                                 desktop.recordNextClick(in: window)
                                 overlay.update(step: doneCount, limit: targets.count, headline: "Click your style",
                                                detail: "The same row and column is used for every remaining phrase", confidence: nil, paused: true)
@@ -2520,6 +2566,46 @@ final class Store: ObservableObject {
                                 }
                                 streamed = []
                                 guard let point = pendingStyleClick else { continue }
+                                // Right-clicked: the style is applied by what you choose in the tile's menu (such as "Apply
+                                // Style without Font"). Wait for that choice, reading the menu as it opens.
+                                if case .opened = menuEvents.first {
+                                    let screenPoint = CGPoint(x: window.frame.minX + point.x * window.frame.width, y: window.frame.minY + point.y * window.frame.height)
+                                    overlay.update(step: doneCount, limit: targets.count, headline: "Choose from the menu",
+                                                   detail: "Click the item, or use the arrow keys and Return. The same choice is repeated on every phrase.", confidence: nil, paused: true)
+                                    var items: [TextHit] = [], menuFrame: CGRect?
+                                    let opened = Date()
+                                    func finished() -> Bool {
+                                        menuEvents.contains { event in
+                                            switch event {
+                                            case .clicked, .cancelled: return true
+                                            case let .key(name): return name == "return"
+                                            case .opened: return false
+                                            }
+                                        }
+                                    }
+                                    while !finished(), Date().timeIntervalSince(opened) < 30 {
+                                        try Task.checkCancellation()
+                                        if items.isEmpty, let menu = desktop.popupMenu(of: window.pid, near: screenPoint) {
+                                            try await Task.sleep(for: .milliseconds(80))   // let it draw
+                                            menuFrame = menu.frame
+                                            items = (try? await desktop.readMenu(menu.id, frame: menu.frame)) ?? []
+                                            log("OCR: the style's menu reads: \(items.map(\.text).joined(separator: " · "))")
+                                        }
+                                        try await Task.sleep(for: .milliseconds(20))
+                                    }
+                                    let keys = menuEvents.compactMap { event -> String? in if case let .key(name) = event { return name }; return nil }
+                                    let click = menuEvents.lazy.compactMap { event -> CGPoint? in if case let .clicked(at) = event { return at }; return nil }.first
+                                    if let click, let frame = menuFrame, frame.contains(click) {
+                                        let item = items.first { click.y >= $0.rect.minY - 3 && click.y <= $0.rect.maxY + 3 }
+                                        menuChoice = StyleMenuChoice(item: item?.text,
+                                                                     position: CGPoint(x: (click.x - frame.minX) / frame.width, y: (click.y - frame.minY) / frame.height), keys: [])
+                                    } else if keys.last == "return" {
+                                        menuChoice = StyleMenuChoice(item: nil, position: nil, keys: keys)
+                                    } else {
+                                        log("OCR: the style's menu closed without a choice; waiting for your style again")
+                                        continue
+                                    }
+                                }
                                 if let at = Desktop.slot(containing: point, in: latestCells) {
                                     let first = rows.offset
                                     picked = ((first ?? 0) + at.row, at.column, latestCells[at.row][at.column], first != nil)
@@ -2584,11 +2670,11 @@ final class Store: ObservableObject {
                                 }
                             }
                             styleSlot = Desktop.StyleSlot(row: choice.row, column: choice.column, positionKnown: choice.known,
-                                                          appearance: pickedAppearance, image: picture)
+                                                          appearance: pickedAppearance, image: picture, menu: menuChoice)
                             let rememberedPNG = picture.flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }
                             projects[index].rememberedStyle = RememberedStyle(
                                 row: choice.row, column: choice.column, positionKnown: choice.known,
-                                appearance: pickedAppearance, imagePNG: rememberedPNG)
+                                appearance: pickedAppearance, imagePNG: rememberedPNG, menu: menuChoice)
                             save()
                             if let picture {
                                 overlay.setReference(picture, label: choice.known ? "R\(choice.row + 1) C\(choice.column + 1)" : "by image")
@@ -2602,6 +2688,10 @@ final class Store: ObservableObject {
                             log(choice.known
                                 ? "OCR: you picked R\(choice.row + 1) C\(choice.column + 1) — repeating it for every remaining phrase"
                                 : "OCR: you picked a style after scrolling further than could be followed; it will be found by appearance")
+                            if let menuChoice {
+                                log("OCR: applied through its right-click menu: " + (menuChoice.item.map { "“\($0)”" }
+                                    ?? (menuChoice.keys.isEmpty ? "the item at its place in the menu" : "keys " + menuChoice.keys.joined(separator: ", "))))
+                            }
                             // Your click applied the style already; let Premiere settle.
                             try await Task.sleep(for: .milliseconds(300))
                             return true

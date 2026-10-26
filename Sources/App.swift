@@ -785,6 +785,14 @@ struct ContentView: View {
                             .font(.system(size: 12, weight: .semibold))
                         Text(L(s.project.keepsStyle && s.hasRememberedStyle ? "Used on every run until you reset it." : "Picked on the first phrase of each run."))
                             .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        if let menu = s.project.rememberedStyle?.menu {
+                            Label(L("Applied through its right-click menu: %@", menu.item ?? (menu.keys.isEmpty ? L("the same menu item") : menu.keys.joined(separator: " · "))),
+                                  systemImage: "contextualmenu.and.cursorarrow")
+                                .font(.system(size: 10)).foregroundStyle(accent).fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(L("Tip: right-click your style when picking to use its menu, such as Apply Style without Font."))
+                                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 HStack {
