@@ -73,10 +73,11 @@ Properties fixture a second time from the panel read alone, so a region that los
 
 **A style through its right-click menu**: while you pick a style, a right-click on a tile is followed by what you
 do in its menu (a click on an item, or arrow keys and Return; Escape or a click outside starts the pick again).
-The menu is Premiere's own pop-up window (`Desktop.popupMenu`), read with its own capture (`readMenu`). The choice
-is saved with the style (`StyleMenuChoice`: the item's text, where in the menu you clicked, the keys) and repeated on
-every phrase instead of the tile click: right-click the tile, then the item by its text, else that place, else the
-keys. `clickMenu` clicks only when the menu is the front window at that point.
+Premiere's style menu is not a window the window list or a window capture finds (2026-10-26: looking for one cost
+a second on every phrase), so the screen around the tile is read as shown (`Desktop.readScreen`). The choice is
+saved with the style (`StyleMenuChoice`: the item's text, the click's offset from the right-click, the keys) and
+repeated on every phrase instead of the tile click: right-click the tile, then the item by its text as soon as it
+reads, else that offset, else the keys. `clickMenu` clicks only where something covers Premiere's window.
 
 **Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
 whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the
