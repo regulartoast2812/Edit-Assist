@@ -787,14 +787,6 @@ struct ContentView: View {
                             .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                // Without font: right-click the tile, then "Apply Style without Font", so each caption keeps its font.
-                Toggle(isOn: Binding(get: { s.project.withoutFont }, set: { s.update(\.styleWithoutFont, Optional($0)) })) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L("Without font")).font(.system(size: 12))
-                        Text(L("Right-click → Apply Style without Font: each caption keeps its font."))
-                            .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }.toggleStyle(.switch).controlSize(.small).disabled(s.busy).opacity(s.project.doesStyle ? 1 : 0.4)
                 HStack {
                     Toggle(L("Keep style"), isOn: Binding(get: { s.project.keepsStyle }, set: { s.update(\.keepStyle, Optional($0)) }))
                         .toggleStyle(.switch).controlSize(.small)

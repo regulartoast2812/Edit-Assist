@@ -71,11 +71,14 @@ whole window. Only positive answers are taken from it ("selected", "the browser 
 panel"); "not selected" and an unclear panel are read again from the whole window. Replay decides every
 Properties fixture a second time from the panel read alone, so a region that loses text fails the build.
 
-**Without font** (a project setting): the style is applied by right-clicking the tile and clicking "Apply Style
-without Font", found by its name on the screen (`Desktop.readScreen`, `menuItem` allowing a few misread letters).
-Premiere's style menu is not a window the window list or a window capture finds. You only pick the tile (a click or
-a right-click); nothing you do in the menu is recorded — a version that repeated it repeated a misread item
-("wlthout") and a misclick on every phrase (2026-10-26). `clickMenu` clicks only where something covers Premiere.
+**Without font**, learnt from your pick: a left-click on your tile is the normal style; a right-click followed by
+"Apply Style without Font" (the item under your click, read from the screen) is saved with the style
+(`RememberedStyle.withoutFont`), and every phrase then gets it that way: the bot right-clicks the tile and clicks
+the item by its name (`Desktop.readScreen`, `menuItem` allowing a few misread letters). Any other item, a click
+outside or Escape is not learnt and the pick starts again. No raw input is replayed: a build that replayed it
+repeated a misread item ("wlthout") and a misclick on every phrase (2026-10-26). No switch for it in the window
+(you asked for none). Premiere's style menu is not a window the window list finds; `clickMenu` clicks only where
+something covers Premiere.
 
 **Graphics** (Essential Graphics text, or a caption upgraded to one) have no Track Style. Selected as a
 whole, Properties shows the layer list and Transform (`graphicLayers`); with its text being edited, the

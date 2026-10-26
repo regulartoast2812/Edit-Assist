@@ -88,10 +88,24 @@ final class Desktop {
     /// Your next click in the window, as fractions of it, and whether it was a right-click.
     var onRecordedClick: ((CGPoint, Bool) -> Void)?
     private var recordingFor: WindowChoice?
+    /// After a right-click pick: how its menu closed, to learn which item you chose. Only the item's meaning is kept.
+    enum MenuEvent { case clicked(CGPoint), key(String) }
+    var onRecordedMenu: ((MenuEvent) -> Void)?
+    private var menuRecording = false
 
     init() {
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel, .mouseMoved], handler: { [weak self] event in
             guard let self, event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Self.eventTag else { return }
+            if self.menuRecording {
+                let screen = NSEvent.mouseLocation
+                let top = (NSScreen.screens.first?.frame.height ?? 0) - screen.y
+                if event.type == .leftMouseDown { self.menuRecording = false; self.onRecordedMenu?(.clicked(CGPoint(x: screen.x, y: top))); return }
+                if event.type == .keyDown {
+                    if event.keyCode == 36 || event.keyCode == 76 { self.menuRecording = false; self.onRecordedMenu?(.key("return")) }
+                    else if event.keyCode == 53 { self.menuRecording = false; self.onRecordedMenu?(.key("escape")) }
+                }
+                return
+            }
             if let window = self.recordingFor {
                 let screen = NSEvent.mouseLocation
                 let top = (NSScreen.screens.first?.frame.height ?? 0) - screen.y
@@ -102,7 +116,10 @@ final class Desktop {
                 // the way the project's settings say.
                 if event.type == .leftMouseDown || event.type == .rightMouseDown {
                     self.recordingFor = nil
-                    if inside { self.onRecordedClick?(point, event.type == .rightMouseDown) }
+                    if inside {
+                        if event.type == .rightMouseDown { self.menuRecording = true }
+                        self.onRecordedClick?(point, event.type == .rightMouseDown)
+                    }
                     return
                 }
             }
@@ -129,7 +146,7 @@ final class Desktop {
     }
 
     func recordNextClick(in window: WindowChoice) { recordingFor = window }
-    func cancelRecording() { recordingFor = nil }
+    func cancelRecording() { recordingFor = nil; menuRecording = false }
 
     // MARK: A style tile's right-click menu
 

@@ -64,6 +64,8 @@ struct RememberedStyle: Codable {
     var positionKnown: Bool
     var appearance: [UInt8]
     var imagePNG: Data?
+    /// You picked it with a right-click and Apply Style without Font: applied that way on every phrase.
+    var withoutFont: Bool? = nil
     /// Saved by the version that repeated what you did in the tile's menu; still read, no longer used: a misclick,
     /// or a misread item, was repeated on every phrase. The project's "without font" setting replaces it.
     var menu: StyleMenuChoice? = nil
@@ -98,9 +100,10 @@ struct Project: Codable, Identifiable {
     var keepStyle: Bool? = nil
     var rememberedStyle: RememberedStyle? = nil
     var keepsStyle: Bool { keepStyle ?? true }
-    /// Apply the style through its right-click menu, "Apply Style without Font", so each caption keeps its font.
+    /// Set by one build as a switch; still read so it carries over, no longer shown.
     var styleWithoutFont: Bool? = nil
-    var withoutFont: Bool { styleWithoutFont ?? false }
+    /// Your style is applied "without font" (right-click → Apply Style without Font): learnt from how you picked it.
+    var withoutFont: Bool { rememberedStyle?.withoutFont ?? false }
     /// What a highlight run does to each phrase: "both" (style and size, the default), "style" or "size". Shared by
     /// both highlight functions; optional so older projects load.
     var runParts: String? = nil

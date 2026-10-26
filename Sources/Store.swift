@@ -704,10 +704,13 @@ final class Store: ObservableObject {
                 projects = try JSONDecoder().decode([Project].self, from: Data(contentsOf: file))
             }
         } catch { self.error = "Could not load saved projects: \(error.localizedDescription). Your existing file has not been overwritten." }
-        // A style picked through its menu by the previous version: carry it over as the Without font setting.
-        for i in projects.indices where projects[i].styleWithoutFont == nil {
-            if let item = projects[i].rememberedStyle?.menu?.item, Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: item, rect: .zero)]) != nil {
-                projects[i].styleWithoutFont = true
+        // A style picked through its menu by earlier builds (a recorded menu item, or the switch one build had): carry it
+        // over as that style's way of being applied.
+        for i in projects.indices where projects[i].rememberedStyle != nil && projects[i].rememberedStyle?.withoutFont == nil {
+            let item = projects[i].rememberedStyle?.menu?.item
+            if projects[i].styleWithoutFont == true
+                || item.map({ Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: $0, rect: .zero)]) != nil }) == true {
+                projects[i].rememberedStyle?.withoutFont = true
             }
         }
         if projects.isEmpty { projects = [Project()] }
@@ -2462,7 +2465,7 @@ final class Store: ObservableObject {
                                 for attempt in 1 ... 3 where !landed {
                                     if project.withoutFont {
                                         guard try await applyWithoutFont(chosen.cell, on: panel) else {
-                                            try await stop(OCRStep.applyStyle, "Your style's right-click menu did not show “Apply Style without Font”; nothing was applied.\n→ Turn off Without font, or check the menu in Premiere, then run again.")
+                                            try await stop(OCRStep.applyStyle, "Your style's right-click menu did not show “Apply Style without Font”; nothing was applied.\n→ Check the menu in Premiere, or Reset style and pick it with a click, then run again.")
                                             return false
                                         }
                                     } else {
@@ -2491,11 +2494,15 @@ final class Store: ObservableObject {
                             styleOpenedFresh = false
                             showGrid(look(panel))
                             desktop.armed = false
-                            defer { desktop.cancelRecording(); desktop.onRecordedClick = nil }
+                            defer { desktop.cancelRecording(); desktop.onRecordedClick = nil; desktop.onRecordedMenu = nil }
                             var latest = panel
                             var picked: (row: Int, column: Int, cell: CGRect, known: Bool)?
                             /// Your pick was a right-click (its menu is open now).
                             var pickedByRightClick = false
+                            /// How the menu after a right-click pick closed.
+                            var menuEvent: Desktop.MenuEvent?
+                            /// You chose Apply Style without Font: every phrase gets it that way.
+                            var pickedWithoutFont = false
                             let since = Date()
                             // Your scrolling is followed frame by frame through the step's live stream, and the
                             // tile under your click is taken from the newest frame, not an out-of-date look.
@@ -2510,13 +2517,15 @@ final class Store: ObservableObject {
                             }
                             while picked == nil {
                                 pendingStyleClick = nil
+                                menuEvent = nil; pickedWithoutFont = false
                                 desktop.onRecordedClick = { [weak self] point, right in
                                     pickedByRightClick = right
                                     self?.pendingStyleClick = point
                                 }
+                                desktop.onRecordedMenu = { event in menuEvent = event }
                                 desktop.recordNextClick(in: window)
-                                overlay.update(step: doneCount, limit: targets.count, headline: project.withoutFont ? "Right-click your style" : "Click your style",
-                                               detail: "The same row and column is used for every remaining phrase", confidence: nil, paused: true)
+                                overlay.update(step: doneCount, limit: targets.count, headline: "Click your style",
+                                               detail: "Click it, or right-click it and choose Apply Style without Font. The same is done on every remaining phrase.", confidence: nil, paused: true)
                                 status = "Waiting for you to click a style in the browser"
                                 var lastLook = Date.distantPast
                                 var latestCells = look(latest)
@@ -2571,6 +2580,39 @@ final class Store: ObservableObject {
                                 }
                                 streamed = []
                                 guard let point = pendingStyleClick else { continue }
+                                // Right-clicked: which item you choose in the tile's menu says how the style is applied. Only
+                                // Apply Style without Font is learnt; anything else (a misclick) is not, and the pick starts again.
+                                if pickedByRightClick {
+                                    let at = CGPoint(x: window.frame.minX + point.x * window.frame.width, y: window.frame.minY + point.y * window.frame.height)
+                                    var items: [TextHit] = [], lastRead = Date.distantPast
+                                    let opened = Date()
+                                    while menuEvent == nil, Date().timeIntervalSince(opened) < 30 {
+                                        try Task.checkCancellation()
+                                        if Date().timeIntervalSince(opened) > 0.15, Date().timeIntervalSince(lastRead) > 0.4 {
+                                            if let read = try? await desktop.readScreen(around: at, size: CGSize(width: 900, height: 1000)), !read.isEmpty { items = read }
+                                            lastRead = Date()
+                                        }
+                                        try await Task.sleep(for: .milliseconds(20))
+                                    }
+                                    switch menuEvent {
+                                    case let .clicked(click)?:
+                                        let item = items.filter { click.y >= $0.rect.minY - 4 && click.y <= $0.rect.maxY + 4 && $0.rect.minX - 60 <= click.x && click.x <= $0.rect.maxX + 300 }
+                                            .min { abs($0.rect.midX - click.x) < abs($1.rect.midX - click.x) }
+                                        if let item, Desktop.menuItem(Desktop.withoutFontItem, in: [item]) != nil {
+                                            pickedWithoutFont = true
+                                        } else {
+                                            log("OCR: you chose \(item.map { "“\($0.text)”" } ?? "outside the menu") after right-clicking; only a click on your style or Apply Style without Font is repeated — waiting for your style again")
+                                            continue
+                                        }
+                                    case .key("return")?:
+                                        // Chosen with the keys: the item cannot be read from a click, so the bot applies it without
+                                        // font itself right after, whatever the keys chose.
+                                        pickedWithoutFont = true
+                                    default:
+                                        log("OCR: the menu closed without a choice; waiting for your style again")
+                                        continue
+                                    }
+                                }
                                 if let at = Desktop.slot(containing: point, in: latestCells) {
                                     let first = rows.offset
                                     picked = ((first ?? 0) + at.row, at.column, latestCells[at.row][at.column], first != nil)
@@ -2605,19 +2647,12 @@ final class Store: ObservableObject {
                             let pickedAppearance = Desktop.cellPatch(latest.image, cell: choice.cell)
                             // Applied the way the project says, by the bot, whatever you did after picking: a right-click pick
                             // only opened the tile's menu, and what you chose in it is not repeated.
-                            if project.withoutFont {
-                                if !pickedByRightClick {
-                                    log("OCR: you clicked your style, which applied it with its font; applying it without font now — check this phrase's font")
-                                }
+                            // Chosen with the keys: apply it without font here, so this phrase is certainly done that way.
+                            if pickedWithoutFont, case .key("return")? = menuEvent {
                                 guard try await applyWithoutFont(choice.cell, on: latest) else {
-                                    try await stop(OCRStep.applyStyle, "Your style's right-click menu did not show “Apply Style without Font”; nothing was applied.\n→ Turn off Without font, or check the menu in Premiere, then run again.")
+                                    try await stop(OCRStep.applyStyle, "Your style's right-click menu did not show “Apply Style without Font”; nothing was applied.\n→ Pick your style again with a click, then run again.")
                                     return false
                                 }
-                            } else if pickedByRightClick {
-                                // Without font is off: close the menu your right-click opened and apply the style with a click.
-                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Close the menu"), on: latest)
-                                try await Task.sleep(for: .milliseconds(80))
-                                try await perform(AgentAction(kind: "click", x: choice.cell.midX, y: choice.cell.midY, endX: 0, endY: 0, keys: ["tile"], scroll: 0, purpose: OCRStep.applyStyle.label), on: latest)
                             }
                             desktop.armed = true
                             // The row number comes from following your scrolling, which can go wrong while you scroll and
@@ -2655,7 +2690,7 @@ final class Store: ObservableObject {
                             let rememberedPNG = picture.flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }
                             projects[index].rememberedStyle = RememberedStyle(
                                 row: choice.row, column: choice.column, positionKnown: choice.known,
-                                appearance: pickedAppearance, imagePNG: rememberedPNG)
+                                appearance: pickedAppearance, imagePNG: rememberedPNG, withoutFont: pickedWithoutFont)
                             save()
                             if let picture {
                                 overlay.setReference(picture, label: choice.known ? "R\(choice.row + 1) C\(choice.column + 1)" : "by image")
@@ -2667,7 +2702,7 @@ final class Store: ObservableObject {
                             }
                             showGrid(Desktop.styleCells(in: latest.text, image: latest.image, left: left), picked: (choice.row, choice.column))
                             log(choice.known
-                                ? "OCR: you picked R\(choice.row + 1) C\(choice.column + 1) — repeating it for every remaining phrase"
+                                ? "OCR: you picked R\(choice.row + 1) C\(choice.column + 1)\(pickedWithoutFont ? " with Apply Style without Font" : "") — repeating it for every remaining phrase"
                                 : "OCR: you picked a style after scrolling further than could be followed; it will be found by appearance")
                             // Your click applied the style already; let Premiere settle.
                             try await Task.sleep(for: .milliseconds(300))
