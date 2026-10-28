@@ -1431,8 +1431,12 @@ final class Store: ObservableObject {
                     var splitHead: Int?
                     /// The phrase just styled in part; its rest is looked for on the next clip.
                     var justSplit: Int?
-                    /// Down failed and Shift+Down worked, in a row; from two, Shift+Down goes first.
-                    var downFailures = 0, anyTrackFirst = false
+                    /// Shift+Down (next edit point on any track) always goes first: Down stops only at edit points of the
+                    /// targeted tracks (usually V1 and A1, the video cuts), and where those do not line up with the captions it
+                    /// jumped straight past them (2026-10-28: 2.27 s to 6.43 s skipped "…the wire on the OUTSIDE?"). Down
+                    /// follows only if Shift+Down does not move.
+                    var downFailures = 0
+                    let anyTrackFirst = true
                     /// The time read has gone forward on two steps of this run and never backward: from then on it alone says
                     /// whether a step moved. Before, or once it has gone backward on a step forward (a wrong timecode read, as on
                     /// 2026-10-28, when trusting it made real steps look still and two keys skipped captions), the caption and
@@ -1645,16 +1649,11 @@ final class Store: ObservableObject {
                                     try await Task.sleep(for: .milliseconds(120))
                                     moved = try await readCaptions()
                                     state = standing(moved)
-                                    if !state.still, !anyTrackFirst {
+                                    if !state.still, anyTrackFirst {
                                         downFailures += 1
-                                        if downFailures >= 2 {
-                                            anyTrackFirst = true
-                                            log("OCR: Down has not moved the playhead twice in a row; stepping with Shift+Down (any track) first from now on")
-                                        } else {
-                                            log("OCR: no more edit points on the caption track; stepped to the next one on any track")
-                                        }
+                                        log("OCR: Shift+Down did not move the playhead; Down did")
                                     }
-                                } else if !anyTrackFirst { downFailures = 0 }
+                                }
                                 let now = state.now
                                 if let was, let now, abs(now - was) > 0.01 {
                                     if now > was { forwardSteps += 1 }

@@ -108,6 +108,9 @@ the four-square under Track Style. Fixtures 33-37 (graphics), 38-39 (captions mu
   fallback to "the largest text" — that once dragged a clip over its neighbour and deleted it.
 - **Never drag without the drag check.** Re-read the screen and drag only if the start point is in
   caption-sized text. A drag over a timeline clip moves it.
+- **Step with Shift+Down (any track), not Down.** Down stops only at edit points of the targeted tracks (the video
+  cuts); where they do not line up with the captions it skipped captions (2026-10-28). Down only if Shift+Down
+  does not move.
 - **A phrase split across clips: step to the next edit point before matching the rest.** The rest
   cannot be on the screen just styled.
 - **Selected = the Properties panel shows text controls** (C1: Subtitle, Track Style, Font Size, a
