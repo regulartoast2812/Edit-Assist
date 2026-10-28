@@ -1125,6 +1125,35 @@ struct Checks {
             let spaced = try ScriptParser.parse("My bust sits** higher, rounder,**")[0]
             check(spaced.highlights.map { Store.wholeWords($0, in: spaced.text) } == [" higher, rounder,"], "Bold starting at a space is left as it is")
         }
+        // Captions placed in the script: the bold words of that very part are styled, in order (2026-10-28: "Fabric" was
+        // styled inside "Soft fabric", and "wire" twice on one word, when phrases were matched anywhere on screen).
+        do {
+            let lines = try ScriptParser.parse("""
+            Wait, my whole hand **fits between the cup** and **wire**, and I still **get this much lift?**!
+            **Soft fabric** sits against my skin instead.
+            **Fabric** is **super smooth** with so **much stretch**
+            With the brand, **wire** stays outside, it **perks right up**
+            """)
+            let map = ScriptMap(lines: lines)
+            let same: (String, String) -> Bool = { ScriptMap.same($0, $1, lookalikes: Desktop.lookalikes) }
+            func tags(_ caption: [String], near: Int = 0) -> [Int?]? {
+                guard let at = map.locate(caption, near: near, same: same) else { return nil }
+                return caption.indices.map { at + $0 < map.words.count ? map.words[at + $0].phrase : nil }
+            }
+            // Phrases by index: 0 fits between the cup, 1 wire, 2 get this much lift?, 3 Soft fabric, 4 Fabric,
+            // 5 super smooth, 6 much stretch, 7 wire (again), 8 perks right up.
+            check(tags(["soft", "fabric", "sits"]) == [3, 3, nil], "\"Soft fabric sits\" is Soft fabric only, not Fabric")
+            check(tags(["fabric", "is", "super", "smooth"]) == [4, nil, 5, 5], "\"Fabric is super smooth\" is Fabric and super smooth")
+            check(tags(["wait", "my", "whole", "hand", "fits"]) == [nil, nil, nil, nil, 0], "A phrase starting at a caption's last word is placed")
+            check(tags(["between", "the", "cup", "and", "wire"]) == [0, 0, 0, nil, 1], "Its rest on the next caption, then the first wire")
+            check(tags(["and", "still", "get", "this", "much", "lift3"]) == [nil, nil, 2, 2, 2, 2], "A misread last word (lift3) still lines up")
+            check(tags(["with", "the", "brand", "wire", "stays", "outside"])?[3] == 7, "The second wire is its own phrase, by its place")
+            check(map.split("rightup") == ["right", "up"] && map.split("outside") == nil, "Two words read as one are split back")
+            check(tags(["completely", "unrelated", "words"]) == nil, "A caption not in the script is not placed")
+            // Ties go forward from the last place: "wire stays" after the first lines is the second wire.
+            let near = map.locate(["wire"], near: 20, same: same)
+            check(near.map { map.words[$0].phrase } == 7, "A one-word caption is the next one in the script")
+        }
         // The playhead's time is the timeline's own display above its ruler, not a clip list's times higher up (2026-10-28).
         do {
             let list = [TextHit(text: "00:00:00:00", rect: CGRect(x: 0.203, y: 0.218, width: 0.036, height: 0.012)),

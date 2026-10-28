@@ -1176,8 +1176,60 @@ final class Store: ObservableObject {
     /// requirement: whatever caption the playhead sits on is what you want styled now. Returns how
     /// many of the phrase's words this screen covers, which may be fewer than all of them.
     /// The phrases still to do, in the order they are tried, each with the words still to style.
+    /// The script as words in order for this run, and where the last caption read sits in it.
+    var runScriptMap: ScriptMap?
+    var scriptCursor = 0, scriptPlaced = false
+    /// Once captions are being placed in the script, the fallback search looks only for phrases near that place.
+    var phraseWindow: ClosedRange<Int>?
+
+    /// The phrase to style on this screen, from where its caption sits in the script: the caption's words are placed in
+    /// the script (`ScriptMap.locate`), and the bold words of that part, not yet styled, are the ones selected, by their
+    /// place in the caption. `placed` false when no caption on screen could be placed (then the search by phrase is used).
+    /// `endsCaption`: the phrase goes on past this caption's last word, so its rest is on the next clip.
+    func placedVisible(in hits: [TextHit], minHeight: CGFloat, area: CGRect?) -> (placed: Bool, hit: (index: Int, phrase: String, span: Desktop.Span, matched: Int, from: Int)?, endsCaption: Bool) {
+        guard let map = runScriptMap else { return (false, nil, false) }
+        let left = Set(remaining)
+        for block in Desktop.captionBlocks(in: hits, minHeight: minHeight, area: area) {
+            var read: [(text: String, rect: CGRect)] = []
+            for word in Desktop.captionWords(block) {
+                guard let parts = map.split(word.text) else { read.append(word); continue }
+                let share = CGFloat(parts[0].count) / CGFloat(word.text.count)
+                let head = CGRect(x: word.rect.minX, y: word.rect.minY, width: word.rect.width * share, height: word.rect.height)
+                read.append((parts[0], head))
+                read.append((parts[1], CGRect(x: head.maxX, y: word.rect.minY, width: word.rect.width - head.width, height: word.rect.height)))
+            }
+            guard let start = map.locate(read.map(\.text), near: scriptCursor, same: { ScriptMap.same($0, $1, lookalikes: Desktop.lookalikes) }) else { continue }
+            scriptCursor = start; scriptPlaced = true
+            var groups: [(phrase: Int, items: [(i: Int, word: Int)])] = []
+            for i in read.indices where start + i < map.words.count {
+                guard let p = map.words[start + i].phrase else { continue }
+                if let last = groups.last, last.phrase == p { groups[groups.count - 1].items.append((i, map.words[start + i].index)) }
+                else { groups.append((p, [(i, map.words[start + i].index)])) }
+            }
+            for group in groups where left.contains(group.phrase) && group.phrase < targets.count {
+                let done = styled(targets[group.phrase])
+                let todo = group.items.filter { $0.word >= done }
+                guard let first = todo.first, let last = todo.last else { continue }
+                let a = read[first.i].rect, b = read[last.i].rect
+                var span = Desktop.Span(start: CGPoint(x: a.minX, y: a.midY), end: CGPoint(x: b.maxX, y: b.midY), firstWord: CGPoint(x: a.midX, y: a.midY))
+                // A one-letter word at the phrase's start or end ("a bra") is not among the words; take it in beside the match.
+                let raw = targets[group.phrase].split(whereSeparator: \.isWhitespace).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { !$0.isEmpty }
+                let total = words(of: targets[group.phrase]).count
+                let lead = first.word == 0 ? raw.first.flatMap { $0.count == 1 ? $0 : nil } : nil
+                let trail = last.word + 1 >= total ? raw.last.flatMap { $0.count == 1 && raw.count > 1 ? $0 : nil } : nil
+                if lead != nil || trail != nil { span = Desktop.widened(span, leading: lead, trailing: trail, in: hits) }
+                return (true, (group.phrase, targets[group.phrase], span, last.word - first.word + 1, first.word), last.i == read.count - 1)
+            }
+            return (true, nil, false)
+        }
+        return (false, nil, false)
+    }
+
     func phraseCandidates(anyTarget: Bool = false) -> [(index: Int, from: Int, tokens: [String])] {
-        (anyTarget ? Array(targets.indices) : remaining).compactMap { index in
+        (anyTarget ? Array(targets.indices) : remaining).filter { index in
+            guard !anyTarget, let window = phraseWindow, let start = runScriptMap?.phraseStart[index] else { return true }
+            return window.contains(start)
+        }.compactMap { index in
             let all = words(of: targets[index])
             let from = anyTarget ? 0 : min(styled(targets[index]), all.count)
             return from < all.count ? (index, from, Array(all[from...])) : nil
@@ -1398,6 +1450,7 @@ final class Store: ObservableObject {
                         log("Script: “\(phrase.written)” is bold from inside a word; styling the whole word: “\(phrase.styled)”")
                     }
                     if all { log("OCR: new pass from the current playhead; prior progress cleared") }
+                    runScriptMap = ScriptMap(lines: parsed); scriptCursor = 0; scriptPlaced = false; phraseWindow = nil
                     /// The screen read after stepping to the next caption: it is the next scan, not read again.
                     var nextShot: Observation?
                     /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
@@ -1462,11 +1515,16 @@ final class Store: ObservableObject {
                         }
                         continuingPhrase = mustAdvance ? nil : justSplit
                         if !mustAdvance { justSplit = nil }
-                        var found = nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
+                        // Where this caption is in the script decides what is styled; the search by phrase is the fallback for a
+                        // caption that could not be placed, and then only for phrases near the last place.
+                        let placed = anyTarget ? (placed: false, hit: nil, endsCaption: false)
+                            : placedVisible(in: shot.text, minHeight: captionFloor, area: searchArea)
+                        phraseWindow = scriptPlaced ? max(0, scriptCursor - 5) ... (scriptCursor + 60) : nil
+                        var found = placed.placed ? placed.hit : nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
                         // Only part of a phrase from its start: reading misses a word now and then ("up" of "it just scoops /
                         // everything up", read at once after styling), and styling the part sends the rest to look on the next
                         // clip. Read once more before taking the part.
-                        if !mustAdvance, let part = found, part.from == 0, part.matched < words(of: part.phrase).count {
+                        if !mustAdvance, !placed.placed, let part = found, part.from == 0, part.matched < words(of: part.phrase).count {
                             let again = try await readCaptions()
                             if let more = nextVisible(in: again.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea),
                                more.index == part.index, more.from == 0, more.matched > part.matched {
@@ -1489,7 +1547,7 @@ final class Store: ObservableObject {
                         // outlines, gradients) read less reliably at the usual size. Read once more, sharper.
                         // Only on real evidence (two words and half of a phrase): one common word ("on", "the") showed on
                         // almost every caption and this read ran on every caption passed.
-                        if found == nil, !mustAdvance, remaining.contains(where: { index in
+                        if found == nil, !mustAdvance, !placed.placed, remaining.contains(where: { index in
                             let shown = Desktop.coverage(for: targets[index], in: shot.text).matched
                             return shown >= 2 && shown * 2 >= words(of: targets[index]).count
                         }) {

@@ -99,6 +99,13 @@ routine is behind that flag, so **Highlight phrases (captions) decides exactly a
 not a selected caption (its fallback then selects the caption clip under the playhead), and it only clicks
 the four-square under Track Style. Fixtures 33-37 (graphics), 38-39 (captions must ignore graphics).
 
+**Reading the script in order**: each caption read is placed in the script (`ScriptMap.locate`: most of its words
+lined up, nearest going forward from the last caption), and only the bold words of that part, not yet styled,
+are selected, by their place in the caption (`Store.placedVisible`). A phrase that runs past the caption's end is
+styled there and finished on the next clip. Matching phrases anywhere on screen styled a repeated word in the
+wrong place ("Fabric" inside "Soft fabric", "wire" twice on one word, 2026-10-28); it remains only as the
+fallback for a caption that cannot be placed, and then only for phrases near the last place.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates

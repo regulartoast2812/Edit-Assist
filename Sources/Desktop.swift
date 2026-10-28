@@ -724,6 +724,9 @@ final class Desktop {
         }
     }
 
+    /// A caption block's words in reading order, with their boxes.
+    static func captionWords(_ block: [TextHit]) -> [(text: String, rect: CGRect)] { tokens(of: block).map { ($0.text, $0.rect) } }
+
     private static func tokens(of block: [TextHit]) -> [(text: String, rect: CGRect, line: CGRect)] {
         var words: [(text: String, rect: CGRect, line: CGRect)] = []
         for line in readingOrder(block) {
