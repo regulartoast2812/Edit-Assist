@@ -1433,9 +1433,12 @@ final class Store: ObservableObject {
                     var justSplit: Int?
                     /// Down failed and Shift+Down worked, in a row; from two, Shift+Down goes first.
                     var downFailures = 0, anyTrackFirst = false
-                    /// The time read has followed the playhead on a step of this run: from then on it alone says whether a
-                    /// step moved. Before, the caption and the pixels count too, for layouts whose time does not follow it.
-                    var timeFollows = false
+                    /// The time read has gone forward on two steps of this run and never backward: from then on it alone says
+                    /// whether a step moved. Before, or once it has gone backward on a step forward (a wrong timecode read, as on
+                    /// 2026-10-28, when trusting it made real steps look still and two keys skipped captions), the caption and
+                    /// the pixels count too.
+                    var forwardSteps = 0, timeUnreliable = false
+                    var timeFollows: Bool { !timeUnreliable && forwardSteps >= 2 }
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1653,7 +1656,10 @@ final class Store: ObservableObject {
                                     }
                                 } else if !anyTrackFirst { downFailures = 0 }
                                 let now = state.now
-                                if let was, let now, abs(now - was) > 0.01 { timeFollows = true }
+                                if let was, let now, abs(now - was) > 0.01 {
+                                    if now > was { forwardSteps += 1 }
+                                    else if !timeUnreliable { timeUnreliable = true; log("OCR: the time read went backward on a step forward; not trusting it alone for this run") }
+                                }
                                 let captionStill = state.after == caption
                                 let timeStill = state.still
                                 log(String(format: "OCR: next edit point %@ -> %@%@ in %.2fs",

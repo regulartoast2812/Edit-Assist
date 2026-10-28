@@ -1125,6 +1125,20 @@ struct Checks {
             let spaced = try ScriptParser.parse("My bust sits** higher, rounder,**")[0]
             check(spaced.highlights.map { Store.wholeWords($0, in: spaced.text) } == [" higher, rounder,"], "Bold starting at a space is left as it is")
         }
+        // The playhead's time is the timeline's own display above its ruler, not a clip list's times higher up (2026-10-28).
+        do {
+            let list = [TextHit(text: "00:00:00:00", rect: CGRect(x: 0.203, y: 0.218, width: 0.036, height: 0.012)),
+                        TextHit(text: "00:00:01:10", rect: CGRect(x: 0.262, y: 0.217, width: 0.035, height: 0.013))]
+            let timeline = [TextHit(text: "00:00:05:02", rect: CGRect(x: 0.054, y: 0.537, width: 0.047, height: 0.012)),
+                            TextHit(text: "00:00:05:00", rect: CGRect(x: 0.308, y: 0.56, width: 0.036, height: 0.012)),
+                            TextHit(text: "00:00:10:00", rect: CGRect(x: 0.471, y: 0.56, width: 0.036, height: 0.012)),
+                            TextHit(text: "00:00:15:00", rect: CGRect(x: 0.634, y: 0.56, width: 0.036, height: 0.012)),
+                            TextHit(text: "Subtitle", rect: CGRect(x: 0.122, y: 0.613, width: 0.025, height: 0.012))]
+            let monitor = [TextHit(text: "00:00:05:02", rect: CGRect(x: 0.732, y: 0.849, width: 0.048, height: 0.015)),
+                           TextHit(text: "00:00:51:19", rect: CGRect(x: 0.933, y: 0.852, width: 0.048, height: 0.012))]
+            let time = Desktop.playheadTime(in: list + timeline + monitor)
+            check(time.map { abs($0 - 5.067) < 0.01 } == true, "The timeline's time is read, not a clip list's (\(time ?? -1))")
+        }
         // Inside the Program Monitor's picture a caption with no tall or hanging letters is still a caption (2026-10-26:
         // "on the outside?" at 0.0234 against interface text 0.0139); outside the picture the bar stays.
         do {

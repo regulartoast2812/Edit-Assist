@@ -471,7 +471,7 @@ final class Desktop {
         // The picture and the time display under it; the panel's rulers, buttons and tab come from the base reading.
         let monitorTimes = found.others.filter { panel.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }.map(\.rect)
         let program = monitorTimes.reduce(picture) { $0.union($1) }.insetBy(dx: -0.008, dy: -0.008).intersection(unit)
-        let current = found.others.filter { !panel.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) }.min { $0.rect.minY < $1.rect.minY }
+        let current = playheadStamp(in: hits).flatMap { panel.contains(CGPoint(x: $0.rect.midX, y: $0.rect.midY)) ? nil : $0 }
         let stamps = found.ruler.map(\.rect) + (current.map { [$0.rect] } ?? [])
         guard let first = stamps.first else { return [program] }
         let band = stamps.dropFirst().reduce(first) { $0.union($1) }
@@ -2095,10 +2095,17 @@ final class Desktop {
     /// The playhead's current time, read from the timecode in the timeline header. Used to tell
     /// whether stepping to the next edit point actually moved, which is how the end of the sequence
     /// is detected rather than guessed from a step count.
-    static func playheadTime(in hits: [TextHit]) -> Double? {
+    static func playheadTime(in hits: [TextHit]) -> Double? { playheadStamp(in: hits)?.time }
+
+    /// The timeline's current-time display: the timecode right above its ruler. Not simply the highest timecode on
+    /// screen: a panel listing clips with their times (00:00:00:00, 00:00:01:10…) above the timeline was read as the
+    /// playhead on 2026-10-28, every step looked wrong and phrases were skipped. That stays the fallback only.
+    static func playheadStamp(in hits: [TextHit]) -> (time: Double, rect: CGRect)? {
         let found = timecodes(in: hits)
-        guard found.ruler.count >= 2 else { return found.others.first?.time }
-        return found.others.min { $0.rect.minY < $1.rect.minY }?.time
+        guard found.ruler.count >= 2, let rulerTop = found.ruler.map(\.rect.minY).min() else { return found.others.first }
+        let header = found.others.filter { $0.rect.maxY <= rulerTop + 0.005 && rulerTop - $0.rect.maxY < 0.06 }
+        if let nearest = header.max(by: { $0.rect.maxY < $1.rect.maxY }) { return nearest }
+        return found.others.min { $0.rect.minY < $1.rect.minY }
     }
 
     /// Where the playhead should be, derived from the timeline ruler rather than from pixels: the
