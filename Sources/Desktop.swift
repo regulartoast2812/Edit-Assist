@@ -2272,7 +2272,9 @@ final class Desktop {
 
     private func validateWindow(_ observation: Observation) throws {
         try Task.checkCancellation()
-        guard armed, canControl else { throw AssistError.message("Desktop control is stopped or Accessibility permission is missing.") }
+        // Two different causes, said apart: one message for both read as a permission problem when only control was off.
+        guard canControl else { throw AssistError.message("Accessibility permission is missing: Edit Assist cannot click or type.\n→ Turn it on in Settings → Permissions, then run again.") }
+        guard armed else { throw AssistError.message("Edit Assist's control was off when it tried to act, so nothing was clicked.\n→ Run again; if it repeats, send the log.") }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == observation.window.pid else {
             throw AssistError.message("Focus left \(observation.window.app). Paused without clicking.")
         }

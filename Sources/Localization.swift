@@ -454,6 +454,8 @@ enum Vietnamese {
         "Enable Accessibility for Edit Assist before running mouse or keyboard actions.": "Hãy bật Accessibility cho Edit Assist trước khi chạy thao tác chuột hoặc bàn phím.",
         "Allow Mouse & keyboard first: Edit Assist menu → Permissions…": "Hãy cho phép Chuột và bàn phím trước: menu Edit Assist → Permissions…",
         "Desktop control is stopped or Accessibility permission is missing.": "Điều khiển đã dừng hoặc thiếu quyền Accessibility.",
+        "Accessibility permission is missing: Edit Assist cannot click or type.\n→ Turn it on in Settings → Permissions, then run again.": "Thiếu quyền Accessibility: Edit Assist không thể bấm hoặc gõ.\n→ Bật quyền trong Cài đặt → Quyền, rồi chạy lại.",
+        "Edit Assist's control was off when it tried to act, so nothing was clicked.\n→ Run again; if it repeats, send the log.": "Điều khiển của Edit Assist đang tắt khi nó định thao tác, nên không có gì được bấm.\n→ Chạy lại; nếu vẫn lặp lại, hãy gửi nhật ký.",
         "Open Premiere or After Effects first.": "Hãy mở Premiere hoặc After Effects trước.",
         "That window has closed. Click the window you want to work in, then try again.": "Cửa sổ đó đã đóng. Hãy bấm vào cửa sổ bạn muốn làm việc, rồi thử lại.",
         "Open Premiere or After Effects and click its window.": "Hãy mở Premiere hoặc After Effects và bấm vào cửa sổ của nó.",
