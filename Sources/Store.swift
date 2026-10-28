@@ -2675,6 +2675,11 @@ final class Store: ObservableObject {
                                     // and column are known now. The reference image must be the whole tile — a cut-off
                                     // one never matches later — so bring the row into view and take it from there.
                                     log("OCR: you picked R\(hidden.row + 1) C\(hidden.column + 1), partly hidden; bringing it into view to capture it")
+                                    // The bot scrolls now, so its control is on for that (it is off while you pick, so your click
+                                    // is not taken for taking over); a scroll sent with it off was refused and the run stopped
+                                    // (2026-10-28). Back off once the tile is in view, for any further pick.
+                                    desktop.armed = true
+                                    defer { if picked == nil { desktop.armed = false } }
                                     var whole: CGRect?
                                     for _ in 0 ..< 4 where whole == nil {
                                         let step = try await scrollStyles(hidden.row < first ? 3 : -3, over: area)
@@ -2701,6 +2706,7 @@ final class Store: ObservableObject {
                             let pickedAppearance = Desktop.cellPatch(latest.image, cell: choice.cell)
                             // Applied the way the project says, by the bot, whatever you did after picking: a right-click pick
                             // only opened the tile's menu, and what you chose in it is not repeated.
+                            desktop.armed = true   // the bot acts from here on: confirming the row, applying without font
                             // Chosen with the keys: apply it without font here, so this phrase is certainly done that way.
                             if pickedWithoutFont, case .key("return")? = menuEvent {
                                 guard try await applyWithoutFont(choice.cell, on: latest) else {
