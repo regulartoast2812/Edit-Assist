@@ -114,6 +114,16 @@ struct ScriptMap {
         return best?.start
     }
 
+    /// Bold words from `from` up to (not including) `to` still to style: `styled` gives how many words of a phrase are done,
+    /// nil for a phrase finished. A step that landed past such words passed over the captions holding them.
+    func unstyled(from: Int, to: Int, styled: (Int) -> Int?) -> [Int] {
+        guard from < to else { return [] }
+        return (max(0, from) ..< min(to, words.count)).filter { i in
+            guard let p = words[i].phrase, let done = styled(p) else { return false }
+            return words[i].index >= done
+        }
+    }
+
     /// A caption word that is two script words read as one ("rightup"), split back so the words line up.
     func split(_ read: String) -> [String]? {
         guard !vocabulary.contains(read), read.count >= 4 else { return nil }

@@ -1154,6 +1154,25 @@ struct Checks {
             let near = map.locate(["wire"], near: 20, same: same)
             check(near.map { map.words[$0].phrase } == 7, "A one-word caption is the next one in the script")
         }
+        // A step past captions is seen in the script: Shift+Down stops only at video cuts, and went from "See that curved
+        // wire?" straight to "Giving me that round", past "heavy lifting from below" (2026-10-28).
+        do {
+            let lines = try ScriptParser.parse("""
+            See that **curved wire?** It's doing all the **heavy lifting from below**
+            Giving me that **round, push-up effect**
+            """)
+            let map = ScriptMap(lines: lines)
+            let same: (String, String) -> Bool = { ScriptMap.same($0, $1, lookalikes: Desktop.lookalikes) }
+            let before = ["see", "that", "curved", "wire"], after = ["giving", "me", "that", "round"]
+            let end = (map.locate(before, near: 0, same: same) ?? -99) + before.count
+            let landed = map.locate(after, near: end, same: same) ?? -1
+            let todo: (Int) -> Int? = { $0 == 0 ? nil : 0 }   // curved wire? done
+            check(map.unstyled(from: end, to: landed, styled: todo).map { map.words[$0].text } == ["heavy", "lifting", "from", "below"],
+                  "The bold words passed over between two captions are found")
+            check(map.unstyled(from: end, to: landed, styled: { _ in nil }).isEmpty, "Nothing passed over once those are styled")
+            let next = map.locate(["push", "up", "effect"], near: landed, same: same) ?? -1
+            check(map.unstyled(from: landed + after.count, to: next, styled: todo).isEmpty, "The next caption right after is no gap")
+        }
         // The playhead's time is the timeline's own display above its ruler, not a clip list's times higher up (2026-10-28).
         do {
             let list = [TextHit(text: "00:00:00:00", rect: CGRect(x: 0.203, y: 0.218, width: 0.036, height: 0.012)),

@@ -118,6 +118,12 @@ fallback for a caption that cannot be placed, and then only for phrases near the
 - **Step with Shift+Down (any track), not Down.** Down stops only at edit points of the targeted tracks (the video
   cuts); where they do not line up with the captions it skipped captions (2026-10-28). Down only if Shift+Down
   does not move.
+- **Edit points are never caption clips, so check every step against the script.** Shift+Down stops only at video
+  and audio cuts; a caption with no cut inside it is stepped over (2026-10-28, checked against the project file:
+  "heavy lifting from below" 7.90–9.37 s and "push-up effect" 10.70–11.57 s never shown). When the caption landed
+  on is later in the script than the last one by bold words not yet styled, step back five frames at a time
+  (Shift+Left) and style each caption met, until none of them is left before it or the last caption's time is
+  reached; each passed-over word is looked for once (`walkedPast`).
 - **A phrase split across clips: step to the next edit point before matching the rest.** The rest
   cannot be on the screen just styled.
 - **Selected = the Properties panel shows text controls** (C1: Subtitle, Track Style, Font Size, a

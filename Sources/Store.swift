@@ -1179,16 +1179,16 @@ final class Store: ObservableObject {
     /// The script as words in order for this run, and where the last caption read sits in it.
     var runScriptMap: ScriptMap?
     var scriptCursor = 0, scriptPlaced = false
+    /// Just after the last word of the last caption placed.
+    var scriptEnd: Int?
     /// Once captions are being placed in the script, the fallback search looks only for phrases near that place.
     var phraseWindow: ClosedRange<Int>?
+    /// Bold words passed over by a step and then looked for by stepping back; not looked for twice.
+    var walkedPast: Set<Int> = []
 
-    /// The phrase to style on this screen, from where its caption sits in the script: the caption's words are placed in
-    /// the script (`ScriptMap.locate`), and the bold words of that part, not yet styled, are the ones selected, by their
-    /// place in the caption. `placed` false when no caption on screen could be placed (then the search by phrase is used).
-    /// `endsCaption`: the phrase goes on past this caption's last word, so its rest is on the next clip.
-    func placedVisible(in hits: [TextHit], minHeight: CGFloat, area: CGRect?) -> (placed: Bool, hit: (index: Int, phrase: String, span: Desktop.Span, matched: Int, from: Int)?, endsCaption: Bool) {
-        guard let map = runScriptMap else { return (false, nil, false) }
-        let left = Set(remaining)
+    /// Where a caption on screen sits in the script, with its words as read (two words read as one split back).
+    func scriptPlace(in hits: [TextHit], minHeight: CGFloat, area: CGRect?, near cursor: Int) -> (start: Int, read: [(text: String, rect: CGRect)])? {
+        guard let map = runScriptMap else { return nil }
         for block in Desktop.captionBlocks(in: hits, minHeight: minHeight, area: area) {
             var read: [(text: String, rect: CGRect)] = []
             for word in Desktop.captionWords(block) {
@@ -1198,8 +1198,37 @@ final class Store: ObservableObject {
                 read.append((parts[0], head))
                 read.append((parts[1], CGRect(x: head.maxX, y: word.rect.minY, width: word.rect.width - head.width, height: word.rect.height)))
             }
-            guard let start = map.locate(read.map(\.text), near: scriptCursor, same: { ScriptMap.same($0, $1, lookalikes: Desktop.lookalikes) }) else { continue }
-            scriptCursor = start; scriptPlaced = true
+            if let start = map.locate(read.map(\.text), near: cursor, same: { ScriptMap.same($0, $1, lookalikes: Desktop.lookalikes) }) {
+                return (start, read)
+            }
+        }
+        return nil
+    }
+
+    /// Script words by place, for the log.
+    func scriptWords(_ places: [Int]) -> String {
+        places.compactMap { runScriptMap?.words[$0].text }.joined(separator: " ")
+    }
+
+    /// Bold words between two places in the script still to style and not looked for already.
+    func passedOver(from: Int, to: Int) -> [Int] {
+        guard let map = runScriptMap else { return [] }
+        let left = Set(remaining)
+        return map.unstyled(from: from, to: to) { p in
+            left.contains(p) && p < targets.count ? styled(targets[p]) : nil
+        }.filter { !walkedPast.contains($0) }
+    }
+
+    /// The phrase to style on this screen, from where its caption sits in the script: the caption's words are placed in
+    /// the script (`ScriptMap.locate`), and the bold words of that part, not yet styled, are the ones selected, by their
+    /// place in the caption. `placed` false when no caption on screen could be placed (then the search by phrase is used).
+    /// `endsCaption`: the phrase goes on past this caption's last word, so its rest is on the next clip.
+    func placedVisible(in hits: [TextHit], minHeight: CGFloat, area: CGRect?) -> (placed: Bool, hit: (index: Int, phrase: String, span: Desktop.Span, matched: Int, from: Int)?, endsCaption: Bool) {
+        guard let map = runScriptMap else { return (false, nil, false) }
+        let left = Set(remaining)
+        if let place = scriptPlace(in: hits, minHeight: minHeight, area: area, near: scriptCursor) {
+            let start = place.start, read = place.read
+            scriptCursor = start; scriptPlaced = true; scriptEnd = start + read.count
             var groups: [(phrase: Int, items: [(i: Int, word: Int)])] = []
             for i in read.indices where start + i < map.words.count {
                 guard let p = map.words[start + i].phrase else { continue }
@@ -1451,6 +1480,7 @@ final class Store: ObservableObject {
                     }
                     if all { log("OCR: new pass from the current playhead; prior progress cleared") }
                     runScriptMap = ScriptMap(lines: parsed); scriptCursor = 0; scriptPlaced = false; phraseWindow = nil
+                    scriptEnd = nil; walkedPast = []
                     /// The screen read after stepping to the next caption: it is the next scan, not read again.
                     var nextShot: Observation?
                     /// The timeline has keyboard focus (a step just moved the playhead); styling a phrase moves it away.
@@ -1496,6 +1526,15 @@ final class Store: ObservableObject {
                     /// the pixels count too.
                     var forwardSteps = 0, timeUnreliable = false
                     var timeFollows: Bool { !timeUnreliable && forwardSteps >= 2 }
+                    /// Premiere's edit points are the cuts of video and audio tracks, never caption clips: a caption with no cut
+                    /// inside it is stepped over (2026-10-28: "See that curved wire?" at 5.43 s straight to "Giving me that round"
+                    /// at 9.37 s, past "heavy lifting from below" at 7.90 s, and so on all run). Where the caption landed on is
+                    /// later in the script than the last one by bold words not yet styled, the playhead steps back five frames
+                    /// at a time (Shift+Left) and each caption met is styled, until none of those words is left before it or
+                    /// the time of the last caption placed is reached.
+                    var walkBack: (from: Int, to: Int, until: Double?, presses: Int)?
+                    /// The playhead's time where a caption was last placed in the script.
+                    var placedTime: Double?
                     repeat {
                         try Task.checkCancellation()
                         guard selected == id, generation == token else { return }
@@ -1520,6 +1559,7 @@ final class Store: ObservableObject {
                         let placed = anyTarget ? (placed: false, hit: nil, endsCaption: false)
                             : placedVisible(in: shot.text, minHeight: captionFloor, area: searchArea)
                         phraseWindow = scriptPlaced ? max(0, scriptCursor - 5) ... (scriptCursor + 60) : nil
+                        if placed.placed { placedTime = Desktop.playheadTime(in: shot.text) ?? placedTime }
                         var found = placed.placed ? placed.hit : nextVisible(in: shot.text, anyTarget: anyTarget, minHeight: captionFloor, area: searchArea)
                         // Only part of a phrase from its start: reading misses a word now and then ("up" of "it just scoops /
                         // everything up", read at once after styling), and styling the part sends the rest to look on the next
@@ -1608,11 +1648,24 @@ final class Store: ObservableObject {
                                 }
                                 log("OCR: caption here reads \u{201c}\(caption)\u{201d}\(near.isEmpty ? "" : " — partial: " + near.joined(separator: ", "))")
                                 let was = Desktop.playheadTime(in: shot.text)
+                                // Stepping back for captions stepped over ends once none of their bold words is left before
+                                // this caption, or at the time of the caption placed before them.
+                                if let walk = walkBack {
+                                    let left = passedOver(from: walk.from, to: placed.placed ? min(scriptCursor, walk.to) : walk.to)
+                                    let reached = walk.until.flatMap { until in was.map { $0 <= until + 0.01 } } ?? false
+                                    if left.isEmpty || reached || walk.presses >= 40 {
+                                        walkedPast.formUnion(passedOver(from: walk.from, to: walk.to))
+                                        walkBack = nil
+                                        log(left.isEmpty ? "OCR: the captions stepped over are done; on from here"
+                                            : "OCR: stepped back to the caption before without finding “\(scriptWords(left))”; on from here")
+                                    }
+                                }
+                                let walking = walkBack != nil
                                 let stepBegan = Date()
                                 /// What "the caption has not changed" is measured against: this reading, or the one after Escape.
                                 var baseline = caption
                                 // A phrase that may start with this caption's last word and go on in the next clip.
-                                let headHere = graphics || mustAdvance ? nil : phraseCandidates().first { candidate in
+                                let headHere = graphics || mustAdvance || walking ? nil : phraseCandidates().first { candidate in
                                     candidate.from == 0 && candidate.tokens.count >= 2
                                         && Desktop.headAtCaptionEnd(candidate.tokens[0], in: shot.text, minHeight: captionFloor, area: searchArea) != nil
                                 }
@@ -1678,8 +1731,8 @@ final class Store: ObservableObject {
                                 // Down stops only at edit points on targeted tracks; where it has not moved the playhead twice in
                                 // a row and Shift+Down (any track) has, this run tries Shift+Down first: Down failing cost a key, a
                                 // wait and a whole-window reading on every step. Either way the other key follows if it does not move.
-                                let firstKeys = anyTrackFirst ? ["shift", "down"] : ["down"]
-                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: firstKeys, scroll: 0, purpose: "Next edit point"), on: jump)
+                                let firstKeys = walking ? ["shift", "left"] : anyTrackFirst ? ["shift", "down"] : ["down"]
+                                try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: firstKeys, scroll: 0, purpose: walking ? "Back five frames" : "Next edit point"), on: jump)
                                 try await Task.sleep(for: .milliseconds(120))
                                 var moved = try await readCaptions()
                                 // The time read can come from a timecode that does not follow the playhead, and the
@@ -1699,7 +1752,7 @@ final class Store: ObservableObject {
                                 }
                                 var state = standing(moved)
                                 var stepKeys = firstKeys
-                                if state.still {
+                                if state.still, !walking {
                                     stepKeys = anyTrackFirst ? ["down"] : ["shift", "down"]
                                     // Down only stops at edit points on targeted tracks, usually the captions. Graphics
                                     // and other clips on video tracks are reached with Shift+Down, any track.
@@ -1713,16 +1766,27 @@ final class Store: ObservableObject {
                                     }
                                 }
                                 let now = state.now
-                                if let was, let now, abs(now - was) > 0.01 {
+                                if !walking, let was, let now, abs(now - was) > 0.01 {
                                     if now > was { forwardSteps += 1 }
                                     else if !timeUnreliable { timeUnreliable = true; log("OCR: the time read went backward on a step forward; not trusting it alone for this run") }
                                 }
                                 let captionStill = state.after == caption
                                 let timeStill = state.still
-                                log(String(format: "OCR: next edit point %@ -> %@%@ in %.2fs",
+                                log(String(format: "OCR: %@ %@ -> %@%@ in %.2fs", walking ? "back five frames" : "next edit point",
                                            was.map { String(format: "%.2fs", $0) } ?? "?",
                                            now.map { String(format: "%.2fs", $0) } ?? "?",
                                            captionStill ? "" : " (caption changed)", Date().timeIntervalSince(stepBegan)))
+                                if walking, let walk = walkBack {
+                                    walkBack?.presses += 1
+                                    // At the sequence's start, or the key went nowhere: on from here, not the end of the sequence.
+                                    if timeStill {
+                                        walkedPast.formUnion(passedOver(from: walk.from, to: walk.to))
+                                        walkBack = nil
+                                        timelineFocused = false
+                                        log("OCR: stepping back did not move the playhead; on from here")
+                                        continue
+                                    }
+                                }
                                 if timeStill {
                                     stalled += 1
                                     if stalled >= 3 {
@@ -1778,6 +1842,16 @@ final class Store: ObservableObject {
                                         } else {
                                             log("OCR: going back did not return to \(String(format: "%.2fs", was)); carrying on from here")
                                             nextShot = back
+                                        }
+                                    }
+                                    // Landed past captions: the script has bold words not yet styled between the last caption
+                                    // placed and this one. This one first, then back for those.
+                                    if !walking, !anyTarget, splitHead == nil, let end = scriptEnd, let landed = nextShot,
+                                       let ahead = scriptPlace(in: landed.text, minHeight: captionFloor, area: searchArea, near: scriptCursor)?.start {
+                                        let missed = passedOver(from: end, to: ahead)
+                                        if !missed.isEmpty {
+                                            walkBack = (end, ahead, placedTime, 0)
+                                            log("OCR: this step went past captions: “\(scriptWords(missed))” comes before this caption in the script and is not styled (Premiere's edit points are video cuts, not caption clips); stepping back five frames at a time for it after this caption")
                                         }
                                     }
                                 }
