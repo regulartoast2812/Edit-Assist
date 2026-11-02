@@ -748,6 +748,7 @@ final class Store: ObservableObject {
             }
         }
         if projects.isEmpty { projects = [Project()] }
+        backupProjects("launch")
         let remembered = UserDefaults.standard.string(forKey: "selectedProject").flatMap(UUID.init(uuidString:))
         selected = projects.first(where: { $0.id == remembered })?.id ?? projects.first?.id
         Desktop.styleRows.onReset = { [weak self] why, frame, before in
@@ -842,7 +843,27 @@ final class Store: ObservableObject {
     }
     func update<T>(_ path: WritableKeyPath<Project, T>, _ value: T) {
         guard !running else { return }
+        // A script with text about to become empty: a copy of the projects first, and where the change came from in the
+        // log. On 2026-11-02 a script was found empty after an update was installed, cause unknown and nothing to restore.
+        if (path as AnyKeyPath) == \Project.script, let new = value as? String,
+           new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !project.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            backupProjects("script-emptied")
+            log("Script: “\(project.name)” is being emptied; saved a copy of the projects first. From:\n"
+                + Thread.callStackSymbols.dropFirst().prefix(12).joined(separator: "\n"))
+        }
         projects[index][keyPath: path] = value; save()
+    }
+    /// A copy of projects.json in Backups, the last ten kept: one each launch, and one before a script is emptied.
+    func backupProjects(_ reason: String) {
+        let file = folder.appendingPathComponent("projects.json")
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        let backups = folder.appendingPathComponent("Backups", isDirectory: true)
+        let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "-")
+        try? FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(at: file, to: backups.appendingPathComponent("projects-\(stamp)-\(reason).json"))
+        let kept = ((try? FileManager.default.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix("projects-") }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        for old in kept.dropFirst(10) { try? FileManager.default.removeItem(at: old) }
     }
     /// A new project takes the style and size settings of the one you are on (font size step, Apply, Keep style),
     /// so it behaves like the project you just used: a fresh default of step 0 styled a whole run without sizing.
