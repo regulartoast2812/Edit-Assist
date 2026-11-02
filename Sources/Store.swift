@@ -1382,7 +1382,7 @@ final class Store: ObservableObject {
     /// One phrase is roughly a capture plus half a second of recognition.
     /// `graphics`: work on graphic text instead of captions (Highlight graphics). Every graphics rule below is
     /// behind it, so a caption run decides exactly as it did before graphics were added.
-    func runOCR(all: Bool, record: Bool = true, anyTarget: Bool = false, countdown: Int = 3, only: Set<String>? = nil, graphics: Bool = false) {
+    func runOCR(all: Bool, record: Bool = true, anyTarget: Bool = false, countdown: Int = 1, only: Set<String>? = nil, graphics: Bool = false) {
         guard !busy else { return }
         do {
             guard !targets.isEmpty else { throw AssistError.message("Paste a script with bold phrases first.") }
@@ -2413,7 +2413,9 @@ final class Store: ObservableObject {
                                 // phrase, and no menu is ever open here (a right-click pick is applied by your own choice).
                                 var item: TextHit?
                                 var presses = 0
-                                for (press, patience) in [(1, 0.6), (2, 1.0)] where item == nil {
+                                // A third, more patient right-click before giving up: a slow moment on a busy Mac is no reason
+                                // to stop the run.
+                                for (press, patience) in [(1, 0.6), (2, 1.0), (3, 1.5)] where item == nil {
                                     presses = press
                                     try await perform(AgentAction(kind: "rightClick", x: cell.midX, y: cell.midY, endX: 0, endY: 0, keys: [], scroll: 0, purpose: "Open your style's menu"), on: shot)
                                     let pressed = Date()
@@ -2428,7 +2430,7 @@ final class Store: ObservableObject {
                                 }
                                 if item != nil, presses == 1 { desktop.tilePressWorked() }
                                 guard let item else {
-                                    log("OCR: “\(Desktop.withoutFontItem)” did not show in your style's menu after two right-clicks")
+                                    log("OCR: “\(Desktop.withoutFontItem)” did not show in your style's menu after three right-clicks")
                                     try await perform(AgentAction(kind: "key", x: 0, y: 0, endX: 0, endY: 0, keys: ["escape"], scroll: 0, purpose: "Close the menu"), on: shot)
                                     return false
                                 }

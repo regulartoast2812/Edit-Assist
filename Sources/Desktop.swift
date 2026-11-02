@@ -2322,17 +2322,26 @@ final class Desktop {
     /// every first right-click did nothing, the second, after the pointer had rested there, always worked. So: the
     /// scroll over for 0.3 s, then arrive, move within the tile and rest about 0.15 s.
     /// The pause after the list's last scroll before a tile is pressed, learnt on this Mac: doubled each time Premiere
-    /// ignores a press anyway (0.15, 0.3, 0.6, at most 0.8 s), and shortened by 0.05 s after ten first presses in a row
-    /// that worked. A fixed 0.3 s was still ignored after an 8-step scroll on 29 of 30 phrases (2026-10-26).
+    /// ignores a press anyway (0.15, 0.3, 0.6, at most 0.8 s). After three first presses in a row that worked it comes
+    /// straight back down to just above the pause that was ignored, never below it; from there 0.05 s after ten more. One
+    /// ignored press at 0.4 s kept every later phrase at 0.8 s for some eighty phrases (2026-11-02). A fixed 0.3 s was
+    /// still ignored after an 8-step scroll on 29 of 30 phrases (2026-10-26).
     var tileWait: Double {
         get { UserDefaults.standard.object(forKey: "tilePause") as? Double ?? 0.15 }
         set { UserDefaults.standard.set(newValue, forKey: "tilePause") }
     }
     private var tilePressesWorked = 0
-    func tilePressIgnored() { tileWait = min(0.8, max(0.3, tileWait * 2)); tilePressesWorked = 0 }
+    /// The pause Premiere last ignored a press after, while this app runs: shortening stops just above it.
+    private var tileWaitTooShort = 0.0
+    func tilePressIgnored() {
+        tileWaitTooShort = tileWait
+        tileWait = min(0.8, max(0.3, tileWait * 2)); tilePressesWorked = 0
+    }
     func tilePressWorked() {
         tilePressesWorked += 1
-        if tilePressesWorked >= 10 { tileWait = max(0.15, tileWait - 0.05); tilePressesWorked = 0 }
+        let floor = min(0.8, max(0.15, tileWaitTooShort + 0.05))
+        if tileWait > floor + 0.001, tilePressesWorked >= 3 { tileWait = floor; tilePressesWorked = 0 }
+        else if tilePressesWorked >= 10 { tileWait = max(floor, tileWait - 0.05); tilePressesWorked = 0 }
     }
     private func settleOnTile(_ p: CGPoint, source: CGEventSource?, button: CGMouseButton) async throws {
         let sinceScroll = Date().timeIntervalSince(lastScroll)

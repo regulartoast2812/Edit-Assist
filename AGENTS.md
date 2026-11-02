@@ -74,7 +74,9 @@ Properties fixture a second time from the panel read alone, so a region that los
 **Without font**, learnt from your pick: a left-click on your tile is the normal style; a right-click followed by
 "Apply Style without Font" (the item under your click, read from the screen) is saved with the style
 (`RememberedStyle.withoutFont`), and every phrase then gets it that way: the bot right-clicks the tile and clicks
-the item by its name (`Desktop.readScreen`, `menuItem` allowing a few misread letters). Any other item, a click
+the item by its name (`Desktop.readScreen`, `withoutFontLine`: a word near "font" and within a third of the
+item's letters, since "l Appty Style wlthoth font" was read once, 2026-11-02), right-clicking up to three times
+(0.6, 1.0, 1.5 s for the menu) before stopping. Any other item, a click
 outside or Escape is not learnt and the pick starts again. No raw input is replayed: a build that replayed it
 repeated a misread item ("wlthout") and a misclick on every phrase (2026-10-26). No switch for it in the window
 (you asked for none). Premiere's style menu is not a window the window list finds; `clickMenu` clicks only where

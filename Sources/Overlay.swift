@@ -276,9 +276,13 @@ private struct OverlayView: View {
                 ZStack {
                     Circle().fill((model.canContinue ? accent : model.paused ? Color.orange : accent).opacity(model.canContinue ? 0.28 : 0.18))
                         .frame(width: 34, height: 34)
-                    Image(systemName: model.prompting ? "hand.point.up.left.fill" : model.canContinue ? "play.fill" : model.paused ? "pause.fill" : "cursorarrow.motionlines")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(model.canContinue ? accent : model.paused ? .orange : accent)
+                    if model.prompting || model.canContinue || model.paused {
+                        Image(systemName: model.prompting ? "hand.point.up.left.fill" : model.canContinue ? "play.fill" : "pause.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(model.canContinue ? accent : model.paused ? .orange : accent)
+                    } else {
+                        PixelCrab()
+                    }
                 }
             }
             .buttonStyle(.plain).disabled(!model.canContinue)
@@ -332,6 +336,46 @@ private struct OverlayView: View {
             .help(L("Stop this run"))
             .padding(6)
         }
+    }
+}
+
+/// The running mark: a pixel-art crab with a handlebar mustache, scuttling in four frames (claws snap, legs shuffle,
+/// the mustache twitches). Still when Reduce Motion is on.
+private struct PixelCrab: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let claws = [[".R.R........R.R.", ".RRR........RRR."],    // open
+                                [".RR..........RR.", ".RRR........RRR."]]    // shut
+    private static let head = ["..R..WK..KW..R..", "..R...D..D...R.."]
+    private static let body = [["...RRRRRRRRRR...", "..RMRRRRRRRRMR..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."],   // handlebar
+                               ["...RRRRRRRRRR...", "..MRRRRRRRRRRM..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."]]   // tips flicked out
+    private static let legs = [["..D.D.D..D.D.D..", ".D.D.D....D.D.D."],      // spread
+                               ["..D.D.D..D.D.D..", "..D.D.D..D.D.D.."]]      // under
+    private static let colors: [Character: Color] = [
+        "R": Color(red: 0.95, green: 0.38, blue: 0.25), "D": Color(red: 0.68, green: 0.2, blue: 0.14),
+        "W": .white, "K": .black, "M": Color(red: 0.16, green: 0.09, blue: 0.06),
+    ]
+    /// Frame by frame: which claws, mustache and legs, and the step sideways in pixels.
+    private static let frames: [(claws: Int, body: Int, legs: Int, shift: Int)] = [(0, 0, 0, 0), (1, 1, 1, 1), (0, 0, 0, 0), (1, 1, 1, -1)]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.16)) { context in
+            let frame = reduceMotion ? Self.frames[0]
+                : Self.frames[Int(context.date.timeIntervalSinceReferenceDate / 0.16) % Self.frames.count]
+            Canvas { canvas, size in
+                let rows = Self.claws[frame.claws] + Self.head + Self.body[frame.body] + Self.legs[frame.legs]
+                let pixel: CGFloat = 2
+                let left = ((size.width - 16 * pixel) / 2).rounded() + CGFloat(frame.shift) * pixel
+                let top = ((size.height - CGFloat(rows.count) * pixel) / 2).rounded()
+                for (y, row) in rows.enumerated() {
+                    for (x, mark) in row.enumerated() {
+                        guard let color = Self.colors[mark] else { continue }
+                        canvas.fill(Path(CGRect(x: left + CGFloat(x) * pixel, y: top + CGFloat(y) * pixel, width: pixel, height: pixel)), with: .color(color))
+                    }
+                }
+            }
+        }
+        .frame(width: 34, height: 28)
+        .accessibilityLabel(L("Running"))
     }
 }
 
