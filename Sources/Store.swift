@@ -709,7 +709,7 @@ final class Store: ObservableObject {
         for i in projects.indices where projects[i].rememberedStyle != nil && projects[i].rememberedStyle?.withoutFont == nil {
             let item = projects[i].rememberedStyle?.menu?.item
             if projects[i].styleWithoutFont == true
-                || item.map({ Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: $0, rect: .zero)]) != nil }) == true {
+                || item.map({ Desktop.withoutFontLine(in: [TextHit(text: $0, rect: .zero)]) != nil }) == true {
                 projects[i].rememberedStyle?.withoutFont = true
             }
         }
@@ -2407,7 +2407,7 @@ final class Store: ObservableObject {
                                 let frame = shot.window.frame
                                 let at = CGPoint(x: frame.minX + cell.midX * frame.width, y: frame.minY + cell.midY * frame.height)
                                 func find() async throws -> TextHit? {
-                                    Desktop.menuItem(Desktop.withoutFontItem, in: try await desktop.readScreen(around: at, size: CGSize(width: 760, height: 760)))
+                                    Desktop.withoutFontLine(in: try await desktop.readScreen(around: at, size: CGSize(width: 760, height: 760)))
                                 }
                                 // Straight to the right-click: a look for a menu already open cost a screen reading on every
                                 // phrase, and no menu is ever open here (a right-click pick is applied by your own choice).
@@ -2789,7 +2789,7 @@ final class Store: ObservableObject {
                                     case let .clicked(click)?:
                                         let item = items.filter { click.y >= $0.rect.minY - 4 && click.y <= $0.rect.maxY + 4 && $0.rect.minX - 60 <= click.x && click.x <= $0.rect.maxX + 300 }
                                             .min { abs($0.rect.midX - click.x) < abs($1.rect.midX - click.x) }
-                                        if let item, Desktop.menuItem(Desktop.withoutFontItem, in: [item]) != nil {
+                                        if let item, Desktop.withoutFontLine(in: [item]) != nil {
                                             pickedWithoutFont = true
                                         } else {
                                             log("OCR: you chose \(item.map { "“\($0.text)”" } ?? "outside the menu") after right-clicking; only a click on your style or Apply Style without Font is repeated — waiting for your style again")

@@ -202,6 +202,20 @@ final class Desktop {
     /// The item that applies a style and keeps the text's font.
     nonisolated static let withoutFontItem = "Apply Style without Font"
 
+    /// Apply Style without Font in a menu, read however badly: the fast read of the menu gave "l Appty Style wlthoth font"
+    /// (four letters off), and your pick of it was taken for a misclick (2026-11-02). A line with a word near "font" and
+    /// within a third of the item's letters counts; the nearest such line is the item. "Apply Style" alone has no font.
+    nonisolated static func withoutFontLine(in hits: [TextHit]) -> TextHit? {
+        if let item = menuItem(withoutFontItem, in: hits) { return item }
+        let wanted = normalized(withoutFontItem).joined(separator: " ")
+        return hits.compactMap { hit -> (hit: TextHit, distance: Int)? in
+            let words = normalized(hit.text)
+            guard words.contains(where: { letterDistance($0, "font") <= 1 }) else { return nil }
+            let distance = letterDistance(words.joined(separator: " "), wanted)
+            return distance <= wanted.count / 3 ? (hit, distance) : nil
+        }.min { $0.distance < $1.distance }?.hit
+    }
+
     /// Clicks a point of the open menu: only where something covers the editor's window there (the menu), so a
     /// menu that has closed never turns this into a click in the editor.
     func clickMenu(at p: CGPoint, over editor: CGWindowID) async throws {

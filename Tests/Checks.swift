@@ -1116,6 +1116,12 @@ struct Checks {
             check(Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: "Apply style wlthout font", rect: .zero)]) != nil, "A misread letter does not hide the item (2026-10-26)")
             check(Desktop.menuItem(Desktop.withoutFontItem, in: [TextHit(text: "Set as Track Style", rect: .zero), TextHit(text: "Apply Style", rect: .zero)]) == nil,
                   "Other items are never taken for Apply Style without Font")
+            check(Desktop.withoutFontLine(in: [TextHit(text: "l Appty Style wlthoth font", rect: .zero)]) != nil,
+                  "A badly read Apply Style without Font is still the item (2026-11-02: your pick was taken for a misclick)")
+            check(Desktop.withoutFontLine(in: items)?.text == "Apply Style without Font", "Among the menu's items, it is the one found")
+            check(Desktop.withoutFontLine(in: [TextHit(text: "Apply Style", rect: .zero), TextHit(text: "Set as Track Style", rect: .zero),
+                                               TextHit(text: "Font Size", rect: .zero), TextHit(text: "Delete", rect: .zero)]) == nil,
+                  "Apply Style, Font Size and other lines are never it")
         }
         // Bold that starts or ends inside a word is widened to the whole word (2026-10-22: "oft stretch", "his much lift").
         do {
