@@ -345,14 +345,15 @@ private struct PixelCrab: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let claws = [[".R.R........R.R.", ".RRR........RRR."],    // open
                                 [".RR..........RR.", ".RRR........RRR."]]    // shut
-    private static let head = ["..R..WK..KW..R..", "..R...D..D...R.."]
-    private static let body = [["...RRRRRRRRRR...", "..RMRRRRRRRRMR..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."],   // handlebar
-                               ["...RRRRRRRRRR...", "..MRRRRRRRRRRM..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."]]   // tips flicked out
+    private static let arms = ["..R..........R.."]
+    /// The eyes in the body, like Claude's crab.
+    private static let body = [["...RRRRRRRRRR...", "..RRRKRRRRKRRR..", "..RRRKRRRRKRRR..", "..RMRRRRRRRRMR..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."],   // handlebar
+                               ["...RRRRRRRRRR...", "..RRRKRRRRKRRR..", "..RRRKRRRRKRRR..", "..MRRRRRRRRRRM..", "..RMMMMRRMMMMR..", "..RRRMMMMMMRRR..", "...RRRRRRRRRR..."]]   // tips flicked out
     private static let legs = [["..D.D.D..D.D.D..", ".D.D.D....D.D.D."],      // spread
                                ["..D.D.D..D.D.D..", "..D.D.D..D.D.D.."]]      // under
     private static let colors: [Character: Color] = [
-        "R": Color(red: 0.95, green: 0.38, blue: 0.25), "D": Color(red: 0.68, green: 0.2, blue: 0.14),
-        "W": .white, "K": .black, "M": Color(red: 0.16, green: 0.09, blue: 0.06),
+        "R": Color(red: 217 / 255, green: 119 / 255, blue: 87 / 255), "D": Color(red: 168 / 255, green: 84 / 255, blue: 58 / 255),
+        "K": .black, "M": Color(red: 0.16, green: 0.09, blue: 0.06),
     ]
     /// Frame by frame: which claws, mustache and legs, and the step sideways in pixels.
     private static let frames: [(claws: Int, body: Int, legs: Int, shift: Int)] = [(0, 0, 0, 0), (1, 1, 1, 1), (0, 0, 0, 0), (1, 1, 1, -1)]
@@ -362,7 +363,7 @@ private struct PixelCrab: View {
             let frame = reduceMotion ? Self.frames[0]
                 : Self.frames[Int(context.date.timeIntervalSinceReferenceDate / 0.16) % Self.frames.count]
             Canvas { canvas, size in
-                let rows = Self.claws[frame.claws] + Self.head + Self.body[frame.body] + Self.legs[frame.legs]
+                let rows = Self.claws[frame.claws] + Self.arms + Self.body[frame.body] + Self.legs[frame.legs]
                 let pixel: CGFloat = 2
                 let left = ((size.width - 16 * pixel) / 2).rounded() + CGFloat(frame.shift) * pixel
                 let top = ((size.height - CGFloat(rows.count) * pixel) / 2).rounded()
