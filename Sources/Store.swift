@@ -44,7 +44,9 @@ final class Store: ObservableObject {
     /// The project you are on; remembered across restarts (the app used to open on the first project every time).
     @Published var selected: UUID? { didSet { if let selected { UserDefaults.standard.set(selected.uuidString, forKey: "selectedProject") } } }
     @Published var target: WindowChoice? { didSet { updateLiveFeed() } }
-    @Published var detectNote = ""
+    /// Why the editor cannot be followed, if it cannot. Written to the log when it changes: on a Mac where Edit Assist never
+    /// saw Premiere, this was the only trace and it was on screen only.
+    @Published var detectNote = "" { didSet { if detectNote != oldValue, !detectNote.isEmpty { log("Detect: \(detectNote)") } } }
     /// Your click on a style tile while a pass waits to learn which style you want.
     private var pendingStyleClick: CGPoint?
     @Published var observation: Observation?
@@ -212,7 +214,9 @@ final class Store: ObservableObject {
         status = "Continuing the current pass…"
     }
     @Published var status = "Ready"
-    @Published var error: String? { didSet { if let error { noteProblem(error) } } }
+    /// Alerts are written to the log too: kept only in memory, an error before any run (no Accessibility, Premiere not
+    /// found) was gone once the app restarted, before the log was sent.
+    @Published var error: String? { didSet { if let error { noteProblem(error); log("Error: \(error)") } } }
 
     /// What went wrong, newest last: alerts, runs that stopped, updates that failed. Shown by the error log button.
     /// `done`: during a run, the share of its phrases finished when it went wrong (0 nothing, 1 all), which is how
@@ -262,19 +266,49 @@ final class Store: ObservableObject {
             try? FileManager.default.removeItem(at: staging)
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            refreshPermissions()
+            var machine = utsname(); uname(&machine)
+            let chip = withUnsafeBytes(of: &machine.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+            let screens = NSScreen.screens.map { "\(Int($0.frame.width))x\(Int($0.frame.height)) @\(Int($0.backingScaleFactor))x" }.joined(separator: ", ")
+            let editor = target.map { "\($0.app) “\($0.title)” \(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "not seen\(detectNote.isEmpty ? "" : " (\(detectNote))")"
             let summary = """
-            Edit Assist \(Updater.current) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · Premiere \(premiere)
+            Edit Assist \(Updater.current) · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · \(chip) · Premiere \(premiere)
+            Screen Recording \(screenAllowed ? "allowed" : "NOT ALLOWED") · Accessibility \(controlAllowed ? "allowed" : "NOT ALLOWED") · app language \(language.rawValue)
+            Screens: \(screens) · Editor window: \(editor)
             Project: \(project.name) · \(problems.count) problem\(problems.count == 1 ? "" : "s") this session
 
             \(problems.isEmpty ? "No errors recorded this session." : problemsText)
             """
             try summary.write(to: staging.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
+            /// Files in a folder changed in the last two days.
+            func recentFiles(in directory: URL, _ keep: (URL) -> Bool = { _ in true }) -> [URL] {
+                ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+                    .filter { keep($0) && ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > Date().addingTimeInterval(-2 * 86400) }
+            }
             if FileManager.default.fileExists(atPath: activityLogURL.path) {
                 try FileManager.default.copyItem(at: activityLogURL, to: staging.appendingPathComponent("activity – \(name).log"))
             }
+            // Every other project's log used in the last two days: a run tried in one project and the log sent from another
+            // left out the run.
+            for other in recentFiles(in: folder, { $0.lastPathComponent.hasPrefix("activity-") && $0.pathExtension == "log" && $0 != activityLogURL }) {
+                let id = other.deletingPathExtension().lastPathComponent.dropFirst("activity-".count)
+                let label = projects.first { $0.id.uuidString == id }?.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-") ?? String(id)
+                try? FileManager.default.copyItem(at: other, to: staging.appendingPathComponent("activity – \(label).log"))
+            }
+            // The screen and its reading where a run last stopped (written beside the logs, not with the saved screens).
+            for dump in recentFiles(in: folder, { $0.lastPathComponent.hasPrefix("ocr-dump.") }) {
+                try? FileManager.default.copyItem(at: dump, to: staging.appendingPathComponent(dump.lastPathComponent))
+            }
+            // macOS's report of a crash, if Edit Assist crashed.
+            let crashes = recentFiles(in: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports"),
+                                      { $0.lastPathComponent.hasPrefix("EditAssist") })
+            if !crashes.isEmpty {
+                let folder = staging.appendingPathComponent("crashes", isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                for crash in crashes { try? FileManager.default.copyItem(at: crash, to: folder.appendingPathComponent(crash.lastPathComponent)) }
+            }
             let diagnostics = Recorder.root(in: folder).appendingPathComponent("diagnostics", isDirectory: true)
-            let recent = ((try? FileManager.default.contentsOfDirectory(at: diagnostics, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
-                .filter { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > Date().addingTimeInterval(-2 * 86400) }
+            let recent = recentFiles(in: diagnostics)
             if !recent.isEmpty {
                 let screens = staging.appendingPathComponent("screens", isDirectory: true)
                 try FileManager.default.createDirectory(at: screens, withIntermediateDirectories: true)
@@ -866,7 +900,8 @@ final class Store: ObservableObject {
         let entry = "\(Date().formatted(date: .omitted, time: .standard))  \(text)"
         activity.append(entry)
         if activity.count > 160 { activity.removeFirst() }
-        let path = folder.appendingPathComponent("activity-\(project.id.uuidString).log")
+        // No project yet (the saved projects could not be read): the app's own log, so the error is still kept.
+        let path = folder.appendingPathComponent("activity-\(projects.isEmpty ? "app" : project.id.uuidString).log")
         if !FileManager.default.fileExists(atPath: path.path) { FileManager.default.createFile(atPath: path.path, contents: nil) }
         if let file = try? FileHandle(forWritingTo: path) {
             defer { try? file.close() }
@@ -3002,6 +3037,8 @@ final class Store: ObservableObject {
                 } catch is CancellationError { log("Stopped by you") }
                 catch {
                     log("Paused: \(error.localizedDescription)")
+                    // The screen as it was when the run stopped, for the log: only the run's own stops saved one.
+                    if let now = try? await desktop.capture(window, readText: true) { writeDump(now, reason: error.localizedDescription) }
                     if generation == token {
                         overlay.update(step: 0, limit: targets.count, headline: "Stopped", detail: error.localizedDescription, confidence: nil, paused: true)
                         try? await Task.sleep(for: .seconds(4))
