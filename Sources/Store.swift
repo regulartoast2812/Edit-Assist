@@ -779,6 +779,19 @@ final class Store: ObservableObject {
         watchActivation()
         restartDetectionMode()
         refreshPermissions()
+        // A new build is a new app to macOS (ad-hoc signed): rows an earlier copy left in Screen Recording and Accessibility
+        // look turned on but do nothing, and "Ask macOS" then matched them and showed no popup. Once per build, when the
+        // permissions are not working, this app's own rows are cleared (and the "asked for Screen Recording" mark, which sent
+        // a new install straight to "Restart to finish"), so asking puts a fresh Edit Assist in the list.
+        let build = String(Updater.build)
+        if !permissionsReady, UserDefaults.standard.string(forKey: "permissionsClearedBuild") != build {
+            desktop.resetPermissions()
+            UserDefaults.standard.set(false, forKey: "screenRecordingRequested")
+            UserDefaults.standard.set(build, forKey: "permissionsClearedBuild")
+            refreshPermissions()
+            log("Permissions: not working on this new build (\(Updater.current)); cleared old entries so macOS asks afresh")
+        }
+        log("Permissions at launch: Screen Recording \(screenAllowed ? "allowed" : "not allowed"), Accessibility \(controlAllowed ? "allowed" : "not allowed") · \(Updater.current)")
         // A missing permission opens the setup at launch, so a new install is walked through it.
         if !permissionsReady { permissionsOpen = true }
         detect()

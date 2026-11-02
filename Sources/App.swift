@@ -978,7 +978,7 @@ struct PermissionsView: View {
                         Button(L("Open System Settings")) { openAfterAsking(control: true) }
                     }
                     Bullets(["Click **Ask macOS**", "In its popup, click **Open System Settings**", "Turn on **Edit Assist**"], numbered: true)
-                    Tip("No popup? Use **Open System Settings** here. Already on after an update? Turn it **off and on again**. This step ticks itself.")
+                    Tip("No popup? Use **Open System Settings** here. Not in the list? Click **+** and add **Edit Assist**. This step ticks itself.")
                 }
             }
             step(2, "Screen recording", "Lets Edit Assist see the Premiere window. It does not record or save your screen.",
@@ -991,7 +991,7 @@ struct PermissionsView: View {
                             Button(L("Open System Settings")) { screenRequested = true; openAfterAsking(control: false) }
                         }
                         Bullets(["Click **Ask macOS**", "In its popup, click **Open System Settings**", "Turn on **Edit Assist**", "When macOS offers **Quit & Reopen**, choose it"], numbered: true)
-                        Tip("Already on after an update? Turn it **off and on again**. Edit Assist reopens with this step done.")
+                        Tip("Not in the list? Click **+** and add **Edit Assist**. Edit Assist reopens with this step done.")
                     } else {
                         Button { s.restart() } label: {
                             Label(L("Restart Edit Assist to finish"), systemImage: "arrow.clockwise")
@@ -1065,7 +1065,7 @@ struct PermissionsView: View {
     /// For when the steps did not take: old duplicate rows in System Settings, or a copy elsewhere.
     var trouble: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Bullets(["Turned on but **not ticked**? The list may hold an **old entry** from an earlier copy", "**Reset & re-register** removes Edit Assist's entries and reopens it, so macOS asks again", "After an **update**, macOS may ask again: each version is a new app to it"])
+            Bullets(["**Edit Assist not in the list?** Click **+** under the list, choose **Edit Assist** in Applications (the path below)", "Turned on but **not ticked**? The list may hold an **old entry** from an earlier copy", "**Reset & re-register** removes Edit Assist's entries and reopens it, so macOS asks again", "After an **update**, macOS may ask again: each version is a new app to it"])
             VStack(alignment: .leading, spacing: 4) {
                 Text(md: L("THIS COPY")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(s.desktop.bundlePath).font(.system(size: 10, design: .monospaced))
