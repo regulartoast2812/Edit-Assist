@@ -128,6 +128,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
+                            } else if s.tab == "amir" {
+                                Text(md: L("Amir")).font(.system(size: 22, weight: .semibold))
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
@@ -137,6 +139,7 @@ struct ContentView: View {
                         }
                         if s.tab == "Assistant" { conversation }
                         else if s.tab == "project" { projectPage }
+                        else if s.tab == "amir" { AmirPage() }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity)
                     if contextOpen {
@@ -219,6 +222,22 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 7) {
                 label(L("FUNCTIONS"))
                 ForEach(EditFunction.allCases) { job in functionRow(job) }
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                label(L("HELPERS"))
+                Button { s.tab = "amir" } label: {
+                    HStack(spacing: 10) {
+                        PixelAmir(pixel: 1.25).frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(md: L("Amir")).font(.system(size: 12, weight: .medium))
+                            Text(md: L("File helper")).font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(s.tab == "amir" ? accent.opacity(0.12) : .white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
+                    .foregroundStyle(s.tab == "amir" ? accent : .secondary).contentShape(Rectangle())
+                }.buttonStyle(.plain)
             }
             Spacer()
             if let update = s.update {
