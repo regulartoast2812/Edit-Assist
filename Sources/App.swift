@@ -97,6 +97,8 @@ struct ContentView: View {
     @State private var renamingScript: UUID?
     @State private var scriptNameDraft = ""
     @State private var removingScript: ScriptTab?
+    /// The script tab being dragged to another place.
+    @State private var draggingScript: UUID?
     @State private var renamingTitle = false
     @FocusState private var titleFocused: Bool
     /// Ends renaming in the header; an emptied name goes back to the default rather than leaving no title.
@@ -443,7 +445,7 @@ struct ContentView: View {
     }
 
     /// The project's scripts, one tab each, where the card's title was: click to open one, double-click or right-click to
-    /// rename, + for a new one. A run works on the open one.
+    /// rename, drag to put it somewhere else (the others slide aside as it passes), + for a new one. A run works on the open one.
     var scriptTabs: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
@@ -477,6 +479,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .simultaneousGesture(TapGesture(count: 2).onEnded { scriptNameDraft = tab.name; renamingScript = tab.id })
+                .onDrag { draggingScript = tab.id; return NSItemProvider(object: tab.id.uuidString as NSString) }
+                .onDrop(of: [.text], delegate: ScriptTabDrop(target: tab.id, dragging: $draggingScript) { id in
+                    guard let place = s.project.scriptTabs.firstIndex(where: { $0.id == tab.id }) else { return }
+                    withAnimation(.easeOut(duration: 0.15)) { s.moveScript(id, to: place) }
+                })
                 .contextMenu {
                     Button(L("Rename")) { scriptNameDraft = tab.name; renamingScript = tab.id }
                     if s.project.scriptTabs.count > 1 {
@@ -1437,4 +1444,15 @@ struct PhraseRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }
+}
+
+/// A script tab as a place to drop another: the dragged tab moves there as soon as it is over it, so the tabs slide aside
+/// while you drag rather than jumping when you let go.
+struct ScriptTabDrop: DropDelegate {
+    let target: UUID
+    @Binding var dragging: UUID?
+    let move: (UUID) -> Void
+    func dropEntered(info: DropInfo) { if let dragging, dragging != target { move(dragging) } }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
 }

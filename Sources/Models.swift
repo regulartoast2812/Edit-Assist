@@ -189,6 +189,15 @@ struct Project: Codable, Identifiable {
         }
     }
 
+    /// Puts a script at another place among the tabs (dragged there); the open one stays open.
+    mutating func moveScript(_ id: UUID, to place: Int) {
+        var tabs = scriptTabs
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.insert(tabs.remove(at: from), at: min(max(place, 0), tabs.count))
+        let open = openScript.id
+        otherScripts = tabs.filter { $0.id != open }; scriptPosition = tabs.firstIndex { $0.id == open }
+    }
+
     mutating func renameScript(_ id: UUID, to name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }

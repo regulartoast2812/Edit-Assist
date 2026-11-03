@@ -893,6 +893,10 @@ final class Store: ObservableObject {
         projects[index].addScript(); scriptDraft = nil; showScriptDraft = false; save()
         log("Script: added “\(project.openScript.name)” to “\(project.name)”")
     }
+    func moveScript(_ id: UUID, to place: Int) {
+        guard !busy else { return }
+        projects[index].moveScript(id, to: place); save()
+    }
     func renameScript(_ id: UUID, to name: String) {
         guard !busy else { return }
         projects[index].renameScript(id, to: name); save()

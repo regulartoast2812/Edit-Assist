@@ -1093,6 +1093,15 @@ struct Checks {
             check(project.scriptTabs.map(\.name) == ["Script 1", "V2"], "A script is renamed in place, trimmed")
             project.addScript()
             check(project.scriptTabs.map(\.name) == ["Script 1", "V2", "Script 3"], "New scripts go at the end, numbered")
+            let third = project.openScript.id
+            project.moveScript(third, to: 0)
+            check(project.scriptTabs.map(\.name) == ["Script 3", "Script 1", "V2"] && project.openScript.id == third && project.scriptPosition == 0,
+                  "Dragging the open script to the front keeps it open")
+            project.moveScript(first, to: 2)
+            check(project.scriptTabs.map(\.name) == ["Script 3", "V2", "Script 1"] && project.script.isEmpty
+                  && project.scriptTabs.last?.script == "**one**", "Dragging another script moves it with its text")
+            project.moveScript(first, to: 0); project.moveScript(third, to: 2)
+            check(project.scriptTabs.map(\.name) == ["Script 1", "V2", "Script 3"], "Dragging back restores the order")
             project.removeScript(second)
             check(project.scriptTabs.map(\.name) == ["Script 1", "Script 3"] && project.scriptName == "Script 3", "Removing another script keeps the open one")
             project.removeScript(project.openScript.id)
