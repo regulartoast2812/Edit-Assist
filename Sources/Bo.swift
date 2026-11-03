@@ -84,6 +84,20 @@ struct BoPage: View {
                         } else {
                             status(true, L("Finder is taking Drive's changes"))
                         }
+                        // Finder's own copy broken: what Drive has and Finder does not show.
+                        if let gap = watcher.finderMissing.first {
+                            HStack(spacing: 10) {
+                                status(false, L("Finder is missing %@ items Google Drive has", watcher.finderMissing.reduce(0) { $0 + $1.gap }))
+                                Button(L("How to fix")) {
+                                    watcher.reconnect = .init(account: gap.account, email: gap.email, missing: watcher.finderMissing.filter { $0.account == gap.account })
+                                }.controlSize(.small)
+                            }
+                        } else if watcher.storage != nil {
+                            status(true, L("Finder shows everything Google Drive has"))
+                        }
+                    }
+                    if let until = watcher.holdUntil {
+                        status(nil, L("Leaving Google Drive alone while it rebuilds, until %@", until.formatted(date: .omitted, time: .shortened)))
                     }
                     Text(watcher.lastCheck.map { L("Checked %@", $0.formatted(.relative(presentation: .named))) } ?? L("First check in a few seconds"))
                         .font(.system(size: 10)).foregroundStyle(.secondary)
@@ -270,5 +284,68 @@ struct BoPage: View {
                 .foregroundStyle(good == nil ? Color.secondary : good == true ? accent : .orange)
             Text(text).font(.system(size: 12))
         }
+    }
+}
+
+/// Bo's dialog when Finder's copy of an account is broken: what is missing, and Google's way to rebuild it. Never over
+/// a run; "Not now" asks again in six hours.
+struct BoReconnectDialog: ViewModifier {
+    @ObservedObject var watcher: BoWatcher
+    var busy: Bool
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: Binding(get: { busy ? nil : watcher.reconnect },
+                                 set: { if $0 == nil, !busy, watcher.reconnect != nil { watcher.reconnectLater() } })) { reconnect in
+                BoReconnectSheet(reconnect: reconnect, watcher: watcher)
+            }
+            .onChange(of: watcher.reconnect) { _, new in if new != nil { NSApp.requestUserAttention(.informationalRequest) } }
+    }
+}
+
+struct BoReconnectSheet: View {
+    let reconnect: BoWatcher.Reconnect
+    @ObservedObject var watcher: BoWatcher
+    private let accent = PixelBo.theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                PixelBo(pixel: 3, busyUntil: .distantFuture)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(md: L("Finder is missing folders from your Google Drive")).font(.system(size: 15, weight: .semibold))
+                    Text(reconnect.email ?? reconnect.account).font(.system(size: 12)).foregroundStyle(accent)
+                }
+            }
+            Text(md: L("Google Drive has them, but Finder's copy of this account is broken, so they never show up. Restarting does not mend it: the account needs rebuilding."))
+                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(reconnect.missing.prefix(5)) { gap in
+                    HStack {
+                        Text(gap.drive).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 12)
+                        Text(L("Finder shows %@ of %@", gap.inFinder, gap.inDrive)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.orange)
+                    }
+                }
+            }
+            .padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(["Check Google Drive says **all files are up to date** (nothing still uploading)",
+                               "In Google Drive: **⚙ → Preferences → ⚙**, then **Disconnect account** for this account",
+                               "**Add account** and sign in with it again: Drive builds a fresh copy"].enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(index + 1).").font(.system(size: 12, design: .monospaced)).foregroundStyle(accent)
+                        Text(md: L(step)).font(.system(size: 12))
+                    }
+                }
+            }
+            Text(md: L("Bo leaves Google Drive alone for 3 hours while it rebuilds. Turning off a VPN such as Cloudflare WARP makes it quicker."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button(L("Not now")) { watcher.reconnectLater() }
+                Button(L("Open Google Drive")) { watcher.reconnecting() }.buttonStyle(.borderedProminent).tint(accent)
+            }
+        }
+        .padding(22).frame(width: 470)
     }
 }

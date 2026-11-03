@@ -1130,6 +1130,11 @@ struct Checks {
                   && BoWatcher.quittingSince(in: "2026-11-03T07:45:03.870ZI [1:core_111] x.cc:9:X all fine") == nil,
                   "Bo sees when Drive began quitting")
             check(BoWatcher.duration(94474) == "26 hours" && BoWatcher.duration(1800) == "30 minutes", "Bo says how long in hours or minutes")
+            let gaps = BoWatcher.gaps(account: "1", email: "a@b.c",
+                                      drive: ["Team 02": 160, "Team 03": 22, "Not loaded": 0, "Slow": 204, "Small": 5, "Same": 7],
+                                      finder: ["Team 02": 117, "Team 03": 19, "Not loaded": 35, "Slow": Int?.none, "Small": 4, "Same": 7] as [String: Int?])
+            check(gaps.map(\.drive) == ["Team 02", "Team 03"] && gaps.first?.gap == 43,
+                  "Bo: Finder missing 3+ items and a tenth of a drive counts; drives Drive has not loaded, unfinished listings and small gaps do not")
             typealias Account = BoWatcher.Storage.Account
             let small = BoWatcher.Storage(accounts: [Account(id: "1", email: "a@b.c", bytes: 900_000_000)], logBytes: 100_000_000, logFiles: 5,
                                           free: 300_000_000_000)

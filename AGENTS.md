@@ -120,7 +120,11 @@ you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits t
 running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";
 he restarts macOS's fileproviderd too); and Drive stuck half-quit for 5 minutes. A restart that cannot quit Drive ends
-it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive had been half-quit for hours. Errors in
+it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive had been half-quit for hours. Every 15 minutes Bo also
+compares the top of each drive in Drive's database (read only; immutable when Drive keeps it locked) with what Finder
+lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a dialog asking you to disconnect and
+reconnect that account (Google's rebuild). For three hours after an account is connected, or after you choose to
+reconnect, Bo leaves Drive alone. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Bo also measures what Drive keeps in Application
 Support (each account's cache, old logs, lost_and_found, free space; never the drives themselves) every 15 minutes, and
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are

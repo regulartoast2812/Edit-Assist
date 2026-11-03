@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SQLite3
 
 /// Bo keeps Google Drive for Desktop syncing: every minute he checks that it is running and that each account's drive
 /// answers, and restarts Google Drive himself when it is stuck (2026-11-03, asked for as a constant job, restarting on
@@ -17,6 +18,13 @@ import Foundation
 /// syncing nothing, answering every quit with "Dropping Quit request … since we are already quitting" and ignoring
 /// SIGTERM. A quit begun five minutes ago with Drive still running counts as stuck; a restart that cannot quit Drive
 /// ends it with SIGKILL.
+///
+/// Finder missing what Drive has (2026-11-03): Finder's own copy of an account can break, and no restart mends it.
+/// Drive's database listed 160 items at the top of a shared drive and Finder 117, a folder made days before among the
+/// missing, while Drive and Finder both looked healthy. Every 15 minutes Bo compares the top of each drive; a gap that has
+/// not closed in 15 minutes asks you, in a dialog, to disconnect the account and sign in again (Google's way to rebuild
+/// it). For three hours after an account is connected, or after you say you are doing it, Bo leaves Drive alone: a
+/// rebuild looks like every sign above.
 /// He also keeps track of what Drive keeps on this Mac (its cache, old logs, files it could not upload) and says when
 /// clearing is worth it (2026-11-03); he never deletes anything himself. Clearing the cache is done Google's way,
 /// disconnecting the account and signing in again, which keeps files that have not uploaded yet.
@@ -41,6 +49,14 @@ final class BoWatcher: ObservableObject {
     @Published private(set) var errors: [ErrorCount] = ErrorKind.allCases.map { ErrorCount(kind: $0) }
     /// How long Finder has left Drive's changes unconfirmed, by account number, from Drive's latest log line.
     @Published private(set) var finderLag: [String: Int] = [:]
+    /// Drives whose top Finder shows less of than Drive's database has, found every 15 minutes.
+    @Published private(set) var finderMissing: [Missing] = []
+    /// Set when the gap has lasted: the dialog asking you to disconnect and reconnect the account.
+    @Published var reconnect: Reconnect?
+    /// Until when Bo leaves Drive alone: you are rebuilding an account.
+    @Published private(set) var holdUntil: Date? = (UserDefaults.standard.object(forKey: "boHoldUntil") as? Date).flatMap { $0 > Date() ? $0 : nil }
+    /// When each drive's gap was first seen, and how big it was.
+    private var gapSince: [String: (time: Date, missing: Int)] = [:]
     /// What Drive keeps on this Mac; measured every 15 minutes.
     @Published private(set) var storage: Storage?
     /// How much the caches grew, and since when Bo has been measuring them.
@@ -82,17 +98,27 @@ final class BoWatcher: ObservableObject {
             let errors = Self.readErrors()
             let (lag, quitting) = Self.readDriveLog()
             let storage = measure ? Self.measure(known: known) : nil
-            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, storage: storage) }
+            // Accounts by email: the ones Bo remembers, and any the measuring just found.
+            var emails = known
+            for account in storage?.accounts ?? [] { if let email = account.email { emails[account.id] = email } }
+            let missing = measure ? Self.compareFinder(emails: emails) : nil
+            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, storage: storage, missing: missing) }
         }
     }
 
-    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, storage: Storage?) {
+    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, storage: Storage?, missing: [Missing]?) {
         checking = false
         lastCheck = Date()
         self.errors = errors
         finderLag = lag
         if let storage { measured(storage) }
+        if let missing { compared(missing) }
         drives = results.map { Drive(url: $0.0, answered: $0.1, milliseconds: $0.2) }
+        if let holdUntil {
+            if Date() < holdUntil { return }
+            self.holdUntil = nil; UserDefaults.standard.removeObject(forKey: "boHoldUntil")
+            note("Done waiting for Google Drive to rebuild")
+        }
         if !running {
             // Not running at all: open it, at most once every half hour (you may have quit it on purpose just now).
             if lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true { open(because: "Google Drive was not running") }
@@ -104,7 +130,8 @@ final class BoWatcher: ObservableObject {
             restart(because: "Google Drive has been stuck quitting since \(quitting.formatted(date: .omitted, time: .shortened))")
             return
         }
-        let behind = lag.filter { $0.value >= Self.finderStuckAfter }
+        // A freshly connected account is still being built: its changes queue up for Finder, and that is not stuck.
+        let behind = lag.filter { $0.value >= Self.finderStuckAfter && !Self.isNew($0.key) }
         if !behind.isEmpty, lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true {
             let names = behind.keys.sorted().map { accountName($0) }.joined(separator: ", ")
             restart(because: "Finder has not taken \(names)'s changes for \(Self.duration(behind.values.max() ?? 0))", fileProvider: true)
@@ -197,6 +224,146 @@ final class BoWatcher: ObservableObject {
         let answered = done.wait(timeout: .now() + answerWithin) == .success && process.terminationStatus == 0
         if process.isRunning { process.terminate() }
         return (root, answered, Int(Date().timeIntervalSince(began) * 1000))
+    }
+
+    // MARK: Finder missing what Drive has
+
+    struct Missing: Identifiable, Equatable {
+        let account: String
+        let email: String?
+        let drive: String
+        /// Items at the top of the drive in Drive's database, and in Finder.
+        let inDrive: Int, inFinder: Int
+        var id: String { account + "/" + drive }
+        var gap: Int { inDrive - inFinder }
+    }
+    struct Reconnect: Identifiable, Equatable {
+        let account: String
+        let email: String?
+        let missing: [Missing]
+        var id: String { account }
+    }
+
+    /// An account connected less than three hours ago: Drive is still building it (its folder is made on connecting).
+    nonisolated static func isNew(_ account: String, now: Date = Date()) -> Bool {
+        let created = (try? support.appendingPathComponent(account).resourceValues(forKeys: [.creationDateKey]))?.creationDate
+        return created.map { now.timeIntervalSince($0) < 3 * 3600 } ?? true
+    }
+
+    /// The drives Finder shows less of than Drive has: at least 3 items and a tenth of the drive. Drives Drive has not
+    /// loaded yet (0 items in its database) and Finder listings that did not finish are left out.
+    nonisolated static func gaps(account: String, email: String?, drive: [String: Int], finder: [String: Int?]) -> [Missing] {
+        drive.compactMap { name, inDrive in
+            guard inDrive > 0, let listed = finder[name], let inFinder = listed else { return nil }
+            let gap = inDrive - inFinder
+            return gap >= 3 && Double(gap) >= Double(inDrive) * 0.1
+                ? Missing(account: account, email: email, drive: name, inDrive: inDrive, inFinder: inFinder) : nil
+        }.sorted { $0.gap > $1.gap }
+    }
+
+    /// Items at the top of My Drive and each shared drive, in Drive's database (read only, as Drive keeps writing it).
+    /// A database Drive keeps locked (not in WAL mode, as the Gmail one on 2026-11-03) is read as immutable instead: no
+    /// locks, so it may be a moment behind, which is fine for counting.
+    nonisolated static func driveCounts(account: String) -> [String: Int] {
+        let path = support.appendingPathComponent("\(account)/metadata_sqlite_db").path
+        return counts(at: "file:\(path)?mode=ro") ?? counts(at: "file:\(path)?mode=ro&immutable=1") ?? [:]
+    }
+
+    nonisolated static func counts(at uri: String) -> [String: Int]? {
+        var db: OpaquePointer?
+        defer { sqlite3_close(db) }
+        guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else { return nil }
+        sqlite3_busy_timeout(db, 3000)
+        let sql = """
+            SELECT r.local_title, (SELECT count(*) FROM stable_parents p JOIN items i ON i.stable_id = p.item_stable_id
+                                    WHERE p.parent_stable_id = r.stable_id AND i.trashed = 0 AND i.is_tombstone = 0)
+            FROM items r WHERE r.is_folder = 1 AND r.trashed = 0 AND r.is_tombstone = 0
+              AND r.stable_id NOT IN (SELECT item_stable_id FROM stable_parents)
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        var counts: [String: Int] = [:]
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { break }
+            guard step == SQLITE_ROW else { return nil }
+            guard let title = sqlite3_column_text(statement, 0) else { continue }
+            counts[String(cString: title)] = Int(sqlite3_column_int64(statement, 1))
+        }
+        return counts
+    }
+
+    /// Items Finder lists in a folder (hidden ones aside), in a separate process with a time limit like `answers`: nil
+    /// when it does not finish.
+    nonisolated static func finderCount(_ folder: URL) -> Int? {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("bo-ls-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: out.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: out) }
+        guard let handle = try? FileHandle(forWritingTo: out) else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ls"); process.arguments = [folder.path]
+        process.standardOutput = handle; process.standardError = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        guard (try? process.run()) != nil else { return nil }
+        let finished = done.wait(timeout: .now() + 20) == .success
+        if process.isRunning { process.terminate() }
+        try? handle.close()
+        guard finished, process.terminationStatus == 0, let text = try? String(contentsOf: out, encoding: .utf8) else { return nil }
+        return text.split(separator: "\n").filter { !$0.hasPrefix(".") }.count
+    }
+
+    /// Each connected account's drives compared, Drive's database against Finder; accounts still being built are left out.
+    nonisolated static func compareFinder(emails: [String: String]) -> [Missing] {
+        let cloud = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
+        var missing: [Missing] = []
+        for (account, email) in emails where !isNew(account) {
+            let root = cloud.appendingPathComponent("GoogleDrive-\(email)")
+            guard FileManager.default.fileExists(atPath: root.path) else { continue }
+            let drive = driveCounts(account: account)
+            var finder: [String: Int?] = [:]
+            for name in drive.keys where drive[name, default: 0] > 0 {
+                finder[name] = finderCount(name == "My Drive" ? root.appendingPathComponent("My Drive")
+                                                              : root.appendingPathComponent("Shared drives").appendingPathComponent(name))
+            }
+            missing += gaps(account: account, email: email, drive: drive, finder: finder)
+        }
+        return missing
+    }
+
+    /// A gap that has lasted 15 minutes without closing asks for a rebuild, unless you said not now.
+    private func compared(_ found: [Missing]) {
+        finderMissing = found
+        let now = Date()
+        gapSince = found.reduce(into: [:]) { kept, gap in
+            let before = gapSince[gap.id]
+            kept[gap.id] = before.map { $0.missing <= gap.gap ? $0 : (now, gap.gap) } ?? (now, gap.gap)
+        }
+        let lasting = found.filter { gap in gapSince[gap.id].map { now.timeIntervalSince($0.time) >= 900 } ?? false }
+        guard reconnect == nil, holdUntil == nil, let first = lasting.first,
+              (UserDefaults.standard.object(forKey: "boReconnectLater") as? Date).map({ now > $0 }) ?? true else { return }
+        let account = lasting.filter { $0.account == first.account }
+        reconnect = Reconnect(account: first.account, email: first.email, missing: account)
+        note("Finder is missing \(account.reduce(0) { $0 + $1.gap }) items Google Drive has in \(first.email ?? first.account): asked you to reconnect it")
+    }
+
+    /// You are disconnecting and reconnecting: Google Drive opens, and Bo leaves it alone for three hours.
+    func reconnecting() {
+        reconnect = nil
+        let until = Date().addingTimeInterval(3 * 3600)
+        holdUntil = until; UserDefaults.standard.set(until, forKey: "boHoldUntil")
+        gapSince = [:]
+        note("Waiting while you reconnect Google Drive (until \(until.formatted(date: .omitted, time: .shortened)))")
+        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleID) {
+            NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    /// Not now: asked again in six hours if the gap is still there.
+    func reconnectLater() {
+        reconnect = nil
+        UserDefaults.standard.set(Date().addingTimeInterval(6 * 3600), forKey: "boReconnectLater")
     }
 
     func accountName(_ id: String) -> String {

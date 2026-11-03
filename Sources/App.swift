@@ -163,6 +163,8 @@ struct ContentView: View {
             }
         }
         .overlayPreferenceValue(GuideTargets.self) { anchors in GuideOverlay(anchors: anchors).environmentObject(s) }
+        // Bo asking you to rebuild an account Finder has stopped showing properly.
+        .modifier(BoReconnectDialog(watcher: s.bo, busy: s.busy))
         .background(canvasBackground)
         .tint(accent)
         .sheet(isPresented: $settingsOpen, onDismiss: {
