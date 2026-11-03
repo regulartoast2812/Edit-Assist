@@ -114,7 +114,8 @@ you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits t
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself, on two signs only: Google Drive not
 running, or a drive that does not answer a listing within 15 s for three minutes; at most once every half hour. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Folders and drives are read off the main
-thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. Characters are pixel art
+thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
+shows the CTA line it finds, for now the script's last line. Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 
 ## Invariants — each one was learned from a real failure
