@@ -721,6 +721,8 @@ final class Store: ObservableObject {
     @Published var tab = "function" { didSet { if Store.assistantHidden && tab == "Assistant" { tab = "function" } } }
     let desktop = Desktop()
     let overlay = RunOverlay()
+    /// Amir, the file helper: watches its folder while the app is open.
+    let amir = AmirWatcher()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false

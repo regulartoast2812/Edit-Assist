@@ -128,8 +128,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
-                            } else if s.tab == "amir" {
-                                Text(md: L("Amir")).font(.system(size: 22, weight: .semibold))
+                            } else if s.tab == "amir" || s.tab == "tala" {
+                                Text(md: L(s.tab == "amir" ? "Amir" : "Tala")).font(.system(size: 22, weight: .semibold))
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
@@ -139,7 +139,8 @@ struct ContentView: View {
                         }
                         if s.tab == "Assistant" { conversation }
                         else if s.tab == "project" { projectPage }
-                        else if s.tab == "amir" { AmirPage() }
+                        else if s.tab == "amir" { AmirPage(watcher: s.amir) }
+                        else if s.tab == "tala" { TalaPage() }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity)
                     if contextOpen {
@@ -225,19 +226,8 @@ struct ContentView: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 label(L("HELPERS"))
-                Button { s.tab = "amir" } label: {
-                    HStack(spacing: 10) {
-                        PixelAmir(pixel: 1.25).frame(width: 20)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(md: L("Amir")).font(.system(size: 12, weight: .medium))
-                            Text(md: L("File helper")).font(.system(size: 9)).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(s.tab == "amir" ? accent.opacity(0.12) : .white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
-                    .foregroundStyle(s.tab == "amir" ? accent : .secondary).contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                helperRow("amir", "Amir", "File helper") { PixelAmir(pixel: 1.25) }
+                helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.25) }
             }
             Spacer()
             if let update = s.update {
@@ -645,6 +635,23 @@ struct ContentView: View {
     }
 
     /// One function in the sidebar: its name, where it stands, and a quick start on the right.
+    /// A helper in the sidebar (Amir, Tala): its pixel icon, name and what it helps with; opens its page.
+    func helperRow<Icon: View>(_ tab: String, _ name: String, _ role: String, @ViewBuilder icon: () -> Icon) -> some View {
+        Button { s.tab = tab } label: {
+            HStack(spacing: 10) {
+                icon().frame(width: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(md: L(name)).font(.system(size: 12, weight: .medium))
+                    Text(md: L(role)).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(s.tab == tab ? accent.opacity(0.12) : .white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
+            .foregroundStyle(s.tab == tab ? accent : .secondary).contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+
     func functionRow(_ job: EditFunction) -> some View {
         let showing = s.tab == "function" && s.function == job
         let progress = s.progress(of: job)
