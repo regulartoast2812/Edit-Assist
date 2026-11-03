@@ -124,7 +124,8 @@ it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive ha
 compares the top of each drive in Drive's database (read only; immutable when Drive keeps it locked) with what Finder
 lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a dialog asking you to disconnect and
 reconnect that account (Google's rebuild). For three hours after an account is connected, or after you choose to
-reconnect, Bo leaves Drive alone. He also restarts nothing within 20 minutes of Drive's settings being on screen (he once
+reconnect, Bo leaves Drive alone, except for a Drive stuck half-quit, which he ends whatever the hold (Drive
+restarts itself after a sign-out, an update or a settings change, and can freeze doing it). He also restarts nothing within 20 minutes of Drive's settings being on screen (he once
 force-quit Drive during "Preparing to disconnect account"), and tries the File Provider restart once in three hours;
 stalling again after it, he asks for the reconnect instead. A disconnect showing "Preparing to disconnect account" with no change
 in Drive's windows for 10 minutes brings a dialog whose button restarts Drive so you can retry. Bo does not rebuild an
@@ -138,7 +139,7 @@ Drive's folders, where files not yet uploaded live. Folders and drives are read 
 thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
 shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
 sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only.
-**Penny** (the numbers of the products you run, from the company's Grafana) has her page only; she will only ever
+**Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
 read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.

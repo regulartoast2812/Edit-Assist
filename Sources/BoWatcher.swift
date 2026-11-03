@@ -63,6 +63,11 @@ final class BoWatcher: ObservableObject {
     @Published private(set) var finderMissing: [Missing] = []
     /// Set when the gap has lasted: the dialog asking you to disconnect and reconnect the account.
     @Published var reconnect: Reconnect?
+    /// Something Bo watches for is wrong right now (see `onFire`).
+    @Published private(set) var trouble = false
+    /// Bo panics, fire and all: Drive not running or not answering, Finder not taking its changes or missing what it
+    /// has, Drive stuck quitting or disconnecting, or a dialog of his waiting for you.
+    var onFire: Bool { trouble || reconnect != nil || disconnectStuck != nil }
     /// Since when Drive has shown "Preparing to disconnect account" without anything changing, once 10 minutes have passed.
     @Published var disconnectStuck: Date?
     /// Until when Bo leaves Drive alone: you are rebuilding an account.
@@ -132,6 +137,19 @@ final class BoWatcher: ObservableObject {
         if let storage { measured(storage) }
         if let missing { compared(missing) }
         drives = results.map { Drive(url: $0.0, answered: $0.1, milliseconds: $0.2) }
+        let now = Date()
+        trouble = !running || drives.contains { $0.answered == false }
+            || lag.contains { $0.value >= Self.finderStuckAfter && !Self.isNew($0.key) }
+            || quitting.map { now.timeIntervalSince($0) > 300 } ?? false
+            || disconnecting.map { now.timeIntervalSince($0) >= 600 } ?? false
+            || !finderMissing.isEmpty
+        // Half-quit and stuck there: Drive restarts itself after a sign-out, an update or a settings change, and froze
+        // doing so on 2026-11-03. Before the hold and the settings rule: a half-quit Drive does nothing and finishes
+        // nothing you started, so ending it is always right. Not again while a restart of Bo's is still going.
+        if let quitting, running, Date().timeIntervalSince(quitting) > 300, busyUntil.map({ Date() > $0 }) ?? true {
+            restart(because: "Google Drive has been stuck quitting since \(quitting.formatted(date: .omitted, time: .shortened))")
+            return
+        }
         // Before the hold: you are reconnecting, and this is the step that can hang.
         if let disconnecting, running, Date().timeIntervalSince(disconnecting) >= 600 {
             if disconnectStuck == nil, (UserDefaults.standard.object(forKey: "boDisconnectLater") as? Date).map({ Date() > $0 }) ?? true {
@@ -154,12 +172,6 @@ final class BoWatcher: ObservableObject {
         if !running {
             // Not running at all: open it, at most once every half hour (you may have quit it on purpose just now).
             if lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true { open(because: "Google Drive was not running") }
-            return
-        }
-        // Half-quit and stuck there: nothing else Bo checks can be trusted until it is gone. Not limited to once in half an
-        // hour, as Drive does nothing meanwhile; but not again while a restart of Bo's is still going.
-        if let quitting, Date().timeIntervalSince(quitting) > 300, busyUntil.map({ Date() > $0 }) ?? true {
-            restart(because: "Google Drive has been stuck quitting since \(quitting.formatted(date: .omitted, time: .shortened))")
             return
         }
         // A freshly connected account is still being built: its changes queue up for Finder, and that is not stuck.

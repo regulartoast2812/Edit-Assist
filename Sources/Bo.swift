@@ -9,6 +9,8 @@ struct PixelBo: View {
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
+    /// Something is wrong with Google Drive: Bo panics (`PanickedBo`) until it is fixed.
+    var onFire = false
     static let rest = ["....CCCCC.......", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
                        "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
                        "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."]
@@ -30,6 +32,10 @@ struct PixelBo: View {
          "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."],
     ]
     var body: some View {
+        if onFire { PanickedBo(pixel: pixel).accessibilityLabel("Bo, something is wrong with Google Drive") } else { calm }
+    }
+
+    var calm: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
                        colors: ["C": Color(red: 40 / 255, green: 70 / 255, blue: 140 / 255), "V": Color(red: 25 / 255, green: 45 / 255, blue: 95 / 255),
                                 "B": Color(red: 110 / 255, green: 185 / 255, blue: 240 / 255), "H": Color(red: 110 / 255, green: 185 / 255, blue: 240 / 255),
@@ -44,7 +50,55 @@ struct PixelBo: View {
 struct BoIcon: View {
     @ObservedObject var watcher: BoWatcher
     var pixel: CGFloat = 1.25
-    var body: some View { PixelBo(pixel: pixel, busyUntil: watcher.busyUntil) }
+    var body: some View { PixelBo(pixel: pixel, busyUntil: watcher.busyUntil, onFire: watcher.onFire) }
+}
+
+/// Bo when something is wrong with Google Drive (2026-11-03, asked for): a fire burns behind him and he runs across,
+/// out one side and back in from the other, wide-eyed and sweating, until it is fixed. Still, mid-frame, with Reduce
+/// Motion on. Same size as Bo, so nothing around it moves.
+struct PanickedBo: View {
+    var pixel: CGFloat = 2
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    static let fire: [[String]] = [
+        ["................", "................", "................", "................", "................", "................",
+         "................", "..Y.......Y.....", ".YOY....Y.OY..Y.", ".ORO.Y.YOYRO.YO.", "ORRROYOORRRROORO", "RRRRRRRRRRRRRRRR"],
+        ["................", "................", "................", "................", "................", "...........Y....",
+         "...........Y....", ".Y.....Y..YO....", "YOY...YOY.ORY.Y.", "ORO.YOROO.RRYOOY", "RRROORRRORRRORRO", "RRRRRRRRRRRRRRRR"],
+        ["................", "................", "................", "................", "....Y...........", "................",
+         "....Y...........", "...YO.......Y...", "..YOR.Y....YOY.Y", "Y.ORRYOY.Y.ORO.O", "OYRRRORROOYRRROR", "RRRRRRRRRRRRRRRR"],
+    ]
+    /// Running, facing left (his brim points the way he runs); flipped when he runs back.
+    static let runA = ["....CCCCC..", "...CCCCCCC.", "..CCCCCCCCC", "VVVVVVVVVVV", "W.BBBBBBBBB", "..BKKBBKKBB", "..BKKBBKKBB", "H.BBBBKBBBB", "..BBBBBBBBB", "...BBBBBBB.", "...F.....F.", "..........."]
+    static let runB = ["...........", "....CCCCC..", "...CCCCCCC.", "..CCCCCCCCC", "VVVVVVVVVVV", "..BBBBBBBBB", "W.BKKBBKKBH", "..BKKBBKKB.", "..BBBBKBBBB", "..BBBBBBBBB", "...BBBBBBB.", ".....FF...."]
+    static let colors: [Character: Color] = [
+        "R": Color(red: 225 / 255, green: 60 / 255, blue: 40 / 255), "O": Color(red: 250 / 255, green: 140 / 255, blue: 40 / 255),
+        "Y": Color(red: 1, green: 215 / 255, blue: 80 / 255), "C": Color(red: 40 / 255, green: 70 / 255, blue: 140 / 255),
+        "V": Color(red: 25 / 255, green: 45 / 255, blue: 95 / 255), "B": Color(red: 110 / 255, green: 185 / 255, blue: 240 / 255),
+        "H": Color(red: 110 / 255, green: 185 / 255, blue: 240 / 255), "K": Color(red: 20 / 255, green: 25 / 255, blue: 40 / 255),
+        "F": Color(red: 60 / 255, green: 90 / 255, blue: 150 / 255), "W": Color(red: 190 / 255, green: 230 / 255, blue: 1),
+    ]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+            PixelSprite(rows: Self.frame(reduceMotion ? 12 : Int(context.date.timeIntervalSinceReferenceDate / 0.1)), colors: Self.colors, pixel: pixel)
+        }
+    }
+
+    /// The picture at a tick: the fire flickers every other tick, his legs every tick; each pass he crosses the 16 columns
+    /// one a tick, off-frame for a few ticks, then comes back the other way.
+    static func frame(_ tick: Int) -> [String] {
+        var grid = fire[(tick / 2) % fire.count].map { Array($0) }
+        let width = grid[0].count, runner = runA[0].count, span = width + runner + 4
+        let back = (tick / span) % 2 == 1, step = tick % span
+        let left = back ? step - runner : width - 1 - step
+        for (y, row) in (tick % 2 == 0 ? runA : runB).enumerated() {
+            for (i, mark) in (back ? Array(row.reversed()) : Array(row)).enumerated() where mark != "." {
+                let x = left + i
+                if x >= 0, x < width { grid[y][x] = mark }
+            }
+        }
+        return grid.map { String($0) }
+    }
 }
 
 /// Bo's page: how Google Drive is doing, and what Bo has done about it.
@@ -56,7 +110,7 @@ struct BoPage: View {
         ThinScrollView {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                PixelBo(pixel: 4, busyUntil: watcher.busyUntil, previewOnHover: true)
+                PixelBo(pixel: 4, busyUntil: watcher.busyUntil, previewOnHover: true, onFire: watcher.onFire)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(md: L("Your Drive helper")).font(.system(size: 13, weight: .semibold))
                     Bullets(["Checks **Google Drive** every minute while you work",
@@ -315,7 +369,7 @@ struct BoReconnectSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
-                PixelBo(pixel: 3, busyUntil: .distantFuture)
+                PixelBo(pixel: 3, busyUntil: .distantFuture, onFire: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(md: L("Finder is missing folders from your Google Drive")).font(.system(size: 15, weight: .semibold))
                     Text(reconnect.email ?? reconnect.account).font(.system(size: 12)).foregroundStyle(accent)
@@ -369,7 +423,7 @@ struct BoStuckDisconnectSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 14) {
-                PixelBo(pixel: 3, busyUntil: .distantFuture)
+                PixelBo(pixel: 3, busyUntil: .distantFuture, onFire: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(md: L("Google Drive's disconnect seems stuck")).font(.system(size: 15, weight: .semibold))
                     Text(L("“Preparing to disconnect account” since %@, and nothing has changed", since.formatted(date: .omitted, time: .shortened)))
