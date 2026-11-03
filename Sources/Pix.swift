@@ -1,36 +1,36 @@
 import SwiftUI
 
-/// Pix, the CTA and image helper: a peach blob with Bob Ross's big curly perm and beard, holding a paintbrush upright
+/// Pix, the CTA and image helper: a lavender blob with Bob Ross's big curly perm and a full beard up to his hair, holding a paintbrush upright
 /// (a full Bob Ross did not fit with the other blobs, 2026-11-03). Working: he sweeps the brush and dabs of paint appear.
 struct PixelPix: View {
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
     static let rest = ["...AAaAAAA......", ".AAaAAAAAaAA..P.", "AAAAAAaAAAAAA.R.", "AAaOOOOOOOAaA.R.",
-                       "AAOOOOOOOOOAA.F.", "AaOOKOOOKOOAA.H.", ".AOOKOOOKOOA..H.", "..OBOOOOOBO...H.",
-                       "..OBBBBBBBOOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"]
+                       "AAOOOOOOOOOAA.F.", "AaBOKOOOKOBAA.H.", ".ABOKOOOKOBA..H.", "..BBOOOOOBB...H.",
+                       "..BBBBBBBBBOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"]
     static let blink = ["...AAaAAAA......", ".AAaAAAAAaAA..P.", "AAAAAAaAAAAAA.R.", "AAaOOOOOOOAaA.R.",
-                        "AAOOOOOOOOOAA.F.", "AaOOOOOOOOOAA.H.", ".AOOKOOOKOOA..H.", "..OBOOOOOBO...H.",
-                        "..OBBBBBBBOOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"]
+                        "AAOOOOOOOOOAA.F.", "AaBOOOOOOOBAA.H.", ".ABOKOOOKOBA..H.", "..BBOOOOOBB...H.",
+                        "..BBBBBBBBBOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"]
     static let working: [[String]] = [
         ["...AAaAAAA......", ".AAaAAAAAaAA..PG", "AAAAAAaAAAAAA.R.", "AAaOOOOOOOAaA.R.",
-         "AAOOOOOOOOOAA.F.", "AaOOKOOOKOOAA.H.", ".AOOKOOOKOOA..H.", "..OBOOOOOBO...H.",
-         "..OBBBBBBBOOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"],
+         "AAOOOOOOOOOAA.F.", "AaBOKOOOKOBAA.H.", ".ABOKOOOKOBA..H.", "..BBOOOOOBB...H.",
+         "..BBBBBBBBBOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"],
         ["...AAaAAAA......", ".AAaAAAAAaAA...P", "AAAAAAaAAAAAA..R", "AAaOOOOOOOAaA..R",
-         "AAOOOOOOOOOAA..F", "AaOOKOOOKOOAA..H", ".AOOKOOOKOOA...H", "..OBOOOOOBO....H",
-         "..OBBBBBBBOOOOOH", "...BBBBBBB.....H", "....D...D......H", "................"],
+         "AAOOOOOOOOOAA..F", "AaBOKOOOKOBAA..H", ".ABOKOOOKOBA...H", "..BBOOOOOBB....H",
+         "..BBBBBBBBBOOOOH", "...BBBBBBB.....H", "....D...D......H", "................"],
         ["...AAaAAAA......", ".AAaAAAAAaAA..PG", "AAAAAAaAAAAAA.R.", "AAaOOOOOOOAaA.RY",
-         "AAOOOOOOOOOAA.F.", "AaOOKOOOKOOAA.H.", ".AOOKOOOKOOA..H.", "..OBOOOOOBO...H.",
-         "..OBBBBBBBOOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"],
+         "AAOOOOOOOOOAA.F.", "AaBOKOOOKOBAA.H.", ".ABOKOOOKOBA..H.", "..BBOOOOOBB...H.",
+         "..BBBBBBBBBOOOH.", "...BBBBBBB....H.", "....D...D.....H.", "................"],
         ["...AAaAAAA......", ".AAaAAAAAaAA.P.G", "AAAAAAaAAAAAARL.", "AAaOOOOOOOAaAR.Y",
-         "AAOOOOOOOOOAAF..", "AaOOKOOOKOOAAH..", ".AOOKOOOKOOA.H..", "..OBOOOOOBO..H..",
-         "..OBBBBBBBOOOH..", "...BBBBBBB...H..", "....D...D....H..", "................"],
+         "AAOOOOOOOOOAAF..", "AaBOKOOOKOBAAH..", ".ABOKOOOKOBA.H..", "..BBOOOOOBB..H..",
+         "..BBBBBBBBBOOH..", "...BBBBBBB...H..", "....D...D....H..", "................"],
     ]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
                        colors: ["A": Color(red: 150 / 255, green: 95 / 255, blue: 55 / 255), "a": Color(red: 115 / 255, green: 70 / 255, blue: 40 / 255),
-                                "O": Color(red: 250 / 255, green: 205 / 255, blue: 165 / 255), "K": Color(red: 30 / 255, green: 25 / 255, blue: 25 / 255),
-                                "B": Color(red: 120 / 255, green: 75 / 255, blue: 45 / 255), "D": Color(red: 215 / 255, green: 165 / 255, blue: 125 / 255),
+                                "O": Color(red: 190 / 255, green: 170 / 255, blue: 240 / 255), "K": Color(red: 30 / 255, green: 25 / 255, blue: 25 / 255),
+                                "B": Color(red: 120 / 255, green: 75 / 255, blue: 45 / 255), "D": Color(red: 160 / 255, green: 140 / 255, blue: 210 / 255),
                                 "P": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "R": Color(red: 45 / 255, green: 40 / 255, blue: 40 / 255),
                                 "F": Color(red: 170 / 255, green: 170 / 255, blue: 175 / 255), "H": Color(red: 180 / 255, green: 130 / 255, blue: 70 / 255),
                                 "G": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255),
