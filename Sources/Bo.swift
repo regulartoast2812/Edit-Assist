@@ -1,30 +1,30 @@
 import SwiftUI
 
-/// Bo, the Drive helper: a round blue fellow in a cap with a long stick. Working (checking or restarting Google Drive):
-/// he pokes the stick forward and it sparks.
+/// Bo, the Drive helper: a round blue fellow in a cap worn with its brim to the side, holding a long stick upright.
+/// Working (checking or restarting Google Drive): he lifts the stick and taps it down with a spark.
 struct PixelBo: View {
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-                       ".BBKBBBKBB..........", ".BBKBBBKBB..........", ".BBBBBBBBBHSSSS.....", ".BBBBBBBBB..........",
-                       "..BBBBBBB...........", "...F...F............"]
-    static let blink = ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-                        ".BBBBBBBBB..........", ".BBKBBBKBB..........", ".BBBBBBBBBHSSSS.....", ".BBBBBBBBB..........",
-                        "..BBBBBBB...........", "...F...F............"]
+    static let rest = ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+                       "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+                       "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."]
+    static let blink = ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+                        "..BBBBBBBBB..S..", "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+                        "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."]
     static let working: [[String]] = [
-        ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-         ".BBKBBBKBB..........", ".BBKBBBKBB..........", ".BBBBBBBBBHSSSS.....", ".BBBBBBBBB..........",
-         "..BBBBBBB...........", "...F...F............"],
-        ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-         ".BBKBBBKBB..........", ".BBKBBBKBB..........", ".BBBBBBBBBHSSSSSS...", ".BBBBBBBBB..........",
-         "..BBBBBBB...........", "...F...F............"],
-        ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-         ".BBKBBBKBB..........", ".BBKBBBKBB........Y.", ".BBBBBBBBBHSSSSSSSY.", ".BBBBBBBBB........Y.",
-         "..BBBBBBB...........", "...F...F............"],
-        ["...CCCCC............", "..CCCCCCC...........", ".CVVVVVVVC..........", ".BBBBBBBBB..........",
-         ".BBKBBBKBB..........", ".BBKBBBKBB..........", ".BBBBBBBBBHSSSSS....", ".BBBBBBBBB..........",
-         "..BBBBBBB...........", "...F...F............"],
+        ["....CCCCC....S..", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+         "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+         "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", "................"],
+        ["....CCCCC....S..", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+         "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+         "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", "................"],
+        ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+         "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+         "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F...YSY.", "............YSY."],
+        ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+         "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
+         "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."],
     ]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
@@ -40,7 +40,7 @@ struct PixelBo: View {
 /// Bo's icon in the sidebar, poking while he checks.
 struct BoIcon: View {
     @ObservedObject var watcher: BoWatcher
-    var pixel: CGFloat = 1
+    var pixel: CGFloat = 1.25
     var body: some View { PixelBo(pixel: pixel, busyUntil: watcher.busyUntil) }
 }
 
