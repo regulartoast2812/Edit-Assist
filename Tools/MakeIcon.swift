@@ -1,6 +1,6 @@
 // Draws Edit Assist's app icon and writes Resources/AppIcon.icns. Run: swift Tools/MakeIcon.swift
 // The mark is Kino, the AI video helper (an orange blob in a red beret with a clapperboard), in pixel art on the dark
-// tile with an orange glow (2026-11-03, chosen from the seven helpers). His rows and colours are PixelKino.rest's.
+// tile with the first icon's mint glow (2026-11-03, chosen from the seven helpers; an orange glow looked too black). His rows and colours are PixelKino.rest's.
 import AppKit
 
 func render(_ size: Int) -> NSBitmapImageRep {
@@ -10,7 +10,7 @@ func render(_ size: Int) -> NSBitmapImageRep {
     let context = NSGraphicsContext(bitmapImageRep: rep)!
     NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
     let s = CGFloat(size) / 1024
-    let glow = NSColor(red: 250 / 255, green: 160 / 255, blue: 70 / 255, alpha: 1)
+    let glow = NSColor(red: 0.43, green: 0.88, blue: 0.73, alpha: 1)
 
     // macOS icon grid: an 824-point rounded square centred in 1024, with a soft drop shadow.
     let tile = NSRect(x: 100 * s, y: 100 * s, width: 824 * s, height: 824 * s)
@@ -22,9 +22,9 @@ func render(_ size: Int) -> NSBitmapImageRep {
     NSGraphicsContext.restoreGraphicsState()
     NSGradient(colors: [NSColor(red: 0.13, green: 0.17, blue: 0.20, alpha: 1), NSColor(red: 0.045, green: 0.06, blue: 0.075, alpha: 1)])!
         .draw(in: shape, angle: -90)
-    // A faint orange glow from the top left, and a fine rim.
+    // A faint mint glow from the top left, as on the first icon, and a fine rim.
     NSGraphicsContext.saveGraphicsState(); shape.addClip()
-    NSGradient(colors: [glow.withAlphaComponent(0.26), glow.withAlphaComponent(0)])!
+    NSGradient(colors: [glow.withAlphaComponent(0.22), glow.withAlphaComponent(0)])!
         .draw(fromCenter: NSPoint(x: 260 * s, y: 860 * s), radius: 0, toCenter: NSPoint(x: 260 * s, y: 860 * s), radius: 620 * s, options: [])
     NSGraphicsContext.restoreGraphicsState()
     NSColor.white.withAlphaComponent(0.10).setStroke(); shape.lineWidth = 4 * s; shape.stroke()
