@@ -128,8 +128,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
-                            } else if ["amir", "tala", "bo", "pix", "don"].contains(s.tab) {
-                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
+                            } else if ["amir", "tala", "bo", "pix", "don", "kino"].contains(s.tab) {
+                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
@@ -144,6 +144,7 @@ struct ContentView: View {
                         else if s.tab == "bo" { BoPage(watcher: s.bo) }
                         else if s.tab == "pix" { PixPage(script: s.project.script) }
                         else if s.tab == "don" { DonPage() }
+                        else if s.tab == "kino" { KinoPage() }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity)
                     if contextOpen {
@@ -234,6 +235,7 @@ struct ContentView: View {
                 helperRow("bo", "Bo", "Drive helper") { BoIcon(watcher: s.bo) }
                 helperRow("pix", "Pix", "CTA & image helper") { PixelPix(pixel: 1.25) }
                 helperRow("don", "Don", "Ads expert") { PixelDon(pixel: 1.25) }
+                helperRow("kino", "Kino", "AI video helper") { PixelKino(pixel: 1.25) }
             }
             Spacer()
             if let update = s.update {

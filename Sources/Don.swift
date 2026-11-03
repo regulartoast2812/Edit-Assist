@@ -58,6 +58,7 @@ struct DonPage: View {
                 VStack(spacing: 2) {
                     brief(L("Tala"), L("The voice and the music")) { PixelTala(pixel: 1.1) }
                     brief(L("Pix"), L("The graphic style of the CTA and images")) { PixelPix(pixel: 1.25) }
+                    brief(L("Kino"), L("The look of the AI videos")) { PixelKino(pixel: 1.25) }
                 }
                 .background(.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 9))
             }
