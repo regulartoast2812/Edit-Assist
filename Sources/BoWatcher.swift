@@ -25,6 +25,11 @@ import SQLite3
 /// not closed in 15 minutes asks you, in a dialog, to disconnect the account and sign in again (Google's way to rebuild
 /// it). For three hours after an account is connected, or after you say you are doing it, Bo leaves Drive alone: a
 /// rebuild looks like every sign above.
+///
+/// Never in the middle of your own changes (2026-11-03): Bo force-quit Drive while it showed "Preparing to disconnect
+/// account", and the disconnect never happened. Within 20 minutes of Drive's settings being open, he restarts nothing.
+/// And the Finder restart is tried once in three hours: when the changes stall again after it, Finder's copy is broken,
+/// and Bo asks you to reconnect the account instead.
 /// He also keeps track of what Drive keeps on this Mac (its cache, old logs, files it could not upload) and says when
 /// clearing is worth it (2026-11-03); he never deletes anything himself. Clearing the cache is done Google's way,
 /// disconnecting the account and signing in again, which keeps files that have not uploaded yet.
@@ -71,6 +76,10 @@ final class BoWatcher: ObservableObject {
     private var stuckSince: Date?
     private var lastRestart: Date?
     private var lastMeasure: Date?
+    /// Drive's settings were open at the last check (noted once).
+    private var settingsOpen = false
+    /// When Bo last restarted File Provider for Finder not taking changes: once in three hours.
+    private var lastFinderRestart: Date?
     private static let answerWithin: TimeInterval = 15, stuckFor: TimeInterval = 180, restartsApart: TimeInterval = 1800
     /// Changes unconfirmed this long mean Finder has stopped taking them; a few minutes happen when Drive is busy.
     nonisolated static let finderStuckAfter = 1800
@@ -96,17 +105,18 @@ final class BoWatcher: ObservableObject {
             var results: [(URL, Bool, Int)] = []
             for root in roots { results.append(Self.answers(root)) }
             let errors = Self.readErrors()
-            let (lag, quitting) = Self.readDriveLog()
+            let (lag, quitting, settings) = Self.readDriveLog()
             let storage = measure ? Self.measure(known: known) : nil
             // Accounts by email: the ones Bo remembers, and any the measuring just found.
             var emails = known
             for account in storage?.accounts ?? [] { if let email = account.email { emails[account.id] = email } }
             let missing = measure ? Self.compareFinder(emails: emails) : nil
-            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, storage: storage, missing: missing) }
+            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, settings: settings, storage: storage, missing: missing) }
         }
     }
 
-    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, storage: Storage?, missing: [Missing]?) {
+    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, settings: Date?,
+                        storage: Storage?, missing: [Missing]?) {
         checking = false
         lastCheck = Date()
         self.errors = errors
@@ -119,6 +129,11 @@ final class BoWatcher: ObservableObject {
             self.holdUntil = nil; UserDefaults.standard.removeObject(forKey: "boHoldUntil")
             note("Done waiting for Google Drive to rebuild")
         }
+        if let settings, Date().timeIntervalSince(settings) < 1200 {
+            if !settingsOpen { settingsOpen = true; note("Google Drive's settings are open: not restarting it while you change them") }
+            return
+        }
+        settingsOpen = false
         if !running {
             // Not running at all: open it, at most once every half hour (you may have quit it on purpose just now).
             if lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true { open(because: "Google Drive was not running") }
@@ -134,6 +149,17 @@ final class BoWatcher: ObservableObject {
         let behind = lag.filter { $0.value >= Self.finderStuckAfter && !Self.isNew($0.key) }
         if !behind.isEmpty, lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true {
             let names = behind.keys.sorted().map { accountName($0) }.joined(separator: ", ")
+            if lastFinderRestart.map({ Date().timeIntervalSince($0) < 3 * 3600 }) ?? false {
+                // Stalled again after a restart: a restart does not mend it. Ask for the rebuild, once.
+                if reconnect == nil, (UserDefaults.standard.object(forKey: "boReconnectLater") as? Date).map({ Date() > $0 }) ?? true,
+                   let account = behind.keys.sorted().first {
+                    reconnect = Reconnect(account: account, email: Self.knownAccounts[account] ?? storage?.accounts.first { $0.id == account }?.email,
+                                          missing: finderMissing.filter { $0.account == account })
+                    note("Finder stalled again on \(names)'s changes after a restart: asked you to reconnect it")
+                }
+                return
+            }
+            lastFinderRestart = Date()
             restart(because: "Finder has not taken \(names)'s changes for \(Self.duration(behind.values.max() ?? 0))", fileProvider: true)
             return
         }
@@ -404,14 +430,26 @@ final class BoWatcher: ObservableObject {
         return nil
     }
 
+    /// When Drive's settings were last on screen: its log writes each change to its windows ("preferences_dialog", the
+    /// "Preparing to disconnect account" dialog) under the time of the line before.
+    nonisolated static func settingsShown(in text: String) -> Date? {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var time: Date?, shown: Date?
+        for line in text.split(separator: "\n") {
+            if line.first == "2", let z = line.firstIndex(of: "Z"), let stamp = formatter.date(from: String(line[...z])) { time = stamp }
+            if line.contains("preferences_dialog") || line.contains("disconnect account") || line.contains("Disconnect account") { shown = time ?? shown }
+        }
+        return shown
+    }
+
     /// Drive's current log, the whole of it since Drive started (the last confirmation can be hours back).
-    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?) {
-        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil) }
+    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?, settings: Date?) {
+        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil, nil) }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         try? handle.seek(toOffset: size > 40_000_000 ? size - 40_000_000 : 0)
         let text = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
-        return (finderLags(in: text, now: now), quittingSince(in: text))
+        return (finderLags(in: text, now: now), quittingSince(in: text), settingsShown(in: text))
     }
 
     // MARK: What Drive keeps on this Mac

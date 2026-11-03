@@ -124,7 +124,9 @@ it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive ha
 compares the top of each drive in Drive's database (read only; immutable when Drive keeps it locked) with what Finder
 lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a dialog asking you to disconnect and
 reconnect that account (Google's rebuild). For three hours after an account is connected, or after you choose to
-reconnect, Bo leaves Drive alone. Errors in
+reconnect, Bo leaves Drive alone. He also restarts nothing within 20 minutes of Drive's settings being on screen (he once
+force-quit Drive during "Preparing to disconnect account"), and tries the File Provider restart once in three hours;
+stalling again after it, he asks for the reconnect instead. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Bo also measures what Drive keeps in Application
 Support (each account's cache, old logs, lost_and_found, free space; never the drives themselves) every 15 minutes, and
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are
