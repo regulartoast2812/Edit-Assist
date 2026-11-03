@@ -742,8 +742,12 @@ struct ContentView: View {
                     Image(systemName: job.icon).frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L(job.title)).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                        Text(s.activeFunction == job ? L(s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? L("No script yet") : L("%@ of %@ done", s.project.completed(graphics: job == .highlightGraphics).count, s.targets.count))
-                            .font(.system(size: 9)).foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
+                        HStack(spacing: 5) {
+                            Text(s.activeFunction == job ? L(s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? L("No script yet") : L("%@ of %@ done", s.project.completed(graphics: job == .highlightGraphics).count, s.targets.count))
+                                .font(.system(size: 9)).lineLimit(1).foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
+                            // The script it works on: the one open in the project.
+                            if job.highlightsPhrases { scriptPill(s.project.openScript.name) }
+                        }
                     }
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())
@@ -843,12 +847,48 @@ struct ContentView: View {
         }
     }
 
+    /// A script's name as a small pill, on a function in the sidebar.
+    func scriptPill(_ name: String) -> some View {
+        Text(name).font(.system(size: 9, weight: .semibold)).lineLimit(1)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(accent.opacity(0.15), in: Capsule()).foregroundStyle(accent)
+            .fixedSize()
+    }
+
+    /// The project's scripts on a function's page, each with its phrase count: the open one is what a run works on;
+    /// click another to switch.
+    var scriptPicker: some View {
+        HStack(spacing: 8) {
+            Text(md: L("SCRIPT")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(s.project.scriptTabs) { tab in
+                        let open = tab.id == s.project.openScript.id
+                        let phrases = ((try? ScriptParser.parse(tab.script)) ?? []).reduce(0) { $0 + $1.highlights.count }
+                        Button { s.openScript(tab.id) } label: {
+                            HStack(spacing: 6) {
+                                Text(tab.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                Text("\(phrases)").font(.system(size: 10, design: .monospaced)).opacity(0.7)
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(open ? accent.opacity(0.16) : .white.opacity(0.04), in: Capsule())
+                            .foregroundStyle(open ? accent : .secondary).contentShape(Capsule())
+                        }.buttonStyle(.plain)
+                            .help(open ? L("A run works on this script") : L("Switch to this script"))
+                    }
+                }
+            }.scrollIndicators(.never)
+        }
+        .disabled(s.busy)
+    }
+
     var taskColumn: some View {
         VStack(alignment: .leading, spacing: 18) {
             columnTitle(L("TASK"))
             Bullets(s.function.points)
+            if s.function.highlightsPhrases { scriptPicker }
             if s.targets.isEmpty {
-                card(L("To do"), trailing: s.project.scriptTabs.count > 1 ? s.project.openScript.name : nil) {
+                card(L("To do")) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(md: L("No phrases yet. The script belongs to the project, so every function can use it."))
                             .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -856,8 +896,7 @@ struct ContentView: View {
                     }
                 }
             } else {
-                // With several scripts, which one a run works on: the one open in the project.
-                card(L("To do"), trailing: s.project.scriptTabs.count > 1 ? s.project.openScript.name : nil) { phraseList }.guideTarget("todo")
+                card(L("To do")) { phraseList }.guideTarget("todo")
             }
         }.padding(.bottom, 10)
     }
