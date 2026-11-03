@@ -1142,6 +1142,7 @@ struct Checks {
                 2026-11-03T10:00:00.000ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="preferences_dialog {
                 2026-11-03T10:01:00.000ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="
                     title: "Preparing to disconnect account"
+                2026-11-03T10:01:00.100ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="preferences_dialog {
                 2026-11-03T10:05:00.000ZI [1:core_1] x.cc:1:Y still working
                 """
             check(BoWatcher.disconnectWaiting(in: preparing) == ISO8601DateFormatter().date(from: "2026-11-03T10:01:00Z")

@@ -483,7 +483,9 @@ final class BoWatcher: ObservableObject {
             }
             if line.contains("Preparing to disconnect account") { preparing = update ?? time }
         }
-        guard let preparing, let update, update <= preparing else { return nil }
+        // Drive redraws the dialog a few times as it opens (twice within 0.15 s on 2026-11-03): only a change a minute
+        // or more later means it moved on.
+        guard let preparing, let update, update.timeIntervalSince(preparing) < 60 else { return nil }
         return preparing
     }
 

@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Pix, the CTA and image helper: a lavender blob with Bob Ross's big curly perm and a full beard up to his hair, holding a paintbrush upright
+/// Pix, the CTA and image helper: a light lavender blob with Bob Ross's big curly perm and a full beard up to his hair, holding a paintbrush upright
 /// (a full Bob Ross did not fit with the other blobs, 2026-11-03). Working: he sweeps the brush and dabs of paint appear.
 struct PixelPix: View {
     /// The helper's colour, the body's: their page and sidebar button take it.
-    static let theme = Color(red: 190 / 255, green: 170 / 255, blue: 240 / 255)
+    static let theme = Color(red: 222 / 255, green: 210 / 255, blue: 250 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
@@ -31,8 +31,8 @@ struct PixelPix: View {
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
                        colors: ["A": Color(red: 150 / 255, green: 95 / 255, blue: 55 / 255), "a": Color(red: 115 / 255, green: 70 / 255, blue: 40 / 255),
-                                "O": Color(red: 190 / 255, green: 170 / 255, blue: 240 / 255), "K": Color(red: 30 / 255, green: 25 / 255, blue: 25 / 255),
-                                "B": Color(red: 120 / 255, green: 75 / 255, blue: 45 / 255), "D": Color(red: 160 / 255, green: 140 / 255, blue: 210 / 255),
+                                "O": Color(red: 222 / 255, green: 210 / 255, blue: 250 / 255), "K": Color(red: 30 / 255, green: 25 / 255, blue: 25 / 255),
+                                "B": Color(red: 120 / 255, green: 75 / 255, blue: 45 / 255), "D": Color(red: 190 / 255, green: 175 / 255, blue: 232 / 255),
                                 "P": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "R": Color(red: 45 / 255, green: 40 / 255, blue: 40 / 255),
                                 "F": Color(red: 170 / 255, green: 170 / 255, blue: 175 / 255), "H": Color(red: 180 / 255, green: 130 / 255, blue: 70 / 255),
                                 "G": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255),
