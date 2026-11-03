@@ -53,7 +53,7 @@ struct BoPage: View {
     private let accent = PixelBo.theme
 
     var body: some View {
-        ScrollView {
+        ThinScrollView {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
                 PixelBo(pixel: 4, busyUntil: watcher.busyUntil, previewOnHover: true)

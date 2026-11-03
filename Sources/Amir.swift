@@ -143,7 +143,7 @@ struct AmirPage: View {
                     Text(md: L("Nothing in this folder yet.")).font(.system(size: 12)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 80)
                 } else {
-                    ScrollView {
+                    ThinScrollView {
                         LazyVStack(spacing: 2) { ForEach(watcher.items) { row($0) } }
                     }
                     .background(.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 9))

@@ -386,7 +386,7 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             } else {
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    ThinScrollView {
                         LazyVStack(alignment: .leading, spacing: 16) {
                             ForEach(s.project.messages) { msg in
                                 VStack(alignment: .leading, spacing: 7) {
@@ -594,7 +594,7 @@ struct ContentView: View {
     }
 
     var inspector: some View {
-        ScrollView {
+        ThinScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack { label(L("SCREEN OBSERVATION")); Spacer(); Button(L("Capture"), systemImage: "camera") { s.capture() }.font(.system(size: 11)).disabled(s.busy || s.window == nil) }
                 if let observation = s.observation {
@@ -736,19 +736,19 @@ struct ContentView: View {
     func functionRow(_ job: EditFunction) -> some View {
         let showing = s.tab == "function" && s.function == job
         let progress = s.progress(of: job)
-        return HStack(spacing: 6) {
+        return HStack(spacing: 4) {
             Button { s.function = job; s.tab = "function" } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Image(systemName: job.icon).frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L(job.title)).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Text(s.activeFunction == job ? L(s.runPaused ? "Paused" : "Running…") : progress.total == 0 ? L("No script yet") : L("%@ of %@ done", s.project.completed(graphics: job == .highlightGraphics).count, s.targets.count))
-                                .font(.system(size: 9)).lineLimit(1).foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
+                                .font(.system(size: 9)).lineLimit(1).fixedSize().foregroundStyle(s.activeFunction == job ? (s.runPaused ? .orange : accent) : .secondary)
                             // The script it works on: the one open in the project.
                             if job.highlightsPhrases { scriptPill(s.project.openScript.name) }
                         }
-                    }
+                    }.layoutPriority(1)
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain)
@@ -836,23 +836,23 @@ struct ContentView: View {
         GeometryReader { space in
             if space.size.width >= 740 {
                 HStack(alignment: .top, spacing: 18) {
-                    ScrollView { taskColumn }.frame(minWidth: 380, maxWidth: .infinity)
-                    ScrollView { setupColumn }.frame(minWidth: 340, maxWidth: 400)
+                    ThinScrollView { taskColumn }.frame(minWidth: 380, maxWidth: .infinity)
+                    ThinScrollView { setupColumn }.frame(minWidth: 340, maxWidth: 400)
                 }
             } else {
-                ScrollView {
+                ThinScrollView {
                     VStack(alignment: .leading, spacing: 26) { taskColumn; setupColumn }
                 }
             }
         }
     }
 
-    /// A script's name as a small pill, on a function in the sidebar.
+    /// A script's name as a small pill, on a function in the sidebar. The status beside it stays whole; a long name is cut.
     func scriptPill(_ name: String) -> some View {
-        Text(name).font(.system(size: 9, weight: .semibold)).lineLimit(1)
-            .padding(.horizontal, 6).padding(.vertical, 1)
+        Text(name).font(.system(size: 9, weight: .semibold)).lineLimit(1).truncationMode(.tail)
+            .padding(.horizontal, 5).padding(.vertical, 1)
             .background(accent.opacity(0.15), in: Capsule()).foregroundStyle(accent)
-            .fixedSize()
+            .help(name)
     }
 
     /// The project's scripts on a function's page, each with its phrase count: the open one is what a run works on;
@@ -986,7 +986,7 @@ struct ContentView: View {
 
     /// The project's own information, shared by every function that works on it.
     var projectPage: some View {
-        ScrollView {
+        ThinScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
                     scriptTabs
@@ -1264,7 +1264,7 @@ struct ErrorLogView: View {
                     Text(md: L("Nothing has gone wrong this session.")).font(.system(size: 12)).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 60)
                 } else {
-                    ScrollView {
+                    ThinScrollView {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(s.problems.reversed()) { problem in
                                 VStack(alignment: .leading, spacing: 3) {

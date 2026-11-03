@@ -28,7 +28,7 @@ struct ScriptEditor: NSViewRepresentable {
     var onPasteImage: ((NSImage) -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let editor = ScriptTextView()
@@ -215,7 +215,7 @@ struct RichScriptEditor: NSViewRepresentable {
     var onPasteImage: ((NSImage) -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let editor = RichScriptTextView()
@@ -266,4 +266,41 @@ struct RichScriptEditor: NSViewRepresentable {
             parent.text = ScriptText.marked(storage)
         }
     }
+}
+
+/// Thin scroll bars that show while you scroll, whatever the Mac's setting: with a mouse plugged in, macOS otherwise
+/// draws a thick grey bar beside every scrolling area (2026-11-03).
+final class OverlayScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { .overlay }
+        set { super.scrollerStyle = .overlay }
+    }
+}
+
+/// The same for SwiftUI's scroll views, which are AppKit's underneath: a probe inside the content finds its scroll
+/// view and keeps it on overlay bars, also after macOS switches styles (a mouse plugged in or out).
+struct OverlayScrollers: NSViewRepresentable {
+    final class Probe: NSView {
+        private var observer: NSObjectProtocol?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+            if observer == nil {
+                observer = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                    // After the scroll view has taken the new style itself.
+                    DispatchQueue.main.async { self?.apply() }
+                }
+            }
+        }
+        func apply() { if let scroll = enclosingScrollView, scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay } }
+        deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+    }
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ probe: Probe, context: Context) { DispatchQueue.main.async { probe.apply() } }
+}
+
+/// A vertical ScrollView with thin overlay scroll bars.
+struct ThinScrollView<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View { ScrollView { content.background(OverlayScrollers()) } }
 }
