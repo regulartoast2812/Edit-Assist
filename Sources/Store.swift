@@ -881,6 +881,29 @@ final class Store: ObservableObject {
         projects.append(p); selected = p.id; resetContext(); save()
     }
     func select(_ id: UUID) { stop(); selected = id; resetContext() }
+
+    /// The project's script tabs. Never during a run: a run works on the script that was open when it started.
+    func openScript(_ id: UUID) {
+        guard !busy, id != project.openScript.id else { return }
+        projects[index].openScript(id); scriptDraft = nil; showScriptDraft = false; save()
+        log("Script: opened “\(project.openScript.name)” in “\(project.name)”")
+    }
+    func addScript() {
+        guard !busy else { return }
+        projects[index].addScript(); scriptDraft = nil; showScriptDraft = false; save()
+        log("Script: added “\(project.openScript.name)” to “\(project.name)”")
+    }
+    func renameScript(_ id: UUID, to name: String) {
+        guard !busy else { return }
+        projects[index].renameScript(id, to: name); save()
+    }
+    func removeScript(_ id: UUID) {
+        guard !busy, let tab = project.scriptTabs.first(where: { $0.id == id }) else { return }
+        // A copy first, as before a script is emptied: a removed script with text can be found again in Backups.
+        if !tab.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { backupProjects("script-removed") }
+        projects[index].removeScript(id); scriptDraft = nil; showScriptDraft = false; save()
+        log("Script: removed “\(tab.name)” from “\(project.name)”")
+    }
     func resetContext() { attachments = []; scriptDraft = nil; showScriptDraft = false; observation = nil; proposal = nil; previous = nil; activity = []; detect() }
     func refreshPermissions() { screenAllowed = desktop.canCapture; controlAllowed = desktop.canControl }
 

@@ -108,6 +108,11 @@ styled there and finished on the next clip. Matching phrases anywhere on screen 
 wrong place ("Fabric" inside "Soft fabric", "wire" twice on one word, 2026-10-28); it remains only as the
 fallback for a caption that cannot be placed, and then only for phrases near the last place.
 
+**Script tabs**: a project can hold several scripts, one tab each on the project page. The open tab is the project's
+`script` and progress fields themselves, so runs, progress and everything that reads the script are unchanged; the other
+tabs wait in `otherScripts` with their own progress (`Project.scriptTabs`, `openScript`, `addScript`, `removeScript`).
+Tabs cannot change during a run (a paused run still counts). Removing a script with text backs up projects.json first.
+
 **Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
 you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**

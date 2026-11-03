@@ -93,6 +93,10 @@ struct ContentView: View {
     @State private var techStackOpen = false
     @State private var logOpen = false
     @State private var renaming = false
+    /// The script tab being renamed, its name as typed, and the one waiting for you to confirm removing it.
+    @State private var renamingScript: UUID?
+    @State private var scriptNameDraft = ""
+    @State private var removingScript: ScriptTab?
     @State private var renamingTitle = false
     @FocusState private var titleFocused: Bool
     /// Ends renaming in the header; an emptied name goes back to the default rather than leaving no title.
@@ -435,6 +439,53 @@ struct ContentView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if let error = parseError { Text(error).font(.system(size: 11)).foregroundStyle(.orange) }
+        }
+    }
+
+    /// The project's scripts, one tab each, where the card's title was: click to open one, double-click or right-click to
+    /// rename, + for a new one. A run works on the open one.
+    var scriptTabs: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                ForEach(s.project.scriptTabs) { tab in scriptTab(tab) }
+                Button { s.addScript() } label: { Image(systemName: "plus").frame(width: 26, height: 26).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help(L("New script"))
+            }
+        }
+        .scrollIndicators(.never).disabled(s.busy)
+        .confirmationDialog(L("Remove “%@”?", removingScript?.name ?? ""), isPresented: Binding(get: { removingScript != nil }, set: { if !$0 { removingScript = nil } })) {
+            Button(L("Remove script"), role: .destructive) { if let tab = removingScript { s.removeScript(tab.id) }; removingScript = nil }
+        } message: { Text(md: L("Its text and progress go. A copy is kept in Backups.")) }
+    }
+
+    func scriptTab(_ tab: ScriptTab) -> some View {
+        let open = tab.id == s.project.openScript.id
+        return Group {
+            if renamingScript == tab.id {
+                TextField(L("Script name"), text: $scriptNameDraft)
+                    .textFieldStyle(.plain).font(.system(size: 14, weight: .semibold)).frame(width: 140)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+                    .onSubmit { s.renameScript(tab.id, to: scriptNameDraft); renamingScript = nil }
+                    .onExitCommand { renamingScript = nil }
+            } else {
+                Button { s.openScript(tab.id) } label: {
+                    Text(tab.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(open ? accent.opacity(0.16) : .white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(open ? accent : .secondary).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(TapGesture(count: 2).onEnded { scriptNameDraft = tab.name; renamingScript = tab.id })
+                .contextMenu {
+                    Button(L("Rename")) { scriptNameDraft = tab.name; renamingScript = tab.id }
+                    if s.project.scriptTabs.count > 1 {
+                        Button(L("Remove…"), role: .destructive) {
+                            if tab.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { s.removeScript(tab.id) } else { removingScript = tab }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -790,7 +841,7 @@ struct ContentView: View {
             columnTitle(L("TASK"))
             Bullets(s.function.points)
             if s.targets.isEmpty {
-                card(L("To do")) {
+                card(L("To do"), trailing: s.project.scriptTabs.count > 1 ? s.project.openScript.name : nil) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(md: L("No phrases yet. The script belongs to the project, so every function can use it."))
                             .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -798,7 +849,8 @@ struct ContentView: View {
                     }
                 }
             } else {
-                card(L("To do")) { phraseList }.guideTarget("todo")
+                // With several scripts, which one a run works on: the one open in the project.
+                card(L("To do"), trailing: s.project.scriptTabs.count > 1 ? s.project.openScript.name : nil) { phraseList }.guideTarget("todo")
             }
         }.padding(.bottom, 10)
     }
@@ -890,7 +942,11 @@ struct ContentView: View {
     var projectPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                card(L("Script")) { script }
+                VStack(alignment: .leading, spacing: 12) {
+                    scriptTabs
+                    script
+                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 12))
                 card(L("Phrases to highlight"), trailing: L("%@ phrases", s.targetCount)) {
                     if s.targets.isEmpty {
                         Text(md: L("Paste your script above: its bold phrases show here.")).font(.system(size: 12)).foregroundStyle(.secondary)

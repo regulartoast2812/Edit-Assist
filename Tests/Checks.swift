@@ -1074,6 +1074,34 @@ struct Checks {
                   && project.runSteps.contains(OCRStep.backFromStyle.rawValue) && project.runSteps.contains(OCRStep.increaseSize.rawValue),
                   "Size only skips the style steps but keeps Back")
         }
+        // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
+        do {
+            var project = Project(name: "Tabs", script: "**one**")
+            project.completed = [0]; project.graphicsCompleted = [0]
+            let first = project.openScript.id
+            check(project.scriptTabs.map(\.name) == ["Script 1"] && first == project.id, "A project saved before tabs is one tab, Script 1")
+            project.addScript()
+            check(project.scriptTabs.map(\.name) == ["Script 1", "Script 2"] && project.script.isEmpty && project.completed.isEmpty
+                  && project.graphicsCompleted == nil, "A new script opens empty, with no progress")
+            project.script = "**two**"; project.completed = [0]
+            let second = project.openScript.id
+            project.openScript(first)
+            check(project.script == "**one**" && project.completed == [0] && project.graphicsCompleted == [0] && project.scriptTabs.count == 2,
+                  "Opening a script brings back its text and progress")
+            check(project.scriptTabs.first { $0.id == second }?.script == "**two**", "The script left keeps what was typed in it")
+            project.renameScript(second, to: "  V2 ")
+            check(project.scriptTabs.map(\.name) == ["Script 1", "V2"], "A script is renamed in place, trimmed")
+            project.addScript()
+            check(project.scriptTabs.map(\.name) == ["Script 1", "V2", "Script 3"], "New scripts go at the end, numbered")
+            project.removeScript(second)
+            check(project.scriptTabs.map(\.name) == ["Script 1", "Script 3"] && project.scriptName == "Script 3", "Removing another script keeps the open one")
+            project.removeScript(project.openScript.id)
+            check(project.scriptTabs.map(\.name) == ["Script 1"] && project.script == "**one**", "Removing the open script opens its neighbour")
+            project.removeScript(project.openScript.id)
+            check(project.scriptTabs.count == 1, "The last script cannot be removed")
+            let round = try? JSONDecoder().decode(Project.self, from: JSONEncoder().encode(project))
+            check(round?.scriptTabs.map(\.name) == project.scriptTabs.map(\.name) && round?.script == "**one**", "Script tabs are saved and load back")
+        }
         // Interface language: English passes through; Vietnamese by exact text, by number pattern, with values filled in.
         do {
             let saved = UserDefaults.standard.string(forKey: "appLanguage")

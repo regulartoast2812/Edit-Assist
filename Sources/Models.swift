@@ -136,6 +136,81 @@ struct Project: Codable, Identifiable {
     mutating func setProgress(graphics: Bool, completed done: [Int], styledWords words: [String: Int]) {
         if graphics { graphicsCompleted = done; graphicsStyledWords = words } else { completed = done; styledWords = words }
     }
+
+    /// A project can hold several scripts, one tab each (2026-11-03). The open one is the script and progress above,
+    /// so a run and everything else read it as before; the others wait in `otherScripts`, in tab order with the open
+    /// one at `scriptPosition`. All optional, so projects saved before tabs load as one tab.
+    var scriptName: String? = nil
+    var scriptID: UUID? = nil
+    var otherScripts: [ScriptTab]? = nil
+    var scriptPosition: Int? = nil
+
+    /// The open script as a tab. Before it has an id of its own it takes the project's, which stays the same.
+    var openScript: ScriptTab {
+        ScriptTab(id: scriptID ?? id, name: scriptName ?? "Script 1", script: script, completed: completed, styledWords: styledWords,
+                  graphicsCompleted: graphicsCompleted, graphicsStyledWords: graphicsStyledWords)
+    }
+    /// Every script, in tab order.
+    var scriptTabs: [ScriptTab] {
+        var tabs = otherScripts ?? []
+        tabs.insert(openScript, at: min(max(scriptPosition ?? 0, 0), tabs.count))
+        return tabs
+    }
+
+    /// Opens another script: the one open now goes back among the others, with its progress.
+    mutating func openScript(_ id: UUID) {
+        let tabs = scriptTabs
+        guard id != openScript.id, let at = tabs.firstIndex(where: { $0.id == id }) else { return }
+        otherScripts = tabs.filter { $0.id != id }; scriptPosition = at
+        load(tabs[at])
+    }
+
+    /// A new, empty script at the end, and opens it.
+    mutating func addScript() {
+        let tabs = scriptTabs
+        var number = tabs.count + 1
+        while tabs.contains(where: { $0.name == "Script \(number)" }) { number += 1 }
+        otherScripts = tabs; scriptPosition = tabs.count
+        load(ScriptTab(name: "Script \(number)"))
+    }
+
+    /// Removes a script; the last one cannot be. Removing the open one opens its neighbour.
+    mutating func removeScript(_ id: UUID) {
+        var tabs = scriptTabs
+        guard tabs.count > 1, let at = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.remove(at: at)
+        if id == openScript.id {
+            let next = min(at, tabs.count - 1)
+            load(tabs[next]); tabs.remove(at: next)
+            otherScripts = tabs; scriptPosition = next
+        } else {
+            otherScripts = tabs.filter { $0.id != openScript.id }
+            scriptPosition = tabs.firstIndex { $0.id == openScript.id }
+        }
+    }
+
+    mutating func renameScript(_ id: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if id == openScript.id { scriptName = name } else if let at = otherScripts?.firstIndex(where: { $0.id == id }) { otherScripts?[at].name = name }
+    }
+
+    private mutating func load(_ tab: ScriptTab) {
+        scriptID = tab.id; scriptName = tab.name; script = tab.script
+        completed = tab.completed; styledWords = tab.styledWords
+        graphicsCompleted = tab.graphicsCompleted; graphicsStyledWords = tab.graphicsStyledWords
+    }
+}
+
+/// One of a project's scripts and the progress made on it (see `Project.scriptTabs`).
+struct ScriptTab: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var script = ""
+    var completed: [Int] = []
+    var styledWords: [String: Int] = [:]
+    var graphicsCompleted: [Int]? = nil
+    var graphicsStyledWords: [String: Int]? = nil
 }
 
 struct AgentAction: Codable, Equatable {
