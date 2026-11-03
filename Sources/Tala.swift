@@ -3,6 +3,8 @@ import SwiftUI
 /// Tala ("star" in Tagalog), the voice helper: a soft pink mochi with a red bow, smiling eyes and rosy cheeks (a star
 /// with eyes read as Patrick Star, not as her, 2026-11-03). Working: she bounces, squashes and a note floats up.
 struct PixelTala: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 1, green: 178 / 255, blue: 192 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false

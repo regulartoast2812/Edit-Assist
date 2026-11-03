@@ -3,6 +3,8 @@ import SwiftUI
 /// Don, the ads helper: a mint blob in a navy suit and red tie, his hair slicked back like an ad man's. Working: he looks
 /// one way, then the other, and a light bulb lights up over his head.
 struct PixelDon: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 150 / 255, green: 220 / 255, blue: 170 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false

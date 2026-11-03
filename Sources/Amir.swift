@@ -51,6 +51,8 @@ struct AnimatedSprite: View {
 /// Amir, the file helper: a folder with a handlebar mustache. Working (a file just arrived): the mustache flicks up and
 /// down, the eyes look left and right, the lid lifts.
 struct PixelAmir: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 240 / 255, green: 190 / 255, blue: 82 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
@@ -94,7 +96,7 @@ struct AmirIcon: View {
 /// Amir's page: the folder watched and the files found in it.
 struct AmirPage: View {
     @ObservedObject var watcher: AmirWatcher
-    private let accent = Color(red: 0.43, green: 0.88, blue: 0.73)
+    private let accent = PixelAmir.theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {

@@ -3,6 +3,8 @@ import SwiftUI
 /// Pix, the CTA and image helper: a lavender blob with Bob Ross's big curly perm and a full beard up to his hair, holding a paintbrush upright
 /// (a full Bob Ross did not fit with the other blobs, 2026-11-03). Working: he sweeps the brush and dabs of paint appear.
 struct PixelPix: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 190 / 255, green: 170 / 255, blue: 240 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
@@ -79,7 +81,7 @@ struct PixPage: View {
         ((try? ScriptParser.parse(script)) ?? []).last { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
-    /// The line with its bold phrases bold and green, as in the script editor. Not through Markdown: a phrase saved with
+    /// The line with its bold phrases bold and in Pix's colour. Not through Markdown: a phrase saved with
     /// its trailing space ("**Sale: **UP") is not bold to Markdown, and the stars showed (2026-11-03).
     static func styled(_ line: ScriptLine) -> AttributedString {
         let chars = Array(line.text)
@@ -89,7 +91,7 @@ struct PixPage: View {
             if start > at { result += AttributedString(String(chars[at ..< start])) }
             var bold = AttributedString(String(chars[start ..< end]))
             bold.font = .system(size: 14, weight: .bold)
-            bold.foregroundColor = Color(red: 0.43, green: 0.88, blue: 0.73)
+            bold.foregroundColor = PixelPix.theme
             result += bold
             at = end
         }

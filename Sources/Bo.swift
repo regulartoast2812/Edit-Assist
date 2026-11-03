@@ -3,6 +3,8 @@ import SwiftUI
 /// Bo, the Drive helper: a round blue fellow in a cap worn with its brim to the side, holding a long stick upright.
 /// Working (checking or restarting Google Drive): he lifts the stick and taps it down with a spark.
 struct PixelBo: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 110 / 255, green: 185 / 255, blue: 240 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
@@ -47,7 +49,7 @@ struct BoIcon: View {
 /// Bo's page: how Google Drive is doing, and what Bo has done about it.
 struct BoPage: View {
     @ObservedObject var watcher: BoWatcher
-    private let accent = Color(red: 0.43, green: 0.88, blue: 0.73)
+    private let accent = PixelBo.theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {

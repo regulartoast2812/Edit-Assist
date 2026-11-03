@@ -130,12 +130,13 @@ struct ContentView: View {
                                 }
                             } else if ["amir", "tala", "bo", "pix", "don", "kino"].contains(s.tab) {
                                 Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(theme)
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
                             Spacer()
                             Button { contextOpen.toggle() } label: { Label(L("Context"), systemImage: "sidebar.right") }
-                                .tint(contextOpen ? accent : .secondary)
+                                .tint(contextOpen ? theme : .secondary)
                         }
                         if s.tab == "Assistant" { conversation }
                         else if s.tab == "project" { projectPage }
@@ -146,7 +147,7 @@ struct ContentView: View {
                         else if s.tab == "don" { DonPage() }
                         else if s.tab == "kino" { KinoPage() }
                         else { page(for: s.function) }
-                    }.padding(24).frame(minWidth: 450, maxWidth: .infinity)
+                    }.padding(24).frame(minWidth: 450, maxWidth: .infinity).tint(theme)
                     if contextOpen {
                         Divider()
                         inspector.padding(20).frame(width: 300)
@@ -643,9 +644,10 @@ struct ContentView: View {
     }
 
     /// One function in the sidebar: its name, where it stands, and a quick start on the right.
-    /// A helper in the sidebar (Amir, Tala): its pixel icon, name and what it helps with; opens its page.
+    /// A helper in the sidebar: its pixel icon, name and what it helps with, in its colour; opens its page.
     func helperRow<Icon: View>(_ tab: String, _ name: String, _ role: String, @ViewBuilder icon: () -> Icon) -> some View {
-        Button { s.tab = tab } label: {
+        let color = Self.helperThemes[tab] ?? accent
+        return Button { s.tab = tab } label: {
             HStack(spacing: 10) {
                 icon().frame(width: 20)
                 VStack(alignment: .leading, spacing: 2) {
@@ -655,10 +657,17 @@ struct ContentView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
-            .background(s.tab == tab ? accent.opacity(0.12) : .white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
-            .foregroundStyle(s.tab == tab ? accent : .secondary).contentShape(Rectangle())
+            .background(color.opacity(s.tab == tab ? 0.14 : 0.04), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(color.opacity(s.tab == tab ? 0.35 : 0), lineWidth: 1))
+            .foregroundStyle(s.tab == tab ? color : .secondary).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
+
+    /// Each helper's colour, the colour of their body: their sidebar button and page take it.
+    static let helperThemes: [String: Color] = ["amir": PixelAmir.theme, "tala": PixelTala.theme, "bo": PixelBo.theme,
+                                                "pix": PixelPix.theme, "don": PixelDon.theme, "kino": PixelKino.theme]
+    /// The page's colour: the helper's on a helper page, the app's anywhere else.
+    var theme: Color { Self.helperThemes[s.tab] ?? accent }
 
     func functionRow(_ job: EditFunction) -> some View {
         let showing = s.tab == "function" && s.function == job

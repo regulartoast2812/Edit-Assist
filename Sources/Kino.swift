@@ -3,6 +3,8 @@ import SwiftUI
 /// Kino, the AI video helper: an orange blob in a red director's beret, holding a clapperboard. Working: the clapper
 /// opens and snaps shut, and sparks of AI fly off it.
 struct PixelKino: View {
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 250 / 255, green: 160 / 255, blue: 70 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
