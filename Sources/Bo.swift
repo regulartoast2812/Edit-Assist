@@ -6,23 +6,23 @@ struct PixelBo: View {
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+    static let rest = ["....CCCCC.......", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
                        "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
                        "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."]
-    static let blink = ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+    static let blink = ["....CCCCC.......", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
                         "..BBBBBBBBB..S..", "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
                         "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."]
     static let working: [[String]] = [
-        ["....CCCCC....S..", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+        ["....CCCCC....S..", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
          "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
          "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", "................"],
-        ["....CCCCC....S..", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+        ["....CCCCC....S..", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
          "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
          "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", "................"],
-        ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+        ["....CCCCC.......", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
          "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
          "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F...YSY.", "............YSY."],
-        ["....CCCCC.......", "...CCCCCCC...S..", "VVVCCCCCCCC..S..", "...BBBBBBB...S..",
+        ["....CCCCC.......", "...CCCCCCC...S..", "..CCCCCCCCC..S..", "VVVVVVVVVVV..S..",
          "..BBBBBBBBB..S..", "..BBKBBBKBB..S..", "..BBKBBBKBB..S..", "..BBBBBBBBBHHS..",
          "..BBBBBBBBB..S..", "...BBBBBBB...S..", "....F...F....S..", ".............S.."],
     ]
