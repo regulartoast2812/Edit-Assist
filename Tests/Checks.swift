@@ -1074,6 +1074,52 @@ struct Checks {
                   && project.runSteps.contains(OCRStep.backFromStyle.rawValue) && project.runSteps.contains(OCRStep.increaseSize.rawValue),
                   "Size only skips the style steps but keeps Back")
         }
+        // Bo: Drive's log errors by kind (made-up lines in Drive's format), and when clearing is worth it.
+        do {
+            func kind(_ message: String) -> BoWatcher.ErrorKind? { BoWatcher.kind(of: Substring(message)) }
+            check(kind("[1:CurlWorker1] curl_api.cc:987:operator() No progress made for 3 seconds & we appear offline.") == .connection
+                  && kind("[1:x] curl_api.cc:180:StatusFromCurlCode Remapped curl code 28 to TIMEOUT_EXCEEDED: Operation too slow.") == .connection
+                  && kind("[1:x] file_provider_native_api.mm:242:UNKNOWN Error Domain=NSFileProviderErrorDomain Code=-1004 \"Your device couldn’t connect to the server.\"") == .connection,
+                  "Bo: offline, timeouts and could-not-connect count as Connection")
+            check(kind("[1:core_9] authenticated_transport.cc:166:DumpToLog Request 0x81788ff88: 429 transport: OK reader: OK url: https://example") == .server
+                  && kind("[1:core_9] authenticated_transport.cc:166:DumpToLog Request 0x81788ff88: 500 transport: OK") == .server
+                  && kind("[1:core_9] authenticated_transport.cc:166:DumpToLog Request 0x81788ff88: 403 transport: OK") == .access,
+                  "Bo: a failed request counts by its status: 429 and 5xx are Google's servers, 403 is Access")
+            check(kind("[1:core_9] authenticated_transport.cc:166:DumpToLog req.hdr 0x81788ff88: Content-Type=application/x-protobuf") == nil
+                  && kind("[1:core_9] authenticated_transport.cc:166:DumpToLog Request 0x81788ff88: 0 transport: OK") == nil,
+                  "Bo: a request's header lines, and a status of 0, are not counted again")
+            check(kind("[1:core_9] change_handler.cc:1832:operator() NOT_FOUND: Can't access item in hidden shared drive") == .access
+                  && kind("[1:core_9] upload_task.cc:10:Run Upload failed: quota exceeded") == .sync
+                  && kind("[1:Main] drive_fs_main.cc:218:LogExistingCrashReports Crash reports from previous runs exist.") == .crash
+                  && kind("[1:Main] message_loop.cc:232:ScheduleWork Tried to ScheduleWork on a disabled MessageLoop!") == .noise
+                  && kind("[1:w] portable_clearcut_uploader.cc:90:UNKNOWN Failed to send to clearcut: Error sending request") == .noise
+                  && kind("[1:w] phenotype_impl.cc:883:UNKNOWN Sync: Failed to sync response has status -1") == .noise
+                  && kind("[1:Main] syncing_status_controller.cc:307:AccountHasSyncErrors Syncing status response not found for account: no_user") == .noise,
+                  "Bo: access, uploads, crashes; Drive's housekeeping is background noise")
+            let now = ISO8601DateFormatter().date(from: "2026-11-03T12:00:00Z")!
+            var counts: [BoWatcher.ErrorKind: BoWatcher.ErrorCount] = [:]
+            BoWatcher.countErrors(in: """
+                2026-11-03T11:30:00.000ZE [1:w] curl_api.cc:987:operator() we appear offline
+                2026-11-03T02:00:00.000ZE [1:w] curl_api.cc:987:operator() we appear offline again
+                2026-11-01T02:00:00.000ZE [1:w] curl_api.cc:987:operator() two days ago, offline
+                2026-11-03T11:40:00.000ZI [1:w] curl_api.cc:987:operator() offline, but only information
+                """, now: now, into: &counts)
+            check(counts[.connection]?.day == 2 && counts[.connection]?.hour == 1
+                  && counts[.connection]?.example == "curl_api.cc:987:operator() we appear offline",
+                  "Bo counts error lines of the last day and hour, newest as the example, without the thread")
+            typealias Account = BoWatcher.Storage.Account
+            let small = BoWatcher.Storage(accounts: [Account(id: "1", email: "a@b.c", bytes: 900_000_000)], logBytes: 100_000_000, logFiles: 5,
+                                          free: 300_000_000_000)
+            check(BoWatcher.advice(small, restartsToday: 0).isEmpty, "Bo: a cache under 2 GB on a roomy Mac needs no clearing")
+            check(BoWatcher.advice(small, restartsToday: 3) == [.clearCache(small.accounts[0], .stuck(3))],
+                  "Bo: Drive stuck three times in a day: clear the cache")
+            var big = small; big.accounts = [Account(id: "1", email: nil, bytes: 2_500_000_000)]; big.logBytes = 600_000_000
+            big.unuploadedFiles = 4; big.unuploadedBytes = 1_000
+            check(BoWatcher.advice(big, restartsToday: 0).map(\.id) == ["cache-1", "unuploaded", "logs"],
+                  "Bo: a big cache, files not uploaded and old logs are each recommended")
+            var full = small; full.free = 5_000_000_000
+            check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
+        }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {
             var project = Project(name: "Tabs", script: "**one**")

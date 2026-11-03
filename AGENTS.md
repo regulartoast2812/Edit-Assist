@@ -118,7 +118,11 @@ Tabs cannot change during a run (a paused run still counts). Removing a script w
 you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself, on two signs only: Google Drive not
 running, or a drive that does not answer a listing within 15 s for three minutes; at most once every half hour. Errors in
-Drive's log are shown, never acted on: it holds hundreds of harmless ones. Folders and drives are read off the main
+Drive's log are shown, never acted on: it holds hundreds of harmless ones. Bo also measures what Drive keeps in Application
+Support (each account's cache, old logs, lost_and_found, free space; never the drives themselves) every 15 minutes, and
+sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are
+noise). He only recommends: a cache is cleared Google's way (Disconnect account, sign in again), never by deleting
+Drive's folders, where files not yet uploaded live. Folders and drives are read off the main
 thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
 shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
 sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only.
