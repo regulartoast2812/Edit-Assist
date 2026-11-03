@@ -22,19 +22,73 @@ struct PixelSprite: View {
     }
 }
 
-/// Amir, the file helper: a folder with a handlebar mustache.
+/// A helper's icon that moves while the helper works: its working frames in turn, a blink now and then while it rests, and
+/// still with Reduce Motion on. Every frame is the same size, so nothing around it shifts.
+struct AnimatedSprite: View {
+    let rest: [String]
+    var blink: [String]? = nil
+    let working: [[String]]
+    let colors: [Character: Color]
+    var pixel: CGFloat = 2
+    /// Working until this time.
+    var busyUntil: Date?
+    /// Plays the working frames while the pointer is over it (the page's big icon), to see them.
+    var previewOnHover = false
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.16)) { context in
+            let tick = Int(context.date.timeIntervalSinceReferenceDate / 0.16)
+            let busy = hovering || busyUntil.map { context.date < $0 } == true
+            PixelSprite(rows: reduceMotion ? rest : busy ? working[tick % working.count] : blink != nil && tick % 25 == 0 ? blink! : rest,
+                        colors: colors, pixel: pixel)
+        }
+        .onHover { if previewOnHover { hovering = $0 } }
+    }
+}
+
+/// Amir, the file helper: a folder with a handlebar mustache. Working (a file just arrived): the mustache flicks up and
+/// down, the eyes look left and right, the lid lifts.
 struct PixelAmir: View {
     var pixel: CGFloat = 2
+    var busyUntil: Date?
+    var previewOnHover = false
+    static let rest = ["..TTTTT.........", ".TTTTTTT........", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+                       ".FFFFKFFFFKFFFF.", ".FFFFKFFFFKFFFF.", ".FFFFFFFFFFFFFF.", ".FMFFFFFFFFFFMF.",
+                       ".FMMMMMFFMMMMMF.", ".FFFMMMMMMMMFFF.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."]
+    static let blink = ["..TTTTT.........", ".TTTTTTT........", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+                        ".FFFFFFFFFFFFFF.", ".FFFFKFFFFKFFFF.", ".FFFFFFFFFFFFFF.", ".FMFFFFFFFFFFMF.",
+                        ".FMMMMMFFMMMMMF.", ".FFFMMMMMMMMFFF.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."]
+    static let working: [[String]] = [
+        ["..TTTTT.........", ".TTTTTTT........", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FFFKFFFFKFFFFF.", ".FFFKFFFFKFFFFF.", ".FFFFFFFFFFFFFF.", ".FMFFFFFFFFFFMF.",
+         ".FMMMMMFFMMMMMF.", ".FFFMMMMMMMMFFF.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."],
+        ["...TTTTT........", ".TTTTTTTT.......", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FFFFKFFFFKFFFF.", ".FFFFKFFFFKFFFF.", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FMMMMMFFMMMMMF.", ".MFFMMMMMMMMFFM.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."],
+        ["..TTTTT.........", ".TTTTTTT........", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FFFFFKFFFFKFFF.", ".FFFFFKFFFFKFFF.", ".FFFFFFFFFFFFFF.", ".FMFFFFFFFFFFMF.",
+         ".FMMMMMFFMMMMMF.", ".FFFMMMMMMMMFFF.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."],
+        ["...TTTTT........", ".TTTTTTTT.......", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FFFFKFFFFKFFFF.", ".FFFFKFFFFKFFFF.", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
+         ".FMMMMMFFMMMMMF.", ".MFFMMMMMMMMFFM.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."],
+    ]
     var body: some View {
-        PixelSprite(rows: ["..TTTTT.........", ".TTTTTTT........", ".FFFFFFFFFFFFFF.", ".FFFFFFFFFFFFFF.",
-                           ".FFFFKFFFFKFFFF.", ".FFFFKFFFFKFFFF.", ".FFFFFFFFFFFFFF.", ".FMFFFFFFFFFFMF.",
-                           ".FMMMMMFFMMMMMF.", ".FFFMMMMMMMMFFF.", ".FFFFFFFFFFFFFF.", ".DDDDDDDDDDDDDD."],
-                    colors: ["T": Color(red: 214 / 255, green: 150 / 255, blue: 60 / 255), "F": Color(red: 240 / 255, green: 190 / 255, blue: 82 / 255),
-                             "D": Color(red: 200 / 255, green: 140 / 255, blue: 55 / 255), "K": Color(red: 20 / 255, green: 14 / 255, blue: 10 / 255),
-                             "M": Color(red: 36 / 255, green: 22 / 255, blue: 14 / 255)],
-                    pixel: pixel)
+        AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
+                       colors: ["T": Color(red: 214 / 255, green: 150 / 255, blue: 60 / 255), "F": Color(red: 240 / 255, green: 190 / 255, blue: 82 / 255),
+                                "D": Color(red: 200 / 255, green: 140 / 255, blue: 55 / 255), "K": Color(red: 20 / 255, green: 14 / 255, blue: 10 / 255),
+                                "M": Color(red: 36 / 255, green: 22 / 255, blue: 14 / 255)],
+                       pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Amir")
     }
+}
+
+/// Amir's icon in the sidebar, moving when a file arrives.
+struct AmirIcon: View {
+    @ObservedObject var watcher: AmirWatcher
+    var pixel: CGFloat = 1.25
+    var body: some View { PixelAmir(pixel: pixel, busyUntil: watcher.lastArrival.map { $0.addingTimeInterval(4) }) }
 }
 
 /// Amir's page: the folder watched and the files found in it.
@@ -45,7 +99,7 @@ struct AmirPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                PixelAmir(pixel: 4)
+                PixelAmir(pixel: 4, busyUntil: watcher.lastArrival.map { $0.addingTimeInterval(4) }, previewOnHover: true)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(md: L("Your file helper")).font(.system(size: 13, weight: .semibold))
                     Bullets(["Watches a folder while you work", "Suggests a **name** and the **right folder** for each new file",

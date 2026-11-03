@@ -18,6 +18,10 @@ final class AmirWatcher: ObservableObject {
     @Published private(set) var items: [Item] = []
     /// Set when the folder cannot be read, most often because macOS was not allowed to let Edit Assist into it.
     @Published private(set) var unreadable = false
+    /// When a file last arrived in the folder (Amir moves for a few seconds after).
+    @Published private(set) var lastArrival: Date?
+    /// What the folder held at the last reading, to tell an arrival from the first look.
+    private var known: Set<URL>?
     private var source: DispatchSourceFileSystemObject?
     nonisolated private let started = Date()
     /// Files still downloading: their final name appears once they are done.
@@ -36,7 +40,7 @@ final class AmirWatcher: ObservableObject {
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
         panel.directoryURL = folder; panel.prompt = L("Watch this folder")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        folder = url
+        folder = url; known = nil
         UserDefaults.standard.set(url.path, forKey: "amirFolder")
         watch()
     }
@@ -76,6 +80,9 @@ final class AmirWatcher: ObservableObject {
                 // Refused by macOS (Downloads, Desktop and Documents ask first): an empty list would read as an empty folder.
                 self.unreadable = found == nil
                 self.items = found ?? []
+                let now = Set((found ?? []).map(\.url))
+                if let known = self.known, !now.subtracting(known).isEmpty { self.lastArrival = Date() }
+                if found != nil { self.known = now }
             }
         }
     }

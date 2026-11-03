@@ -226,8 +226,8 @@ struct ContentView: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 label(L("HELPERS"))
-                helperRow("amir", "Amir", "File helper") { PixelAmir(pixel: 1.25) }
-                helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.25) }
+                helperRow("amir", "Amir", "File helper") { AmirIcon(watcher: s.amir) }
+                helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.1) }
             }
             Spacer()
             if let update = s.update {
