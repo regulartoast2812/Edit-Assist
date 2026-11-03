@@ -3,8 +3,20 @@ import Foundation
 
 /// Bo keeps Google Drive for Desktop syncing: every minute he checks that it is running and that each account's drive
 /// answers, and restarts Google Drive himself when it is stuck (2026-11-03, asked for as a constant job, restarting on
-/// his own). Only two signs count: Google Drive not running, and a drive that does not answer a listing within 15 s
-/// for three minutes running. Errors in Drive's own log are shown, never acted on: it holds hundreds of harmless ones.
+/// his own). Three signs count: Google Drive not running; a drive that does not answer a listing within 15 s for three
+/// minutes running; and Finder not taking Drive's changes (below). Other errors in Drive's own log are shown, never acted
+/// on: it holds hundreds of harmless ones.
+///
+/// Finder not taking Drive's changes (2026-11-03): Drive hands what changed in the cloud to macOS's File Provider
+/// (fileproviderd), which shows it in Finder. When fileproviderd stops confirming them, Drive logs "Slow working set
+/// change acknowledgment: N sec" with N growing; the drive still answers, but new folders never appear (a shared
+/// drive's folder made on Oct 30 was missing on Nov 3, N at 26 hours). Restarting Google Drive alone does not help:
+/// Bo quits Drive, restarts fileproviderd (macOS starts it again at once), and opens Drive.
+///
+/// Drive stuck quitting (2026-11-03): Drive began one of its own restarts at 07:48 and was still half-quit at 09:30,
+/// syncing nothing, answering every quit with "Dropping Quit request … since we are already quitting" and ignoring
+/// SIGTERM. A quit begun five minutes ago with Drive still running counts as stuck; a restart that cannot quit Drive
+/// ends it with SIGKILL.
 /// He also keeps track of what Drive keeps on this Mac (its cache, old logs, files it could not upload) and says when
 /// clearing is worth it (2026-11-03); he never deletes anything himself. Clearing the cache is done Google's way,
 /// disconnecting the account and signing in again, which keeps files that have not uploaded yet.
@@ -27,6 +39,8 @@ final class BoWatcher: ObservableObject {
     @Published private(set) var lastCheck: Date?
     /// Drive's log errors of the last 24 hours, by kind, every kind listed.
     @Published private(set) var errors: [ErrorCount] = ErrorKind.allCases.map { ErrorCount(kind: $0) }
+    /// How long Finder has left Drive's changes unconfirmed, by account number, from Drive's latest log line.
+    @Published private(set) var finderLag: [String: Int] = [:]
     /// What Drive keeps on this Mac; measured every 15 minutes.
     @Published private(set) var storage: Storage?
     /// How much the caches grew, and since when Bo has been measuring them.
@@ -42,6 +56,8 @@ final class BoWatcher: ObservableObject {
     private var lastRestart: Date?
     private var lastMeasure: Date?
     private static let answerWithin: TimeInterval = 15, stuckFor: TimeInterval = 180, restartsApart: TimeInterval = 1800
+    /// Changes unconfirmed this long mean Finder has stopped taking them; a few minutes happen when Drive is busy.
+    nonisolated static let finderStuckAfter = 1800
 
     init() {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.check() } }
@@ -64,20 +80,34 @@ final class BoWatcher: ObservableObject {
             var results: [(URL, Bool, Int)] = []
             for root in roots { results.append(Self.answers(root)) }
             let errors = Self.readErrors()
+            let (lag, quitting) = Self.readDriveLog()
             let storage = measure ? Self.measure(known: known) : nil
-            await MainActor.run { self?.finish(results, errors: errors, storage: storage) }
+            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, storage: storage) }
         }
     }
 
-    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], storage: Storage?) {
+    private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, storage: Storage?) {
         checking = false
         lastCheck = Date()
         self.errors = errors
+        finderLag = lag
         if let storage { measured(storage) }
         drives = results.map { Drive(url: $0.0, answered: $0.1, milliseconds: $0.2) }
         if !running {
             // Not running at all: open it, at most once every half hour (you may have quit it on purpose just now).
             if lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true { open(because: "Google Drive was not running") }
+            return
+        }
+        // Half-quit and stuck there: nothing else Bo checks can be trusted until it is gone. Not limited to once in half an
+        // hour, as Drive does nothing meanwhile; but not again while a restart of Bo's is still going.
+        if let quitting, Date().timeIntervalSince(quitting) > 300, busyUntil.map({ Date() > $0 }) ?? true {
+            restart(because: "Google Drive has been stuck quitting since \(quitting.formatted(date: .omitted, time: .shortened))")
+            return
+        }
+        let behind = lag.filter { $0.value >= Self.finderStuckAfter }
+        if !behind.isEmpty, lastRestart.map({ Date().timeIntervalSince($0) > Self.restartsApart }) ?? true {
+            let names = behind.keys.sorted().map { accountName($0) }.joined(separator: ", ")
+            restart(because: "Finder has not taken \(names)'s changes for \(Self.duration(behind.values.max() ?? 0))", fileProvider: true)
             return
         }
         let stuck = drives.filter { $0.answered == false }
@@ -95,17 +125,37 @@ final class BoWatcher: ObservableObject {
         }
     }
 
-    /// Quits Google Drive (forced after 20 s), then opens it again.
-    private func restart(because reason: String) {
+    /// Quits Google Drive (forced after 20 s), then opens it again; with `fileProvider`, restarts macOS's fileproviderd
+    /// in between, so it takes Drive's changes again.
+    private func restart(because reason: String, fileProvider: Bool = false) {
         lastRestart = Date(); stuckSince = nil
-        UserDefaults.standard.set((Self.restarts + [Date().timeIntervalSince1970]).suffix(50), forKey: "boRestarts")
-        busyUntil = Date().addingTimeInterval(25)
+        Self.recordRestart()
+        busyUntil = Date().addingTimeInterval(45)
         note("Restarting Google Drive: \(reason)")
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID)
         apps.forEach { $0.terminate() }
         Task { @MainActor in
             for _ in 0 ..< 40 where apps.contains(where: { !$0.isTerminated }) { try? await Task.sleep(for: .milliseconds(500)) }
             apps.filter { !$0.isTerminated }.forEach { $0.forceTerminate() }
+            for _ in 0 ..< 20 where apps.contains(where: { !$0.isTerminated }) { try? await Task.sleep(for: .milliseconds(500)) }
+            if apps.contains(where: { !$0.isTerminated }) {
+                // Stuck quitting, it ignores even SIGTERM: SIGKILL, for it and its helper process.
+                let kill = Process()
+                kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill"); kill.arguments = ["-9", "-f", "Google Drive.app/Contents/MacOS/Google Drive"]
+                kill.standardOutput = FileHandle.nullDevice; kill.standardError = FileHandle.nullDevice
+                if (try? kill.run()) != nil { kill.waitUntilExit() }
+                self.note("Google Drive would not quit: ended it")
+                try? await Task.sleep(for: .seconds(2))
+            }
+            if fileProvider {
+                // Yours, not the system's: macOS starts a new one as soon as anything asks for it.
+                let kill = Process()
+                kill.executableURL = URL(fileURLWithPath: "/usr/bin/killall"); kill.arguments = ["fileproviderd"]
+                kill.standardOutput = FileHandle.nullDevice; kill.standardError = FileHandle.nullDevice
+                if (try? kill.run()) != nil { kill.waitUntilExit() }
+                self.note(kill.terminationStatus == 0 ? "Restarted macOS's File Provider (fileproviderd)" : "Could not restart macOS's File Provider")
+                try? await Task.sleep(for: .seconds(3))
+            }
             try? await Task.sleep(for: .seconds(2))
             self.launch()
         }
@@ -149,6 +199,54 @@ final class BoWatcher: ObservableObject {
         return (root, answered, Int(Date().timeIntervalSince(began) * 1000))
     }
 
+    func accountName(_ id: String) -> String {
+        storage?.accounts.first { $0.id == id }?.name ?? Self.knownAccounts[id] ?? "Account …\(id.suffix(4))"
+    }
+
+    nonisolated static func duration(_ seconds: Int) -> String {
+        seconds >= 5400 ? "\(Int((Double(seconds) / 3600).rounded())) hours" : seconds >= 120 ? "\(seconds / 60) minutes" : "\(seconds) seconds"
+    }
+
+    /// How long each account's changes have waited for Finder, from Drive's current log: "Slow working set change
+    /// acknowledgment: N sec" while it waits, "Slow working set change acknowledged after N sec" once Finder took them.
+    /// The latest of the two decides; still waiting, the wait goes on growing after Drive stops writing it (it went quiet
+    /// for hours on 2026-11-03 with the changes still not taken).
+    nonisolated static func finderLags(in text: String, now: Date) -> [String: Int] {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let pattern = try! NSRegularExpression(pattern: #"^(\S+Z)\S \[[^\]]*core_(\d+)\].*Slow working set change (acknowledgment: (\d+) sec|acknowledged after)"#,
+                                               options: .anchorsMatchLines)
+        var lags: [String: Int] = [:]
+        for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let time = Range(match.range(at: 1), in: text).flatMap({ formatter.date(from: String(text[$0])) }),
+                  let account = Range(match.range(at: 2), in: text).map({ String(text[$0]) }) else { continue }
+            if let seconds = Range(match.range(at: 4), in: text).flatMap({ Int(text[$0]) }) {
+                lags[account] = seconds + max(0, Int(now.timeIntervalSince(time)))
+            } else {
+                lags[account] = nil
+            }
+        }
+        return lags
+    }
+
+    /// When Drive began quitting, if it did since it started: each launch writes a new log, so any such line is this run's.
+    nonisolated static func quittingSince(in text: String) -> Date? {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        for line in text.split(separator: "\n") where line.contains("StopAllAccounts with") && line.contains("initiated") || line.contains("Quit initiated") {
+            if let z = line.firstIndex(of: "Z"), let time = formatter.date(from: String(line[...z])) { return time }
+        }
+        return nil
+    }
+
+    /// Drive's current log, the whole of it since Drive started (the last confirmation can be hours back).
+    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?) {
+        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil) }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 40_000_000 ? size - 40_000_000 : 0)
+        let text = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
+        return (finderLags(in: text, now: now), quittingSince(in: text))
+    }
+
     // MARK: What Drive keeps on this Mac
 
     struct Storage: Equatable {
@@ -171,7 +269,12 @@ final class BoWatcher: ObservableObject {
 
     /// Times Bo restarted Google Drive, kept across launches.
     static var restarts: [Double] { UserDefaults.standard.array(forKey: "boRestarts") as? [Double] ?? [] }
-    var restartsToday: Int { Self.restarts.filter { Date().timeIntervalSince1970 - $0 < 86_400 }.count }
+    /// Keeps the last 50. An Array, not the slice suffix gives: UserDefaults takes only property lists, and a slice
+    /// crashed the app on every launch (2026-11-03).
+    static func recordRestart(at time: Date = Date()) {
+        UserDefaults.standard.set(Array((restarts + [time.timeIntervalSince1970]).suffix(50)), forKey: "boRestarts")
+    }
+        var restartsToday: Int { Self.restarts.filter { Date().timeIntervalSince1970 - $0 < 86_400 }.count }
     /// Account emails by Drive's number, remembered: they are only in the log, and logs are replaced.
     static var knownAccounts: [String: String] { UserDefaults.standard.dictionary(forKey: "boAccounts") as? [String: String] ?? [:] }
 

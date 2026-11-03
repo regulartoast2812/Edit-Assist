@@ -1107,6 +1107,29 @@ struct Checks {
             check(counts[.connection]?.day == 2 && counts[.connection]?.hour == 1
                   && counts[.connection]?.example == "curl_api.cc:987:operator() we appear offline",
                   "Bo counts error lines of the last day and hour, newest as the example, without the thread")
+            let lags = BoWatcher.finderLags(in: """
+                2026-11-03T11:00:00.000ZI [1:core_111] activity_monitor.cc:9:X Slow working set change acknowledgment: 50 sec
+                2026-11-03T11:00:00.000ZI [1:core_111] activity_monitor.cc:9:X Slow working set change acknowledged after 60 sec
+                2026-11-03T11:50:00.000ZI [1:core_111] activity_monitor.cc:9:X Slow working set change acknowledgment: 90000 sec
+                2026-11-03T09:00:00.000ZI [1:core_222][STRM] activity_monitor.cc:9:X Slow working set change acknowledgment: 30 sec
+                2026-11-03T08:00:00.000ZI [1:core_333] activity_monitor.cc:9:X Slow working set change acknowledgment: 99999 sec
+                2026-11-03T08:10:00.000ZI [1:core_333] activity_monitor.cc:9:X Slow working set change acknowledged after 100000 sec
+                """, now: now)
+            check(lags == ["111": 90600, "222": 10830], "Bo: still waiting, Finder's wait keeps growing after Drive goes quiet; taken, it is gone")
+            await MainActor.run {
+                let saved = UserDefaults.standard.array(forKey: "boRestarts")
+                BoWatcher.recordRestart(at: now)
+                check(BoWatcher.restarts.last == now.timeIntervalSince1970, "Bo saves when he restarted Drive (as a property list)")
+                UserDefaults.standard.set(saved, forKey: "boRestarts")
+            }
+            check(BoWatcher.quittingSince(in: """
+                2026-11-03T07:45:03.870ZI [1:core_111] activity_monitor.cc:9:X Slow working set change acknowledgment: 95805 sec
+                2026-11-03T07:48:10.214ZI [1:Main] client.cc:4254:StopAllAccounts StopAllAccounts with APP_RESTART_REQUESTED initiated from client.cc:3122
+                2026-11-03T09:27:43.042ZE [1:Main] client.cc:4248:StopAllAccounts Dropping Quit request since we are already quitting.
+                """) == ISO8601DateFormatter().date(from: "2026-11-03T07:48:10Z")!.addingTimeInterval(0.214)
+                  && BoWatcher.quittingSince(in: "2026-11-03T07:45:03.870ZI [1:core_111] x.cc:9:X all fine") == nil,
+                  "Bo sees when Drive began quitting")
+            check(BoWatcher.duration(94474) == "26 hours" && BoWatcher.duration(1800) == "30 minutes", "Bo says how long in hours or minutes")
             typealias Account = BoWatcher.Storage.Account
             let small = BoWatcher.Storage(accounts: [Account(id: "1", email: "a@b.c", bytes: 900_000_000)], logBytes: 100_000_000, logFiles: 5,
                                           free: 300_000_000_000)

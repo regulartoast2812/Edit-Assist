@@ -116,8 +116,11 @@ Tabs cannot change during a run (a paused run still counts). Removing a script w
 **Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
 you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**
-(`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself, on two signs only: Google Drive not
-running, or a drive that does not answer a listing within 15 s for three minutes; at most once every half hour. Errors in
+(`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself on these signs: Google Drive not
+running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
+not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";
+he restarts macOS's fileproviderd too); and Drive stuck half-quit for 5 minutes. A restart that cannot quit Drive ends
+it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive had been half-quit for hours. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Bo also measures what Drive keeps in Application
 Support (each account's cache, old logs, lost_and_found, free space; never the drives themselves) every 15 minutes, and
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are

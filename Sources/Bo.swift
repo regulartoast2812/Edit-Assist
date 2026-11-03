@@ -62,6 +62,7 @@ struct BoPage: View {
                     Bullets(["Checks **Google Drive** every minute while you work",
                              "**Restarts** it by himself when a drive stops answering for 3 minutes",
                              "Opens it again if it is **not running**",
+                             "Restarts macOS's **File Provider** when Finder stops showing Drive's changes",
                              "Keeps track of Drive's **cache** and says when to **clear** it"], size: 11)
                 }
             }
@@ -75,6 +76,15 @@ struct BoPage: View {
                                : L("%@: not answering", drive.account))
                     }
                     if watcher.drives.isEmpty { status(false, L("No Google Drive found in this Mac's CloudStorage")) }
+                    // Whether Finder is taking what Drive brings down: when not, new folders never show up.
+                    if watcher.running {
+                        let worst = watcher.finderLag.max { $0.value < $1.value }
+                        if let worst, worst.value >= BoWatcher.finderStuckAfter {
+                            status(false, L("Finder has not taken %@'s changes for %@", watcher.accountName(worst.key), L(BoWatcher.duration(worst.value))))
+                        } else {
+                            status(true, L("Finder is taking Drive's changes"))
+                        }
+                    }
                     Text(watcher.lastCheck.map { L("Checked %@", $0.formatted(.relative(presentation: .named))) } ?? L("First check in a few seconds"))
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
