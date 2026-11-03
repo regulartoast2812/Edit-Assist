@@ -117,6 +117,8 @@ Drive's log are shown, never acted on: it holds hundreds of harmless ones. Folde
 thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
 shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
 sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only.
+**Penny** (the numbers of the products you run, from the company's Grafana) has her page only; she will only ever
+read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 

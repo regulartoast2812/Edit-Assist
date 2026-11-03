@@ -128,8 +128,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
-                            } else if ["amir", "tala", "bo", "pix", "don", "kino"].contains(s.tab) {
-                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
+                            } else if ["amir", "tala", "bo", "pix", "don", "kino", "penny"].contains(s.tab) {
+                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino", "penny": "Penny"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(theme)
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
@@ -146,6 +146,7 @@ struct ContentView: View {
                         else if s.tab == "pix" { PixPage(script: s.project.script) }
                         else if s.tab == "don" { DonPage() }
                         else if s.tab == "kino" { KinoPage() }
+                        else if s.tab == "penny" { PennyPage() }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity).tint(theme)
                     if contextOpen {
@@ -208,37 +209,42 @@ struct ContentView: View {
                     Text(md: L("Your editing companion")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }.padding(.top, 14)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack { label(L("PROJECTS")); Spacer(); Button { s.addProject() } label: { Image(systemName: "plus") }.buttonStyle(.plain).disabled(s.busy) }
-                ForEach(s.projects) { project in
-                    Button { if s.selected != project.id { s.select(project.id) }; s.tab = "project" } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "film.stack").foregroundStyle(s.selected == project.id ? accent : .secondary)
-                            Text(project.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                            Spacer(minLength: 0)
-                        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(s.selected == project.id ? accent.opacity(s.tab == "project" ? 0.16 : 0.07) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                            .foregroundStyle(s.selected == project.id && s.tab == "project" ? accent : .primary)
-                            .contentShape(Rectangle())
-                    }.buttonStyle(.plain).disabled(s.busy)
-                        .guideTarget(project.id == s.selected ? "project" : "other-project")
+            // Projects, functions and helpers scroll when the window is too short for them all; the rest stays put.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 25) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack { label(L("PROJECTS")); Spacer(); Button { s.addProject() } label: { Image(systemName: "plus") }.buttonStyle(.plain).disabled(s.busy) }
+                        ForEach(s.projects) { project in
+                            Button { if s.selected != project.id { s.select(project.id) }; s.tab = "project" } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "film.stack").foregroundStyle(s.selected == project.id ? accent : .secondary)
+                                    Text(project.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(s.selected == project.id ? accent.opacity(s.tab == "project" ? 0.16 : 0.07) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                                    .foregroundStyle(s.selected == project.id && s.tab == "project" ? accent : .primary)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(s.busy)
+                                .guideTarget(project.id == s.selected ? "project" : "other-project")
+                        }
+                    }
+                    Divider()
+                    VStack(alignment: .leading, spacing: 7) {
+                        label(L("FUNCTIONS"))
+                        ForEach(EditFunction.allCases) { job in functionRow(job) }
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        label(L("HELPERS"))
+                        helperRow("amir", "Amir", "File helper") { AmirIcon(watcher: s.amir) }
+                        helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.1) }
+                        helperRow("bo", "Bo", "Drive helper") { BoIcon(watcher: s.bo) }
+                        helperRow("pix", "Pix", "CTA & image helper") { PixelPix(pixel: 1.25) }
+                        helperRow("don", "Don", "Ads expert") { PixelDon(pixel: 1.25) }
+                        helperRow("kino", "Kino", "AI video helper") { PixelKino(pixel: 1.25) }
+                        helperRow("penny", "Penny", "Numbers helper") { PixelPenny(pixel: 1.25) }
+                    }
                 }
-            }
-            Divider()
-            VStack(alignment: .leading, spacing: 7) {
-                label(L("FUNCTIONS"))
-                ForEach(EditFunction.allCases) { job in functionRow(job) }
-            }
-            VStack(alignment: .leading, spacing: 7) {
-                label(L("HELPERS"))
-                helperRow("amir", "Amir", "File helper") { AmirIcon(watcher: s.amir) }
-                helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.1) }
-                helperRow("bo", "Bo", "Drive helper") { BoIcon(watcher: s.bo) }
-                helperRow("pix", "Pix", "CTA & image helper") { PixelPix(pixel: 1.25) }
-                helperRow("don", "Don", "Ads expert") { PixelDon(pixel: 1.25) }
-                helperRow("kino", "Kino", "AI video helper") { PixelKino(pixel: 1.25) }
-            }
-            Spacer()
+            }.scrollIndicators(.never)
             if let update = s.update {
                 // Until it is installed: a newer version, one click away.
                 Button { s.installUpdate() } label: {
@@ -665,7 +671,7 @@ struct ContentView: View {
 
     /// Each helper's colour, the colour of their body: their sidebar button and page take it.
     static let helperThemes: [String: Color] = ["amir": PixelAmir.theme, "tala": PixelTala.theme, "bo": PixelBo.theme,
-                                                "pix": PixelPix.theme, "don": PixelDon.theme, "kino": PixelKino.theme]
+                                                "pix": PixelPix.theme, "don": PixelDon.theme, "kino": PixelKino.theme, "penny": PixelPenny.theme]
     /// The page's colour: the helper's on a helper page, the app's anywhere else.
     var theme: Color { Self.helperThemes[s.tab] ?? accent }
 
