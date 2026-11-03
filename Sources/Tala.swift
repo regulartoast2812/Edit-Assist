@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// Tala ("star" in Tagalog), the voice helper: a soft pink mochi with a red bow, curled lashes and rosy cheeks (a star
+/// Tala ("star" in Tagalog), the voice helper: a soft pink mochi with a red bow, smiling eyes and rosy cheeks (a star
 /// with eyes read as Patrick Star, not as her, 2026-11-03).
 struct PixelTala: View {
     var pixel: CGFloat = 2
     var body: some View {
         PixelSprite(rows: ["..RR.RR.........", "..RRQRRPPPP.....", "..PPPPPPPPPPPP..", ".PPPPPPPPPPPPPP.",
-                           ".PPKWKPPPPWKKPP.", ".PPPKKPPPPKKPPP.", ".PPPKKPPPPKKPPP.", ".PBBPPPPPPPPBBP.",
-                           ".PPPPPKPPKPPPPP.", ".PPPPPPKKPPPPPP.", "..PPPPPPPPPPPP..", "...DDDDDDDDDD..."],
+                           ".PPPPPPPPPPPPPP.", ".PPPPPPPPPPPPPP.", ".PPPKPPPPPPKPPP.", ".PPKPKPPPPKPKPP.",
+                           ".PBBPPPPPPPPBBP.", ".PPPPPPPPPPPPPP.", "..PPPPPPPPPPPP..", "...DDDDDDDDDD..."],
                     colors: ["P": Color(red: 1, green: 178 / 255, blue: 192 / 255), "D": Color(red: 235 / 255, green: 140 / 255, blue: 160 / 255),
                              "B": Color(red: 245 / 255, green: 110 / 255, blue: 140 / 255), "K": Color(red: 45 / 255, green: 20 / 255, blue: 30 / 255),
-                             "W": .white, "R": Color(red: 232 / 255, green: 64 / 255, blue: 100 / 255), "Q": Color(red: 170 / 255, green: 30 / 255, blue: 65 / 255)],
+                             "R": Color(red: 232 / 255, green: 64 / 255, blue: 100 / 255), "Q": Color(red: 170 / 255, green: 30 / 255, blue: 65 / 255)],
                     pixel: pixel)
             .accessibilityLabel("Tala")
     }
