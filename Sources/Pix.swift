@@ -1,37 +1,40 @@
 import SwiftUI
 
-/// Pix, the CTA and image helper: a gold picture frame with arms and legs, a sunny landscape inside and eyes in its sky.
-/// Working: arms up, a sparkle.
+/// Pix, the CTA and image helper, after Bob Ross: a big curly perm, a beard, a light blue shirt and a paintbrush held up.
+/// Working: he sweeps the brush and dabs of paint appear beside it.
 struct PixelPix: View {
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = [".GGGGGGGGGGGG...", ".GSSSSSSSSSSG...", ".GSSSSSSSYYSG...", ".GSKSSSKSYYSG...",
-                       "AGSKSSSKSSSSGA..", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-                       ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"]
-    static let blink = [".GGGGGGGGGGGG...", ".GSSSSSSSSSSG...", ".GSSSSSSSYYSG...", ".GSSSSSSSYYSG...",
-                        "AGSKSSSKSSSSGA..", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-                        ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"]
+    static let rest = ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaA.P..", "AAASSSSSSAAA.R..",
+                       "AaASKSSKSAAA.R..", "AAASSSSSSAaA.F..", "aAABSSSSBAAA.H..", ".AABBBBBBAa..H..",
+                       "...BBBBBB....H..", "..CCCCCCCCCSSH..", ".CCCCCCCCCC..H..", ".CCCCCCCCCC....."]
+    static let blink = ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaA.P..", "AAASSSSSSAAA.R..",
+                        "AaASSSSSSAAA.R..", "AAASSSSSSAaA.F..", "aAABSSSSBAAA.H..", ".AABBBBBBAa..H..",
+                        "...BBBBBB....H..", "..CCCCCCCCCSSH..", ".CCCCCCCCCC..H..", ".CCCCCCCCCC....."]
     static let working: [[String]] = [
-        [".GGGGGGGGGGGG.W.", ".GSSSSSSSSSSGWWW", "AGSSSSSSSYYSGAW.", "AGSKSSSKSYYSGA..",
-         ".GSKSSSKSSSSG...", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-         ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"],
-        [".GGGGGGGGGGGG...", ".GSSSSSSSSSSG.W.", ".GSSSSSSSYYSG...", ".GSKSSSKSYYSG...",
-         "AGSKSSSKSSSSGA..", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-         ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"],
-        [".GGGGGGGGGGGG...", ".GSSSSSSSSSSG.W.", "AGSSSSSSSYYSGA..", "AGSKSSSKSYYSGA..",
-         ".GSKSSSKSSSSG...", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-         ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"],
-        [".GGGGGGGGGGGG.W.", ".GSSSSSSSSSSGWWW", ".GSSSSSSSYYSG.W.", ".GSKSSSKSYYSG...",
-         "AGSKSSSKSSSSGA..", ".GSSSSMSSSSSG...", ".GSSSMMMSSMSG...", ".GSSMMMMMMMMG...",
-         ".GMMMMMMMMMMG...", ".GGGGGGGGGGGG...", "...AA....AA.....", "................"],
+        ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaA.P..", "AAASSSSSSAAA.R.G",
+         "AaASKSSKSAAA.R..", "AAASSSSSSAaA.F..", "aAABSSSSBAAA.H..", ".AABBBBBBAa..H..",
+         "...BBBBBB....H..", "..CCCCCCCCCSSH..", ".CCCCCCCCCC..H..", ".CCCCCCCCCC....."],
+        ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaA..P.", "AAASSSSSSAAA..RG",
+         "AaASKSSKSAAA..R.", "AAASSSSSSAaA..FY", "aAABSSSSBAAA..H.", ".AABBBBBBAa...H.",
+         "...BBBBBB.....H.", "..CCCCCCCCCSSSH.", ".CCCCCCCCCC...H.", ".CCCCCCCCCC....."],
+        ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaA.P..", "AAASSSSSSAAA.R.G",
+         "AaASKSSKSAAA.RL.", "AAASSSSSSAaA.F.Y", "aAABSSSSBAAA.H..", ".AABBBBBBAa..H..",
+         "...BBBBBB....H..", "..CCCCCCCCCSSH..", ".CCCCCCCCCC..H..", ".CCCCCCCCCC....."],
+        ["..AAAaAAAA......", ".AAaAAAAaAA.....", "AaAAAAAAAAaAP...", "AAASSSSSSAAAR...",
+         "AaASKSSKSAAAR.L.", "AAASSSSSSAaAF..Y", "aAABSSSSBAAAH...", ".AABBBBBBAa.H...",
+         "...BBBBBB...H...", "..CCCCCCCCCSH...", ".CCCCCCCCCC.H...", ".CCCCCCCCCC....."],
     ]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
-                       colors: ["G": Color(red: 214 / 255, green: 168 / 255, blue: 74 / 255), "S": Color(red: 140 / 255, green: 200 / 255, blue: 245 / 255),
-                                "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255), "K": Color(red: 25 / 255, green: 25 / 255, blue: 40 / 255),
-                                "M": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "A": Color(red: 176 / 255, green: 128 / 255, blue: 52 / 255),
-                                "W": .white],
+                       colors: ["A": Color(red: 150 / 255, green: 95 / 255, blue: 55 / 255), "a": Color(red: 115 / 255, green: 70 / 255, blue: 40 / 255),
+                                "S": Color(red: 238 / 255, green: 190 / 255, blue: 150 / 255), "K": Color(red: 30 / 255, green: 25 / 255, blue: 25 / 255),
+                                "B": Color(red: 120 / 255, green: 75 / 255, blue: 45 / 255), "C": Color(red: 175 / 255, green: 205 / 255, blue: 230 / 255),
+                                "P": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "R": Color(red: 45 / 255, green: 40 / 255, blue: 40 / 255),
+                                "F": Color(red: 170 / 255, green: 170 / 255, blue: 175 / 255), "H": Color(red: 180 / 255, green: 130 / 255, blue: 70 / 255),
+                                "G": Color(red: 90 / 255, green: 175 / 255, blue: 110 / 255), "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255),
+                                "L": Color(red: 110 / 255, green: 170 / 255, blue: 235 / 255)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Pix")
     }
