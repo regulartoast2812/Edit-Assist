@@ -1138,6 +1138,15 @@ struct Checks {
                 """) == ISO8601DateFormatter().date(from: "2026-11-03T10:01:00Z")
                   && BoWatcher.settingsShown(in: "2026-11-03T10:02:00.000ZI [1:core_1] x.cc:1:Y something else") == nil,
                   "Bo sees when Drive's settings or its disconnect dialog were last on screen")
+            let preparing = """
+                2026-11-03T10:00:00.000ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="preferences_dialog {
+                2026-11-03T10:01:00.000ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="
+                    title: "Preparing to disconnect account"
+                2026-11-03T10:05:00.000ZI [1:core_1] x.cc:1:Y still working
+                """
+            check(BoWatcher.disconnectWaiting(in: preparing) == ISO8601DateFormatter().date(from: "2026-11-03T10:01:00Z")
+                  && BoWatcher.disconnectWaiting(in: preparing + "2026-11-03T10:06:00.000ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: removals=\"x\"]") == nil,
+                  "Bo sees a disconnect still preparing, and that it moved on once Drive's windows change")
             check(BoWatcher.duration(94474) == "26 hours" && BoWatcher.duration(1800) == "30 minutes", "Bo says how long in hours or minutes")
             let gaps = BoWatcher.gaps(account: "1", email: "a@b.c",
                                       drive: ["Team 02": 160, "Team 03": 22, "Not loaded": 0, "Slow": 204, "Small": 5, "Same": 7],

@@ -126,7 +126,10 @@ lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a 
 reconnect that account (Google's rebuild). For three hours after an account is connected, or after you choose to
 reconnect, Bo leaves Drive alone. He also restarts nothing within 20 minutes of Drive's settings being on screen (he once
 force-quit Drive during "Preparing to disconnect account"), and tries the File Provider restart once in three hours;
-stalling again after it, he asks for the reconnect instead. Errors in
+stalling again after it, he asks for the reconnect instead. A disconnect showing "Preparing to disconnect account" with no change
+in Drive's windows for 10 minutes brings a dialog whose button restarts Drive so you can retry. Bo does not rebuild an
+account by moving Drive's folder aside: Finder's copy lives in ~/Library/Application Support/FileProvider, which only
+Drive's own disconnect removes. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Bo also measures what Drive keeps in Application
 Support (each account's cache, old logs, lost_and_found, free space; never the drives themselves) every 15 minutes, and
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are

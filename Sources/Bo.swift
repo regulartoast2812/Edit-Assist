@@ -299,6 +299,11 @@ struct BoReconnectDialog: ViewModifier {
                 BoReconnectSheet(reconnect: reconnect, watcher: watcher)
             }
             .onChange(of: watcher.reconnect) { _, new in if new != nil { NSApp.requestUserAttention(.informationalRequest) } }
+            .sheet(item: Binding(get: { busy ? nil : watcher.disconnectStuck.map(StuckDisconnect.init) },
+                                 set: { if $0 == nil, !busy, watcher.disconnectStuck != nil { watcher.disconnectWait() } })) { stuck in
+                BoStuckDisconnectSheet(since: stuck.since, watcher: watcher)
+            }
+            .onChange(of: watcher.disconnectStuck) { _, new in if new != nil { NSApp.requestUserAttention(.informationalRequest) } }
     }
 }
 
@@ -344,6 +349,49 @@ struct BoReconnectSheet: View {
                 Spacer()
                 Button(L("Not now")) { watcher.reconnectLater() }
                 Button(L("Open Google Drive")) { watcher.reconnecting() }.buttonStyle(.borderedProminent).tint(accent)
+            }
+        }
+        .padding(22).frame(width: 470)
+    }
+}
+
+struct StuckDisconnect: Identifiable {
+    let since: Date
+    var id: Date { since }
+}
+
+/// Bo's dialog when Drive's disconnect has not moved for 10 minutes: restart Drive and try again.
+struct BoStuckDisconnectSheet: View {
+    let since: Date
+    @ObservedObject var watcher: BoWatcher
+    private let accent = PixelBo.theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                PixelBo(pixel: 3, busyUntil: .distantFuture)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(md: L("Google Drive's disconnect seems stuck")).font(.system(size: 15, weight: .semibold))
+                    Text(L("“Preparing to disconnect account” since %@, and nothing has changed", since.formatted(date: .omitted, time: .shortened)))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(["Click **Cancel** in Google Drive's window if you can",
+                               "**Restart Google Drive** below: Bo quits it (forced if it will not) and opens it again",
+                               "Try **Disconnect account** again, with a VPN such as Cloudflare WARP turned off"].enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(index + 1).").font(.system(size: 12, design: .monospaced)).foregroundStyle(accent)
+                        Text(md: L(step)).font(.system(size: 12))
+                    }
+                }
+            }
+            Text(md: L("Nothing is lost: files still uploading stay on this Mac until Drive is back."))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button(L("Wait longer")) { watcher.disconnectWait() }
+                Button(L("Restart Google Drive")) { watcher.restartForDisconnect() }.buttonStyle(.borderedProminent).tint(accent)
             }
         }
         .padding(22).frame(width: 470)

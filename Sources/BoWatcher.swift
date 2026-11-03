@@ -30,6 +30,11 @@ import SQLite3
 /// account", and the disconnect never happened. Within 20 minutes of Drive's settings being open, he restarts nothing.
 /// And the Finder restart is tried once in three hours: when the changes stall again after it, Finder's copy is broken,
 /// and Bo asks you to reconnect the account instead.
+///
+/// A disconnect that hangs: "Preparing to disconnect account" with nothing changing in Drive's windows for 10 minutes
+/// brings up Bo's dialog, whose button restarts Google Drive (quit, forced if need be) so you can try again. Only Drive's
+/// own disconnect rebuilds Finder's copy: it lives in ~/Library/Application Support/FileProvider, which only Drive can
+/// remove, so moving Drive's own folder aside would not.
 /// He also keeps track of what Drive keeps on this Mac (its cache, old logs, files it could not upload) and says when
 /// clearing is worth it (2026-11-03); he never deletes anything himself. Clearing the cache is done Google's way,
 /// disconnecting the account and signing in again, which keeps files that have not uploaded yet.
@@ -58,6 +63,8 @@ final class BoWatcher: ObservableObject {
     @Published private(set) var finderMissing: [Missing] = []
     /// Set when the gap has lasted: the dialog asking you to disconnect and reconnect the account.
     @Published var reconnect: Reconnect?
+    /// Since when Drive has shown "Preparing to disconnect account" without anything changing, once 10 minutes have passed.
+    @Published var disconnectStuck: Date?
     /// Until when Bo leaves Drive alone: you are rebuilding an account.
     @Published private(set) var holdUntil: Date? = (UserDefaults.standard.object(forKey: "boHoldUntil") as? Date).flatMap { $0 > Date() ? $0 : nil }
     /// When each drive's gap was first seen, and how big it was.
@@ -105,18 +112,19 @@ final class BoWatcher: ObservableObject {
             var results: [(URL, Bool, Int)] = []
             for root in roots { results.append(Self.answers(root)) }
             let errors = Self.readErrors()
-            let (lag, quitting, settings) = Self.readDriveLog()
+            let (lag, quitting, settings, disconnecting) = Self.readDriveLog()
             let storage = measure ? Self.measure(known: known) : nil
             // Accounts by email: the ones Bo remembers, and any the measuring just found.
             var emails = known
             for account in storage?.accounts ?? [] { if let email = account.email { emails[account.id] = email } }
             let missing = measure ? Self.compareFinder(emails: emails) : nil
-            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, settings: settings, storage: storage, missing: missing) }
+            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, settings: settings,
+                                                         disconnecting: disconnecting, storage: storage, missing: missing) }
         }
     }
 
     private func finish(_ results: [(URL, Bool, Int)], errors: [ErrorCount], lag: [String: Int], quitting: Date?, settings: Date?,
-                        storage: Storage?, missing: [Missing]?) {
+                        disconnecting: Date?, storage: Storage?, missing: [Missing]?) {
         checking = false
         lastCheck = Date()
         self.errors = errors
@@ -124,6 +132,15 @@ final class BoWatcher: ObservableObject {
         if let storage { measured(storage) }
         if let missing { compared(missing) }
         drives = results.map { Drive(url: $0.0, answered: $0.1, milliseconds: $0.2) }
+        // Before the hold: you are reconnecting, and this is the step that can hang.
+        if let disconnecting, running, Date().timeIntervalSince(disconnecting) >= 600 {
+            if disconnectStuck == nil, (UserDefaults.standard.object(forKey: "boDisconnectLater") as? Date).map({ Date() > $0 }) ?? true {
+                disconnectStuck = disconnecting
+                note("Google Drive has been preparing to disconnect since \(disconnecting.formatted(date: .omitted, time: .shortened)) without moving")
+            }
+        } else if disconnectStuck != nil {
+            disconnectStuck = nil
+        }
         if let holdUntil {
             if Date() < holdUntil { return }
             self.holdUntil = nil; UserDefaults.standard.removeObject(forKey: "boHoldUntil")
@@ -386,6 +403,18 @@ final class BoWatcher: ObservableObject {
         }
     }
 
+    /// From the stuck-disconnect dialog: restarts Google Drive now, whatever the hold, so you can try the disconnect again.
+    func restartForDisconnect() {
+        disconnectStuck = nil
+        restart(because: "you asked, its disconnect was stuck")
+    }
+
+    /// Wait longer: asked again in ten minutes if it has still not moved.
+    func disconnectWait() {
+        disconnectStuck = nil
+        UserDefaults.standard.set(Date().addingTimeInterval(600), forKey: "boDisconnectLater")
+    }
+
     /// Not now: asked again in six hours if the gap is still there.
     func reconnectLater() {
         reconnect = nil
@@ -442,14 +471,30 @@ final class BoWatcher: ObservableObject {
         return shown
     }
 
+    /// When Drive began showing "Preparing to disconnect account", if nothing in its windows has changed since: each change
+    /// to them is a new "UpdateViewViaDifferencer" line, so a newer one means it moved on (done, cancelled, next step).
+    nonisolated static func disconnectWaiting(in text: String) -> Date? {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var time: Date?, update: Date?, preparing: Date?
+        for line in text.split(separator: "\n") {
+            if line.first == "2", let z = line.firstIndex(of: "Z"), let stamp = formatter.date(from: String(line[...z])) {
+                time = stamp
+                if line.contains("UpdateViewViaDifferencer") { update = stamp }
+            }
+            if line.contains("Preparing to disconnect account") { preparing = update ?? time }
+        }
+        guard let preparing, let update, update <= preparing else { return nil }
+        return preparing
+    }
+
     /// Drive's current log, the whole of it since Drive started (the last confirmation can be hours back).
-    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?, settings: Date?) {
-        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil, nil) }
+    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?, settings: Date?, disconnecting: Date?) {
+        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil, nil, nil) }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         try? handle.seek(toOffset: size > 40_000_000 ? size - 40_000_000 : 0)
         let text = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
-        return (finderLags(in: text, now: now), quittingSince(in: text), settingsShown(in: text))
+        return (finderLags(in: text, now: now), quittingSince(in: text), settingsShown(in: text), disconnectWaiting(in: text))
     }
 
     // MARK: What Drive keeps on this Mac
