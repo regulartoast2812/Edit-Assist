@@ -115,7 +115,8 @@ you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits t
 running, or a drive that does not answer a listing within 15 s for three minutes; at most once every half hour. Errors in
 Drive's log are shown, never acted on: it holds hundreds of harmless ones. Folders and drives are read off the main
 thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
-shows the CTA line it finds, for now the script's last line. Characters are pixel art
+shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
+sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 
 ## Invariants — each one was learned from a real failure
