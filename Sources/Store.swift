@@ -723,6 +723,8 @@ final class Store: ObservableObject {
     let overlay = RunOverlay()
     /// Amir, the file helper: watches its folder while the app is open.
     let amir = AmirWatcher()
+    /// Bo, the Drive helper: keeps Google Drive for Desktop syncing while the app is open.
+    let bo = BoWatcher()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false
@@ -751,6 +753,7 @@ final class Store: ObservableObject {
         }
         if projects.isEmpty { projects = [Project()] }
         backupProjects("launch")
+        bo.onLog = { [weak self] in self?.log($0) }
         let remembered = UserDefaults.standard.string(forKey: "selectedProject").flatMap(UUID.init(uuidString:))
         selected = projects.first(where: { $0.id == remembered })?.id ?? projects.first?.id
         Desktop.styleRows.onReset = { [weak self] why, frame, before in

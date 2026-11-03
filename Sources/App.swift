@@ -128,8 +128,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
-                            } else if s.tab == "amir" || s.tab == "tala" {
-                                Text(md: L(s.tab == "amir" ? "Amir" : "Tala")).font(.system(size: 22, weight: .semibold))
+                            } else if ["amir", "tala", "bo"].contains(s.tab) {
+                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
                             }
@@ -141,6 +141,7 @@ struct ContentView: View {
                         else if s.tab == "project" { projectPage }
                         else if s.tab == "amir" { AmirPage(watcher: s.amir) }
                         else if s.tab == "tala" { TalaPage() }
+                        else if s.tab == "bo" { BoPage(watcher: s.bo) }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity)
                     if contextOpen {
@@ -228,6 +229,7 @@ struct ContentView: View {
                 label(L("HELPERS"))
                 helperRow("amir", "Amir", "File helper") { AmirIcon(watcher: s.amir) }
                 helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.1) }
+                helperRow("bo", "Bo", "Drive helper") { BoIcon(watcher: s.bo) }
             }
             Spacer()
             if let update = s.update {

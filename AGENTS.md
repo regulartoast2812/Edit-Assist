@@ -108,6 +108,15 @@ styled there and finished on the next clip. Matching phrases anywhere on screen 
 wrong place ("Fabric" inside "Soft fabric", "wire" twice on one word, 2026-10-28); it remains only as the
 fallback for a caption that cannot be placed, and then only for phrases near the last place.
 
+**Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
+(`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
+you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**
+(`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself, on two signs only: Google Drive not
+running, or a drive that does not answer a listing within 15 s for three minutes; at most once every half hour. Errors in
+Drive's log are shown, never acted on: it holds hundreds of harmless ones. Folders and drives are read off the main
+thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. Characters are pixel art
+(`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates
