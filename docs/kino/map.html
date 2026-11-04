@@ -1,0 +1,505 @@
+<title>Kino Generation Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a slate-style header, then a left rail of sections (sticky on wide screens) beside one reading column of maps and tables. */
+:root {
+  --bg: #fbf8f4; --panel: #ffffff; --ink: #1f1a16; --muted: #6b6159; --line: #e6ddd3;
+  --accent: #c86a12; --accent-soft: #fbe7d2; --kling: #2f6f8f; --kling-soft: #dcebf2; --hf: #7a4fa0; --hf-soft: #ece2f5;
+  --ok: #2e7d4f; --no: #a3453a; --code-bg: #f3ede6; --ref: #2b7a68; --ref-soft: #d8efe8; --clip: #8a6a12; --clip-soft: #f4ead0;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #16130f; --panel: #1f1b17; --ink: #efe8e0; --muted: #a89c90; --line: #3a322b;
+  --accent: #f0a14f; --accent-soft: #3b2a18; --kling: #7cc0de; --kling-soft: #1d3340; --hf: #c39be3; --hf-soft: #2f2440;
+  --ok: #6cc28f; --no: #e08a7e; --code-bg: #2a241e; --ref: #6fd0b6; --ref-soft: #173a32; --clip: #e3c461; --clip-soft: #3a3016; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #16130f; --panel: #1f1b17; --ink: #efe8e0; --muted: #a89c90; --line: #3a322b;
+  --accent: #f0a14f; --accent-soft: #3b2a18; --kling: #7cc0de; --kling-soft: #1d3340; --hf: #c39be3; --hf-soft: #2f2440;
+  --ok: #6cc28f; --no: #e08a7e; --code-bg: #2a241e; --ref: #6fd0b6; --ref-soft: #173a32; --clip: #e3c461; --clip-soft: #3a3016; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+header.slate { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: end; border-bottom: 3px solid var(--ink); padding-bottom: 18px; }
+.slate h1 { font: 800 clamp(30px, 5vw, 46px)/1.05 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.slate p { margin: 8px 0 0; color: var(--muted); max-width: 62ch; }
+.slate-meta { display: grid; grid-template-columns: auto auto; gap: 2px 14px; font: 500 12px/1.5 var(--mono); color: var(--muted); text-align: left; }
+.slate-meta b { color: var(--ink); font-weight: 500; }
+.layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 40px; margin-top: 28px; }
+nav.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+nav.rail a { color: var(--muted); text-decoration: none; padding: 5px 10px; border-left: 2px solid var(--line); }
+nav.rail a:hover, nav.rail a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+nav.rail .tc { font: 500 11px var(--mono); color: var(--accent); margin-right: 6px; }
+main { min-width: 0; display: flex; flex-direction: column; gap: 52px; }
+section { min-width: 0; }
+h2 { font: 700 24px/1.2 var(--display); margin: 0 0 6px; text-wrap: balance; }
+h2 .tc { font: 500 13px var(--mono); color: var(--accent); margin-right: 10px; vertical-align: 3px; }
+h3 { font: 700 16px/1.3 var(--display); margin: 22px 0 8px; }
+.lede { color: var(--muted); margin: 0 0 16px; max-width: 70ch; }
+p { max-width: 72ch; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 11.5px/1.3 var(--body); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: var(--panel); position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; min-width: 150px; }
+th.k, td.k { border-left: 3px solid var(--kling); }
+th.h, td.h { border-left: 3px solid var(--hf); }
+.chip { display: inline-block; font: 600 11px/1.6 var(--body); padding: 0 8px; border-radius: 99px; letter-spacing: 0.02em; }
+.chip.k { background: var(--kling-soft); color: var(--kling); }
+.chip.h { background: var(--hf-soft); color: var(--hf); }
+.chip.web { background: var(--code-bg); color: var(--muted); }
+.chip.soon { background: var(--accent-soft); color: var(--accent); }
+.y { color: var(--ok); font-weight: 600; }
+.n { color: var(--no); font-weight: 600; }
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+.card.k { border-top: 4px solid var(--kling); }
+.card.h { border-top: 4px solid var(--hf); }
+.card h3 { margin-top: 0; }
+.card ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+/* Systems: Kino on the left, a wire to each service's API, the parts Kino does not call drawn dashed. */
+.sys { display: grid; grid-template-columns: 140px 150px minmax(0, 1fr); gap: 16px 0; margin: 16px 0; }
+.sys-kino { grid-column: 1; grid-row: 1 / 3; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; text-align: center; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 12px; padding: 14px; }
+.sys-kino b { font: 800 24px/1.1 var(--display); color: var(--accent); }
+.sys-kino span { font-size: 12px; color: var(--muted); }
+.wire { grid-column: 2; align-self: start; margin-top: 44px; position: relative; padding: 0 12px 6px 12px; font-size: 11.5px; line-height: 1.35; border-bottom: 2px solid currentColor; }
+.wire::after { content: ""; position: absolute; right: -8px; bottom: -6px; border-style: solid; border-width: 5px 0 5px 8px; border-color: transparent transparent transparent currentColor; }
+.wire.k { grid-row: 1; color: var(--kling); }
+.wire.h { grid-row: 2; color: var(--hf); }
+.prov { grid-column: 3; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 12px 18px; background: var(--panel); display: grid; gap: 8px; }
+.prov.k { grid-row: 1; border-top: 4px solid var(--kling); }
+.prov.h { grid-row: 2; border-top: 4px solid var(--hf); }
+.prov-name { font: 700 16px var(--display); display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.prov-name span { font: 400 12px var(--mono); color: var(--muted); }
+.units { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.unit { border-radius: 8px; padding: 9px 11px; font-size: 12.5px; line-height: 1.45; display: grid; gap: 3px; align-content: start; min-width: 0; }
+.unit b { font-size: 13.5px; }
+.unit small { color: var(--muted); font-size: 11.5px; }
+.prov.k .unit.api { background: var(--kling-soft); }
+.prov.h .unit.api { background: var(--hf-soft); }
+.unit.web { border: 1px dashed var(--line); color: var(--muted); }
+.unit.web b { color: var(--ink); }
+.calls { font: 600 10px/1.6 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+/* Roles: three families; frames sit on a timeline ruler. */
+.family { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 16px; display: grid; gap: 12px; margin-top: 14px; min-width: 0; }
+.family h3 { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.family h3 small { font: 400 13px var(--body); color: var(--muted); }
+.family.frames { border-left: 4px solid var(--accent); }
+.family.refs { border-left: 4px solid var(--ref); }
+.family.clip { border-left: 4px solid var(--clip); }
+.strip { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 30px; }
+.strip::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 8px; border-top: 2px solid var(--muted); background: repeating-linear-gradient(90deg, var(--muted) 0 1px, transparent 1px 12px); opacity: 0.5; }
+.frame { position: relative; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.frame::before { content: attr(data-tc); position: absolute; top: -30px; left: 0; font: 500 11px var(--mono); color: var(--accent); background: var(--panel); padding-right: 6px; }
+.thumb { aspect-ratio: 16 / 9; max-width: 100%; border: 2px solid var(--accent); border-radius: 5px; background: var(--accent-soft); display: grid; place-items: center; font: 600 12px var(--mono); color: var(--accent); }
+.frame p, .tile p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.fields { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.fields code.k { color: var(--kling); }
+.fields code.h { color: var(--hf); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.tile { border-radius: 8px; padding: 10px 12px; display: grid; gap: 5px; align-content: start; min-width: 0; }
+.tile b { font-size: 13.5px; }
+.refs .tile { background: var(--ref-soft); }
+.clip .tile { background: var(--clip-soft); }
+/* A job's life: a step track, what can go wrong hung under its step. */
+.track { list-style: none; margin: 16px 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.track li { position: relative; padding: 32px 6px 0; display: grid; gap: 4px; align-content: start; text-align: center; font-size: 12px; line-height: 1.4; min-width: 0; }
+.track li::before { content: ""; position: absolute; top: 11px; left: 0; right: 0; height: 2px; background: var(--line); }
+.track li:first-child::before { left: 50%; }
+.track li:last-child::before { right: 50%; }
+.track li::after { content: ""; position: absolute; top: 4px; left: calc(50% - 8px); width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; background: var(--panel); border: 3px solid var(--accent); }
+.track li.end::after { background: var(--accent); }
+.track b { font: 700 14px var(--display); }
+.track span { color: var(--muted); }
+.track em { font-style: normal; font-size: 11.5px; border-radius: 6px; padding: 3px 6px; margin-top: 2px; background: var(--code-bg); color: var(--muted); }
+.track em.warn { color: var(--accent); }
+.track em.bad { color: var(--no); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.tabs button { font: 600 13px var(--body); border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 7px 12px; border-radius: 8px 8px 0 0; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+pre.payload { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 0 8px 8px 8px; padding: 14px 16px; overflow-x: auto; font: 12.5px/1.55 var(--mono); white-space: pre; }
+.assets { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.asset { display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.asset .h { font: 500 12.5px var(--mono); color: var(--accent); }
+.asset .r { color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); }
+.prompt-tpl { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.prompt-tpl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.prompt-tpl div:last-child { border-bottom: 0; }
+.prompt-tpl b { font: 600 12px/1.8 var(--mono); color: var(--accent); }
+ol.rules, ul.rules { display: grid; gap: 6px; padding-left: 20px; max-width: 74ch; }
+.qs { counter-reset: q; display: grid; gap: 10px; }
+.qs .card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; }
+.qs .num { font: 800 20px/1 var(--display); color: var(--accent); }
+.qs p { margin: 0; }
+footer { margin-top: 48px; border-top: 1px solid var(--line); padding-top: 14px; color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  nav.rail { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  nav.rail a { border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; }
+  header.slate { grid-template-columns: minmax(0, 1fr); }
+  .compare { grid-template-columns: minmax(0, 1fr); }
+  .prompt-tpl div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+/* The diagrams follow the reading column's width (the app's sheet is narrower than a browser window). */
+main { container-type: inline-size; }
+@container (max-width: 720px) {
+  .track { grid-template-columns: minmax(0, 1fr); }
+  .track li { text-align: left; padding: 0 0 16px 30px; }
+  .track li::before { top: 0; bottom: 0; left: 7px; right: auto; width: 2px; height: auto; }
+  .track li:first-child::before { top: 10px; left: 7px; }
+  .track li:last-child::before { bottom: auto; height: 10px; right: auto; }
+  .track li::after { top: 3px; left: 0; }
+  .track em { justify-self: start; }
+}
+@container (max-width: 600px) {
+  .sys { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .sys-kino, .wire, .prov { grid-column: 1; grid-row: auto; }
+  .wire { margin: 0 0 0 28px; padding: 12px 0 14px 14px; border-bottom: 0; border-left: 2px solid currentColor; }
+  .wire::after { right: auto; left: -6px; bottom: -8px; border-width: 8px 5px 0 5px; border-color: currentColor transparent transparent transparent; }
+  .wire + .prov { margin-top: 8px; }
+  .prov.k + .wire { margin-top: 8px; }
+  .strip { grid-template-columns: minmax(0, 1fr); }
+  .strip::before { display: none; }
+  .frame { padding-top: 22px; }
+  .frame::before { top: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="wrap">
+  <header class="slate">
+    <div>
+      <h1>Kino Generation Map</h1>
+      <p>How Kling and Higgsfield turn your images, clips and prompts into video, mapped onto one model for Kino's screens and functions.</p>
+    </div>
+    <div class="slate-meta">
+      <span>AS OF</span><b>2026-11-04</b>
+      <span>SOURCES</span><b>each company's docs</b>
+      <span>FULL NOTES</span><b>docs/kino/</b>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Sections">
+      <a href="#systems"><span class="tc">00:01</span>The two systems</a>
+      <a href="#roles"><span class="tc">00:02</span>File roles</a>
+      <a href="#tagging"><span class="tc">00:03</span>Tagging</a>
+      <a href="#example"><span class="tc">00:04</span>One shot, three payloads</a>
+      <a href="#modes"><span class="tc">00:05</span>Modes</a>
+      <a href="#lifecycle"><span class="tc">00:06</span>A job's life</a>
+      <a href="#prompt"><span class="tc">00:07</span>Writing the prompt</a>
+      <a href="#kino"><span class="tc">00:08</span>For Kino</a>
+      <a href="#open"><span class="tc">00:09</span>Open questions</a>
+    </nav>
+
+    <main>
+      <section id="systems">
+        <h2><span class="tc">00:01</span>The two systems</h2>
+        <p class="lede">Each company runs a web app and a separate API with its own billing. Kino would talk to the APIs; the web apps can do more than either.</p>
+        <div class="sys">
+          <div class="sys-kino"><b>Kino</b><span>on your Mac</span></div>
+          <div class="wire k">Kling's newest, with every setting</div>
+          <div class="prov k">
+            <div class="prov-name">Kling <span>kling.ai</span></div>
+            <div class="units">
+              <div class="unit api">
+                <span class="calls">Kino calls this</span>
+                <b>Kling API</b>
+                <span>4.0 (3–30 s, 10 keyframes, 15 references), 3.0, 3.0 Omni, O1, 2.6, 2.5 Turbo. Saved characters and voices, lip sync, talking photo, sound, 219 effect templates.</span>
+                <small>API key · resource packs or cash · 4.0 needs a Flagship pack · 4.0 ≈ $0.157 / $0.235 a second at 720p / 1080p</small>
+                <small><span class="n">No upload, no cost estimate.</span> Results deleted after 30 days.</small>
+              </div>
+              <div class="unit web">
+                <b>Kling web app</b>
+                <span>Subscription credits. Extend, 4K, Motion Library, recreate from Explore.</span>
+              </div>
+            </div>
+          </div>
+          <div class="wire h">One key for many models</div>
+          <div class="prov h">
+            <div class="prov-name">Higgsfield <span>higgsfield.ai</span></div>
+            <div class="units">
+              <div class="unit api">
+                <span class="calls">Kino calls this</span>
+                <b>Higgsfield API</b>
+                <span>About 30 models: Seedance 2.5, Kling 2.5–3.0 / O3, Wan 3.0, MiniMax H3, Genjutsu, Cinema Studio 4.0. Kling 4.0 listed from $0.094 a second, its settings not documented yet.</span>
+                <small>Key id:secret · prepaid dollars, separate from any plan</small>
+                <small><span class="y">Upload, exact cost estimate, no double charges.</span> Results expire after 7 days.</small>
+              </div>
+              <div class="unit web">
+                <b>Higgsfield web app</b>
+                <span>Plan credits. Everything, including Veo, Sora 2, 419 camera presets (DoP), lip sync, upscaling, Canvas.</span>
+              </div>
+              <div class="unit web">
+                <b>MCP and CLI</b>
+                <span>For AI agents: log in as you and spend your plan credits. Not meant as an app's backend.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="roles">
+        <h2><span class="tc">00:02</span>A file has a role</h2>
+        <p class="lede">Both services decide what a file does from the slot it is sent in, then from how the prompt talks about it. Kling: "If a material is referenced without an explicit purpose, the model will infer how to use it."</p>
+        <div class="family frames">
+          <h3>Frames <small>exact pixels on the timeline</small></h3>
+          <div class="strip">
+            <div class="frame" data-tc="00:00">
+              <div class="thumb">start</div>
+              <b>Start frame</b>
+              <p>The video opens on this image. Write what happens next.</p>
+              <div class="fields"><code class="k">first_frame</code><code class="h">image_url</code></div>
+            </div>
+            <div class="frame" data-tc="any time · Kling 4.0">
+              <div class="thumb">middle</div>
+              <b>Middle keyframes</b>
+              <p>Up to 10 frames in all. The time goes in the prompt: "3–5 s: @frame2…".</p>
+              <div class="fields"><code class="k">middle_frame</code><span class="chip web">web only</span></div>
+            </div>
+            <div class="frame" data-tc="end">
+              <div class="thumb">end</div>
+              <b>End frame</b>
+              <p>The video lands on it. Write the path into it. Older models need a start frame too.</p>
+              <div class="fields"><code class="k">last_frame</code><code class="h">end_image_url</code></div>
+            </div>
+          </div>
+        </div>
+        <div class="family refs">
+          <h3>References <small>lend traits, not pixels</small></h3>
+          <div class="tiles">
+            <div class="tile"><b>Look</b><p>Character, product, place or style. Kling up to 10, Seedance up to 30.</p><div class="fields"><code class="k">refer_image</code><code class="h">image_urls</code></div></div>
+            <div class="tile"><b>Motion or camera</b><p>A clip whose movement is copied, not its people.</p><div class="fields"><code class="k">feature_video</code><code class="h">video_urls</code></div></div>
+            <div class="tile"><b>Saved subject</b><p>A character or product kept the same across shots.</p><div class="fields"><code class="k">element</code><code class="h">custom_reference_id</code></div></div>
+            <div class="tile"><b>Voice</b><p>Who speaks. Kling: speech only, no music or effects.</p><div class="fields"><code class="k">voice</code><code class="h">audio_urls</code></div></div>
+          </div>
+        </div>
+        <div class="family clip">
+          <h3>The clip itself <small>changed, the rest kept</small></h3>
+          <div class="tiles">
+            <div class="tile"><b>Video to edit</b><p>Write "Edit @clip", not "Reference": the word picks the pipeline.</p><div class="fields"><code class="k">base_video</code><code class="h">video_url</code></div></div>
+            <div class="tile"><b>Character performs a clip</b><p>Your character, moving like the person in a recorded clip.</p><div class="fields"><code class="k">motion-control</code><code class="h">motion-control</code></div></div>
+          </div>
+        </div>
+        <h3>Every field, per service</h3>
+        <div class="scroll"><table>
+          <thead><tr><th>Kino role</th><th class="k">Kling API (4.0 design)</th><th class="h">Higgsfield API (varies by model)</th></tr></thead>
+          <tbody>
+            <tr><td>Start frame</td><td class="k"><code>first_frame</code></td><td class="h"><code>image_url</code> on most; <code>first_frame_url</code> on Kling O3/Omni</td></tr>
+            <tr><td>Middle keyframe</td><td class="k"><code>middle_frame</code>, up to 10 frames; the time goes in the prompt</td><td class="h"><span class="chip web">web only</span> Kling 4.0</td></tr>
+            <tr><td>End frame</td><td class="k"><code>last_frame</code>; 3.x and 2.x also need a start frame</td><td class="h"><code>last_image_url</code> (Kling 3.0), <code>end_image_url</code> (Seedance, Wan, LTX, MiniMax), <code>last_frame_url</code> (O3/Omni)</td></tr>
+            <tr><td>Look reference</td><td class="k"><code>refer_image</code>, up to 10</td><td class="h"><code>image_urls</code>: Seedance 2.5 and Cinema Studio 4.0 up to 30, Wan 3.0 up to 10, Kling O3 up to 4</td></tr>
+            <tr><td>Motion / camera reference</td><td class="k"><code>feature_video</code>, up to 5 clips, 30 s total</td><td class="h"><code>video_urls</code>: Seedance 2.5 up to 10, Wan 3.0 up to 5</td></tr>
+            <tr><td>Character performs a clip</td><td class="k"><code>/motion-control/kling-3.0</code>: image + video</td><td class="h">Kling Motion Control: <code>image_url</code> + <code>video_url</code>; Genjutsu Motion Transfer</td></tr>
+            <tr><td>Video to edit</td><td class="k"><code>base_video</code> (one)</td><td class="h"><code>video_url</code> on Seedance 2.5 edit, Kling O3 edit, Genjutsu swap / restyle</td></tr>
+            <tr><td>Saved subject</td><td class="k"><code>element</code>, made from 2–4 images or a 3–8 s clip</td><td class="h">Soul ID <code>custom_reference_id</code>; Kling element ids accepted, but no call creates them</td></tr>
+            <tr><td>Voice / audio</td><td class="k"><code>voice</code>, up to 3, speech only</td><td class="h"><code>audio_urls</code> (Seedance up to 10) or one driving <code>audio_url</code></td></tr>
+          </tbody>
+        </table></div>
+        <p class="note">Start frame or reference is where people go wrong: a frame is exact pixels on the timeline, a reference only lends looks.</p>
+      </section>
+
+      <section id="tagging">
+        <h2><span class="tc">00:03</span>Naming files in the prompt</h2>
+        <p class="lede">Every surface has its own syntax. Kino can keep one for you, <code>@hero</code>, and rewrite it per service when it builds the request.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Where</th><th>Syntax</th><th>How the name is given</th></tr></thead>
+          <tbody>
+            <tr><td><span class="chip k">Kling</span> web</td><td><code>@Image1</code> <code>@Video1</code> <code>@Banana Cat</code></td><td>Upload order; elements by name</td></tr>
+            <tr><td><span class="chip k">Kling</span> API, new</td><td><code>@image_1</code> <code>@hero</code> <code>@start</code></td><td>Any <code>id</code> you set on the input</td></tr>
+            <tr><td><span class="chip k">Kling</span> API, legacy</td><td><code>&lt;&lt;&lt;image_1&gt;&gt;&gt;</code></td><td>Position in each list</td></tr>
+            <tr><td><span class="chip h">Higgsfield</span> web</td><td><code>@char_hero_v1</code></td><td>The Element ID you set</td></tr>
+            <tr><td><span class="chip h">Higgsfield</span> Cinema Studio 4.0 API</td><td><code>&lt;&lt;&lt;image_1&gt;&gt;&gt;</code> <code>&lt;&lt;&lt;video_1&gt;&gt;&gt;</code> <code>&lt;&lt;&lt;audio_1&gt;&gt;&gt;</code></td><td>Position in <code>image_urls</code>, <code>video_urls</code>, <code>audio_urls</code></td></tr>
+            <tr><td><span class="chip h">Higgsfield</span> Seedance, MCP</td><td>A sentence: "The first image is the character…"</td><td>Order, in prose</td></tr>
+            <tr><td><span class="chip h">Higgsfield</span> Popcorn</td><td>"image one", "image three"</td><td>Order</td></tr>
+          </tbody>
+        </table></div>
+        <p class="note">Kling's warnings: don't use names that are part of each other (<code>@Ann</code>, <code>@Anna</code>) or that look like ordinary words (<code>@gmail</code>).</p>
+      </section>
+
+      <section id="example">
+        <h2><span class="tc">00:04</span>One shot, three payloads</h2>
+        <p class="lede">The same shot as Kino would hold it, and what it becomes for each service. Illustrative; field names from the docs.</p>
+        <div class="assets">
+          <div class="asset"><span class="h">@hero</span><span class="r">look reference · hero.png</span></div>
+          <div class="asset"><span class="h">@kitchen</span><span class="r">start frame · kitchen.jpg</span></div>
+          <div class="asset"><span class="h">@walk</span><span class="r">motion reference · walk.mp4</span></div>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Payload">
+          <button role="tab" id="t-kino" aria-selected="true" aria-controls="p-kino">Kino holds</button>
+          <button role="tab" id="t-kling" aria-selected="false" aria-controls="p-kling">Kling 4.0 Omni</button>
+          <button role="tab" id="t-cs" aria-selected="false" aria-controls="p-cs">Higgsfield Cinema Studio 4.0</button>
+          <button role="tab" id="t-sd" aria-selected="false" aria-controls="p-sd">Higgsfield Seedance 2.5</button>
+        </div>
+        <pre class="payload" role="tabpanel" id="p-kino" aria-labelledby="t-kino">Prompt: @hero walks into @kitchen with the stride of @walk, picks up the kettle.
+        Slow push-in. No subtitles, no background music.
+Roles:  @hero = look reference   @kitchen = start frame   @walk = motion reference
+Shot:   10 s · 16:9 · 1080p</pre>
+        <pre class="payload" role="tabpanel" id="p-kling" aria-labelledby="t-kling" hidden>POST https://api-singapore.klingai.com/omni-video/kling-4.0
+Authorization: Bearer &lt;API key&gt;
+{
+  "contents": [
+    { "type": "prompt", "text": "@hero is the character: keep face, hair and outfit. @kitchen is the first frame. Follow the stride and pacing of @walk; do not carry over its person or scene. @hero walks into the kitchen and picks up the kettle. Slow push-in. No subtitles, no background music." },
+    { "type": "refer_image",   "url": "https://…/hero.png",    "id": "hero" },
+    { "type": "first_frame",   "url": "https://…/kitchen.jpg", "id": "kitchen" },
+    { "type": "feature_video", "url": "https://…/walk.mp4",    "id": "walk" }
+  ],
+  "settings": { "resolution": "1080p", "aspect_ratio": "16:9", "duration": 10 },
+  "options":  { "external_task_id": "kino-shot-0142" }
+}</pre>
+        <pre class="payload" role="tabpanel" id="p-cs" aria-labelledby="t-cs" hidden>POST https://api.higgsfield.ai/higgsfield/cinema-studio/4.0
+Authorization: Key &lt;id&gt;:&lt;secret&gt;
+Idempotency-Key: kino-shot-0142
+{
+  "prompt": "&lt;&lt;&lt;image_1&gt;&gt;&gt; is the character. The scene opens in the kitchen of &lt;&lt;&lt;image_2&gt;&gt;&gt;. Follow the stride of &lt;&lt;&lt;video_1&gt;&gt;&gt;. The character walks in and picks up the kettle. No subtitles, no background music.",
+  "image_urls": ["https://…/hero.png", "https://…/kitchen.jpg"],
+  "video_urls": ["https://…/walk.mp4"],
+  "camera_movement": "…one of 33 values…",
+  ...
+}
+Note: Cinema Studio 4.0 has no start-frame field in the API, so @kitchen becomes a reference here.</pre>
+        <pre class="payload" role="tabpanel" id="p-sd" aria-labelledby="t-sd" hidden>POST https://api.higgsfield.ai/bytedance/seedance-2.5/reference-to-video
+Authorization: Key &lt;id&gt;:&lt;secret&gt;
+{
+  "prompt": "The first image is the character; keep face, hair and outfit. The second image is the kitchen. The video is the motion reference: copy the stride, not the person. The character walks into the kitchen and picks up the kettle. Slow push-in. No subtitles, no background music.",
+  "image_urls": ["https://…/hero.png", "https://…/kitchen.jpg"],
+  "video_urls": ["https://…/walk.mp4"],
+  ...
+}
+Seedance reads roles from the prose at the start of the prompt.</pre>
+      </section>
+
+      <section id="modes">
+        <h2><span class="tc">00:05</span>What can be made, and where</h2>
+        <p class="lede"><span class="y">✓</span> in the API · <span class="chip web">web</span> web app only · <span class="chip soon">soon</span> announced</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Mode</th><th class="k">Kling API</th><th class="h">Higgsfield API</th></tr></thead>
+          <tbody>
+            <tr><td>Text → video</td><td class="k"><span class="y">✓</span> every model; 4.0 up to 30 s</td><td class="h"><span class="y">✓</span> Seedance, Kling, Wan, MiniMax, LTX…</td></tr>
+            <tr><td>Start frame → video</td><td class="k"><span class="y">✓</span> every model</td><td class="h"><span class="y">✓</span> most models</td></tr>
+            <tr><td>Start + end frame</td><td class="k"><span class="y">✓</span> 4.0, 3.0, O1, 2.6, 2.5 Turbo</td><td class="h"><span class="y">✓</span> Kling 3.0/O3, Seedance, Wan, LTX, MiniMax</td></tr>
+            <tr><td>Up to 10 keyframes</td><td class="k"><span class="y">✓</span> 4.0</td><td class="h"><span class="chip web">web</span> Kling 4.0</td></tr>
+            <tr><td>Consistent subject from reference images</td><td class="k"><span class="y">✓</span> 4.0, 3.0 Omni, O1</td><td class="h"><span class="y">✓</span> Seedance 2.5, Cinema Studio 4.0, Wan 3.0</td></tr>
+            <tr><td>Copy motion or camera from a clip</td><td class="k"><span class="y">✓</span> 4.0, 3.0 Omni, O1</td><td class="h"><span class="y">✓</span> Seedance, Kling O3</td></tr>
+            <tr><td>Character performs a recorded motion</td><td class="k"><span class="y">✓</span> Motion Control 3.0 / 2.6</td><td class="h"><span class="y">✓</span> Kling Motion Control, Genjutsu</td></tr>
+            <tr><td>Edit a clip by instruction</td><td class="k"><span class="y">✓</span> 4.0, 3.0 Omni, O1 ("Edit @clip")</td><td class="h"><span class="y">✓</span> Seedance 2.5, Kling O3, Genjutsu</td></tr>
+            <tr><td>Extend a clip</td><td class="k"><span class="chip soon">soon</span> 4.0 up to 2 min</td><td class="h"><span class="y">✓</span> Seedance 2.5, Grok 1.5</td></tr>
+            <tr><td>Several shots in one generation</td><td class="k"><span class="y">✓</span> 3.x up to 6 shots; 4.0 by timecodes</td><td class="h"><span class="y">✓</span> Kling <code>multi_prompt</code>, Cinema Studio pacing</td></tr>
+            <tr><td>Named camera moves</td><td class="k">In the prompt only</td><td class="h"><span class="y">✓</span> Cinema Studio (33), LTX (8); DoP's 419 <span class="chip web">web</span></td></tr>
+            <tr><td>Genre, era, lens, grade, light</td><td class="k">In the prompt only</td><td class="h"><span class="y">✓</span> Cinema Studio 4.0 settings</td></tr>
+            <tr><td>Sound and dialogue</td><td class="k"><span class="y">✓</span> 4.0 always; 3.0 switchable</td><td class="h"><span class="y">✓</span> Seedance, Kling 3.0, Wan 3.0, MiniMax</td></tr>
+            <tr><td>Talking photo, lip sync</td><td class="k"><span class="y">✓</span> Avatar 2.0, lip sync, TTS</td><td class="h"><span class="chip web">web</span> Lipsync Studio, Speak</td></tr>
+            <tr><td>Effect templates</td><td class="k"><span class="y">✓</span> 219</td><td class="h"><span class="chip web">web</span></td></tr>
+            <tr><td>Upscale, reframe</td><td class="k"><span class="n">—</span></td><td class="h"><span class="chip web">web</span></td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="lifecycle">
+        <h2><span class="tc">00:06</span>A job's life</h2>
+        <p class="lede">The same states for both services. A desktop app has no public address, so Kino checks on jobs (polls) instead of waiting for webhooks.</p>
+        <ol class="track">
+          <li><b>Draft</b><span>prompt, files and their roles</span></li>
+          <li><b>Check</b><span>the model's limits and the cost</span><em>breaks a limit: back to Draft, nothing spent</em></li>
+          <li><b>Upload</b><span>your files to a link the service can read</span><em class="warn">Kling has no upload</em></li>
+          <li><b>Submit</b><span>with a key against double charges</span><em>busy: wait and try again</em></li>
+          <li><b>Running</b><span>1–5 min on Kling, 30 s–10 min on Higgsfield</span><em class="bad">failed, or blocked by moderation</em></li>
+          <li><b>Done</b><span>links expire</span><em class="warn">7 days Higgsfield, 30 days Kling</em></li>
+          <li class="end"><b>Saved</b><span>downloaded next to the project</span></li>
+        </ol>
+        <div class="scroll"><table>
+          <thead><tr><th>Step</th><th class="k">Kling</th><th class="h">Higgsfield</th></tr></thead>
+          <tbody>
+            <tr><td>Your files</td><td class="k">No upload. Images as URL or Base64, <b>videos only as a URL</b></td><td class="h">Upload URL, then PUT; kept up to 7 days. MP4, JPEG, PNG, WebP, GIF, WAV</td></tr>
+            <tr><td>Cost first</td><td class="k">From the price table; billed amount on the finished task</td><td class="h"><code>POST /estimate</code> gives dollars</td></tr>
+            <tr><td>Sent twice by mistake</td><td class="k"><code>external_task_id</code></td><td class="h"><code>Idempotency-Key</code>: no second charge</td></tr>
+            <tr><td>Statuses</td><td class="k">submitted → processing → succeeded / failed</td><td class="h">queued → in_progress → completed / failed / nsfw / canceled</td></tr>
+            <tr><td>Busy</td><td class="k">Error 1303 over your pack's limit</td><td class="h">Queued above 2–40 at once; 429 when the queue is full</td></tr>
+            <tr><td>Results kept</td><td class="k"><b>30 days</b></td><td class="h"><b>7 days</b></td></tr>
+            <tr><td>Typical time</td><td class="k">1–5 min</td><td class="h">30 s–10 min; heavy models 15–20 min</td></tr>
+          </tbody>
+        </table></div>
+        <p class="note">Open problem: Kling needs your clips at a public URL and hosts none. Options to weigh: a Higgsfield upload link, storage that gives a direct link, or only Kling's own outputs as video inputs.</p>
+      </section>
+
+      <section id="prompt">
+        <h2><span class="tc">00:07</span>Writing the prompt</h2>
+        <p class="lede">Kling 4.0's official structure and Higgsfield's cinematic guide agree, so one template serves both.</p>
+        <div class="prompt-tpl">
+          <div><b>[Asset roles]</b><span>@hero is the character: keep face, hair and outfit. @kitchen is the place: keep its layout. Follow the camera path of @walk; don't carry over its people.</span></div>
+          <div><b>[Overall]</b><span>Scene and texture, visual style, camera tone.</span></div>
+          <div><b>[Timeline]</b><span>0–3 s: … · 3–7 s: camera + action + emotion · 7 s–end: closing shot.</span></div>
+          <div><b>[Audio]</b><span>Who says what, in quotes, in the target language, with age, tone and pace; ambience; music; effects.</span></div>
+          <div><b>[Exclusions]</b><span>No subtitles, no background music. Kling adds both unless told not to.</span></div>
+        </div>
+        <ul class="rules">
+          <li><b>Describe, don't judge.</b> "Side backlight outlines the edges", not "premium feel". Say what you want; most models have no negative prompt.</li>
+          <li><b>Image → video describes motion only.</b> The frame already shows the look.</li>
+          <li><b>To change a clip, write "Edit @clip"</b>. "Reference" sends it down a different pipeline.</li>
+          <li><b>Keyframes:</b> for a start frame say what happens next; for an end frame, the path into it.</li>
+          <li><b>Leave duration empty</b> and Kling 4.0 reads it from the prompt ("a 15-second video").</li>
+          <li><b>Change one thing at a time</b>; draft cheap at 720p, then re-render the same prompt.</li>
+          <li><b>Storyboard sheets:</b> ask for finished frames, or grid lines and labels leak into the video.</li>
+        </ul>
+      </section>
+
+      <section id="kino">
+        <h2><span class="tc">00:08</span>What this suggests for Kino</h2>
+        <p class="lede">Starting points for when the screens are designed, not decisions.</p>
+        <div class="scroll"><table>
+          <thead><tr><th>Part</th><th>Holds</th><th>Because</th></tr></thead>
+          <tbody>
+            <tr><td>Library</td><td>Your media, plus named subjects (character, product, place) and voices</td><td>Both services keep characters consistent through saved subjects</td></tr>
+            <tr><td>Shot</td><td>Prompt with <code>@</code> chips; each file with its role; length, shape, quality; service and model</td><td>Roles and names are the whole input model</td></tr>
+            <tr><td>Check before Generate</td><td>The chosen model's limits and the cost</td><td>A rejected request comes back only after waiting</td></tr>
+            <tr><td>Request builder</td><td>Kino's roles → each service's fields and syntax; writes the role lines into the prompt</td><td>One syntax for you, many on the wire</td></tr>
+            <tr><td>Queue</td><td>Jobs and their states; waits when busy; picks up again after a relaunch</td><td>Only a few jobs run at once per account</td></tr>
+            <tr><td>Results</td><td>Downloaded at once; "use as start frame", "last frame → next shot", "edit this"</td><td>Links expire; reusing outputs is what users like most in both apps</td></tr>
+            <tr><td>Brief</td><td>Don's vibe and style fill the [Overall] block</td><td>Kino works to Don's brief</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section id="open">
+        <h2><span class="tc">00:09</span>Open questions</h2>
+        <div class="qs">
+          <div class="card"><span class="num">1</span><p><b>Which accounts exist?</b> Both APIs bill separately from the web plans. Kling 4.0 on the API needs a Flagship resource pack; Higgsfield's API is a separate account with a dollar balance.</p></div>
+          <div class="card"><span class="num">2</span><p><b>Kling direct, Higgsfield, or both?</b> Direct gives every Kling 4.0 field, Elements, Voices and lip sync. Higgsfield gives one key for many models, uploads, estimates and a lower listed Kling 4.0 price, but no 4.0 fields yet.</p></div>
+          <div class="card"><span class="num">3</span><p><b>Where do your clips live for Kling?</b> It needs a public URL for every video input.</p></div>
+          <div class="card"><span class="num">4</span><p><b>Unsettled in the docs:</b> Kling 4.0's web credit price, 4K for 4.0, Higgsfield's concurrency for a new key (2 or 20), DoP on Higgsfield's API (treated as no).</p></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>Full sourced notes: <span class="mono">docs/kino/README.md</span>, <span class="mono">kling.md</span>, <span class="mono">higgsfield.md</span> in the Edit Assist repo. Both services change monthly; recheck a limit before code depends on it.</footer>
+</div>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+  function show(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { show(t); });
+    t.addEventListener('keydown', function (e) {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      show(next); next.focus();
+    });
+  });
+})();
+</script>

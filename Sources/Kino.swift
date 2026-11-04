@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// Kino, the AI video helper: an orange blob in a red director's beret, holding a clapperboard. Working: the clapper
 /// opens and snaps shut, and sparks of AI fly off it.
@@ -101,9 +102,10 @@ struct KinoPage: View {
     }
 }
 
-/// The research notes in docs/kino, which build.sh copies into the app's Resources/Kino.
+/// The research in docs/kino, which build.sh copies into the app's Resources/Kino: the map is a page (the same file
+/// as its web version), the notes on each service are Markdown.
 enum KinoResearch: String, CaseIterable, Identifiable {
-    case map = "README", kling, higgsfield
+    case map, kling, higgsfield
     static let asOf = DateComponents(calendar: .current, year: 2026, month: 11, day: 4).date ?? .now
     var id: String { rawValue }
     var title: String {
@@ -126,11 +128,13 @@ enum KinoResearch: String, CaseIterable, Identifiable {
         case .kling, .higgsfield: "doc.text"
         }
     }
-    var url: URL? { Bundle.main.url(forResource: rawValue, withExtension: "md", subdirectory: "Kino") }
-    /// A link between the notes ("kling.md", "higgsfield.md#…").
+    var file: String { self == .map ? "map.html" : rawValue + ".md" }
+    var url: URL? { Bundle.main.url(forResource: file, withExtension: nil, subdirectory: "Kino") }
+    /// A link between the notes ("kling.md", "higgsfield.md#…"); README.md, the map in words, opens the map.
     init?(link: URL) {
         guard link.scheme == nil || link.scheme == "file" else { return nil }
         let name = (link.path as NSString).lastPathComponent
+        if name == "README.md" || name == "map.html" { self = .map; return }
         guard name.hasSuffix(".md"), let doc = KinoResearch(rawValue: String(name.dropLast(3))) else { return nil }
         self = doc
     }
@@ -148,7 +152,7 @@ struct KinoResearchSheet: View {
                 PixelKino(pixel: 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L(doc.title)).font(.system(size: 15, weight: .semibold))
-                    Text("docs/kino/\(doc.rawValue).md · " + L("As of %@", KinoResearch.asOf.formatted(date: .abbreviated, time: .omitted)))
+                    Text("docs/kino/\(doc.file) · " + L("As of %@", KinoResearch.asOf.formatted(date: .abbreviated, time: .omitted)))
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -156,21 +160,25 @@ struct KinoResearchSheet: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 14)
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if missing {
-                        Text(md: L("This note is not in this copy of the app. Build it again with **./build.sh**."))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+            if doc == .map, let url = doc.url {
+                KinoMapView(url: url)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if missing {
+                            Text(md: L("This note is not in this copy of the app. Build it again with **./build.sh**."))
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in MarkdownBlockView(block: block) }
                     }
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in MarkdownBlockView(block: block) }
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 26).padding(.vertical, 20)
+                    .frame(maxWidth: 980, alignment: .leading)
                 }
-                .textSelection(.enabled)
-                .padding(.horizontal, 26).padding(.vertical, 20)
-                .frame(maxWidth: 980, alignment: .leading)
+                .id(doc)
             }
-            .id(doc)
         }
-        .frame(minWidth: 720, idealWidth: 920, minHeight: 520, idealHeight: 760)
+        .frame(minWidth: 760, idealWidth: 1040, minHeight: 560, idealHeight: 800)
         .environment(\.openURL, OpenURLAction { url in
             if let other = KinoResearch(link: url) { doc = other; return .handled }
             return url.scheme == "https" || url.scheme == "http" ? .systemAction : .discarded
@@ -178,7 +186,37 @@ struct KinoResearchSheet: View {
         .task(id: doc) {
             let text = doc.url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
             missing = text == nil
-            blocks = MarkdownBlock.parse(text ?? "")
+            blocks = doc == .map ? [] : MarkdownBlock.parse(text ?? "")
+        }
+    }
+}
+
+/// The map (docs/kino/map.html), the page its web version is published from, so both look the same. Its diagrams are
+/// drawn by the page itself; web links open in the browser.
+struct KinoMapView: NSViewRepresentable {
+    let url: URL
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> WKWebView {
+        let view = WKWebView()
+        view.setValue(false, forKey: "drawsBackground")
+        view.navigationDelegate = context.coordinator
+        if let page = try? String(contentsOf: url, encoding: .utf8) {
+            view.loadHTMLString(Self.document(page), baseURL: url.deletingLastPathComponent())
+        }
+        return view
+    }
+    func updateNSView(_ view: WKWebView, context: Context) {}
+    /// The page is written as an artifact's body (the host adds the document around it); here the app does, and the
+    /// sheet's own background shows through.
+    static func document(_ page: String) -> String {
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            + "<style>html,body{margin:0}body{background:transparent!important}</style></head><body>" + page + "</body></html>"
+    }
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+            guard action.navigationType == .linkActivated, let link = action.request.url, ["http", "https"].contains(link.scheme) else { return .allow }
+            NSWorkspace.shared.open(link)
+            return .cancel
         }
     }
 }
