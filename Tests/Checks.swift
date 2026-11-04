@@ -1203,6 +1203,16 @@ struct Checks {
                   "Tala offers only the text-to-speech models the account can use, with their limits and cost")
             check(ElevenLabs.message(in: Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)) == "Invalid API key",
                   "Tala shows ElevenLabs' reason for refusing a key")
+            // A real answer, 2026-11-04: the key was known but restricted without Voices.
+            let restricted = Data(#"{"detail":{"status":"missing_permissions","message":"The API key you used is missing the permission voices_read to execute this operation."}}"#.utf8)
+            do { try ElevenLabs.check(401, restricted); check(false, "A key missing a permission is told apart from a wrong key") }
+            catch ElevenLabs.Failure.missing(let permission) { check(permission == "voices_read", "A key missing a permission is told apart from a wrong key") }
+            catch { check(false, "A key missing a permission is told apart from a wrong key") }
+            do { try ElevenLabs.check(401, Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)); check(false, "A wrong key is refused") }
+            catch ElevenLabs.Failure.rejected(let reason) { check(reason == "Invalid API key", "A wrong key is refused") }
+            catch { check(false, "A wrong key is refused") }
+            check(ElevenLabs.permissionName("voices_read") == "Voices (Read)" && ElevenLabs.permissionName("text_to_speech") == "Text to Speech"
+                  && ElevenLabs.permissionName("user_read") == "User (Read)", "Tala names a permission as ElevenLabs' key screen does")
             check(ElevenLabs.spoken("Hello **world**\n\nBuy **now**") == "Hello world\nBuy now", "Tala voices the script's words without bold marks")
             let tagged = "[excited] Meet the bra. It lifts [whispers] like magic [laughs]\n[array] no"
             check(ElevenLabs.tags(in: tagged).map { String(tagged[$0]) } == ["[excited]", "[whispers]", "[laughs]", "[array]"],

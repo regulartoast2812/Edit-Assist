@@ -35,6 +35,8 @@ final class TalaVoice: ObservableObject {
     }
     enum Connection: Equatable {
         case noKey, checking, connected, rejected(String), offline(String)
+        /// ElevenLabs knows the key, but it lacks a permission Tala needs (its id, e.g. voices_read).
+        case missing(String)
     }
 
     @Published private(set) var connection: Connection = .noKey
@@ -136,6 +138,10 @@ final class TalaVoice: ObservableObject {
                 let file = ElevenLabs.file(project: project, script: script, in: folder)
                 try audio.write(to: file, options: .atomic)
                 made = file
+            } catch ElevenLabs.Failure.missing(let permission) {
+                failure = L("this key is missing **%@**: turn it on for the key in ElevenLabs", ElevenLabs.permissionName(permission))
+            } catch ElevenLabs.Failure.rejected(let detail) {
+                failure = detail
             } catch {
                 failure = error.localizedDescription
             }
@@ -144,13 +150,17 @@ final class TalaVoice: ObservableObject {
         }
     }
 
-    /// Saves the key once ElevenLabs accepts it; a refused key is not kept.
+    /// Saves the key once ElevenLabs knows it, even when it lacks a permission: ElevenLabs shows a key only once, so
+    /// one dropped then could not be pasted again after you add the permission (2026-11-04). A wrong key is not kept.
     func connect(key: String) {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         connection = .checking
         Task {
-            if case .connected = await read(key: key) { ElevenLabs.key = key }
+            switch await read(key: key) {
+            case .connected, .missing: ElevenLabs.key = key
+            default: break
+            }
         }
     }
 
@@ -193,6 +203,8 @@ final class TalaVoice: ObservableObject {
             loaded = true
             if !models.isEmpty, model == nil { modelID = models.first { $0.id == "eleven_v4" }?.id ?? models[0].id }
             connection = .connected
+        } catch ElevenLabs.Failure.missing(let permission) {
+            connection = .missing(permission)
         } catch ElevenLabs.Failure.rejected(let detail) {
             connection = .rejected(detail)
         } catch {
@@ -234,7 +246,7 @@ final class TalaVoice: ObservableObject {
 
 /// ElevenLabs' API (https://elevenlabs.io/docs/api-reference), read as of 2026-11-04. The key goes in the xi-api-key header.
 enum ElevenLabs {
-    enum Failure: Error { case rejected(String) }
+    enum Failure: Error { case rejected(String), missing(String) }
     static let base = URL(string: "https://api.elevenlabs.io")!
     private static let service = "Edit Assist ElevenLabs"
 
@@ -272,9 +284,31 @@ enum ElevenLabs {
         request.setValue(key, forHTTPHeaderField: "xi-api-key")
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 401 || status == 403 { throw Failure.rejected(message(in: data) ?? "HTTP \(status)") }
-        guard (200 ..< 300).contains(status) else { throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: message(in: data) ?? "HTTP \(status)"]) }
+        try check(status, data)
         return data
+    }
+
+    /// Throws for a refused request: a key without a permission, a wrong key, or anything else ElevenLabs answers.
+    static func check(_ status: Int, _ data: Data) throws {
+        guard !(200 ..< 300).contains(status) else { return }
+        let reason = message(in: data) ?? "HTTP \(status)"
+        if let permission = missingPermission(in: reason) { throw Failure.missing(permission) }
+        if status == 401 || status == 403 { throw Failure.rejected(reason) }
+        throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: reason])
+    }
+
+    /// "The API key you used is missing the permission voices_read to execute this operation." → voices_read.
+    static func missingPermission(in message: String) -> String? {
+        message.firstMatch(of: #/missing the permission (\w+)/#).map { String($0.1) }
+    }
+
+    /// A permission as ElevenLabs' key screen names it: voices_read → Voices (Read), text_to_speech → Text to Speech.
+    static func permissionName(_ id: String) -> String {
+        var words = id.split(separator: "_").map(String.init)
+        let access = ["read", "write"].contains(words.last ?? "") ? words.removeLast().capitalized : nil
+        let name = words.enumerated().map { $0.offset > 0 && ["to", "and", "of"].contains($0.element) ? $0.element : $0.element.capitalized }
+            .joined(separator: " ")
+        return access.map { "\(name) (\($0))" } ?? name
     }
 
     /// ElevenLabs' reason for an error: {"detail": {"status": …, "message": …}} or {"detail": "…"}.
@@ -380,10 +414,7 @@ enum ElevenLabs {
         if let next { body["next_text"] = next }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200 ..< 300).contains(status) else {
-            throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: message(in: data) ?? "HTTP \(status)"])
-        }
+        try check((response as? HTTPURLResponse)?.statusCode ?? 0, data)
         return data
     }
 

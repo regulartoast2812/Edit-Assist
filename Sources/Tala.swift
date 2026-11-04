@@ -107,6 +107,18 @@ struct TalaPage: View {
                 ProgressView().controlSize(.small)
                 Text(md: L("Checking with ElevenLabs…")).font(.system(size: 12))
             }
+        case .missing(let permission) where !changingKey:
+            let name = ElevenLabs.permissionName(permission)
+            status(false, L("Your key works, but it is missing one permission: **%@**", name))
+            Bullets([L("In **ElevenLabs**, open **Developers** in the sidebar, then **API Keys**"),
+                     L("Edit this key and turn on **%@**", name),
+                     L("Press **Check again** here. Tala kept the key, so there is no need to paste it again")], numbered: true, size: 11)
+            HStack(spacing: 8) {
+                Button(L("Check again")) { voice.refresh() }
+                Button(L("Use another key")) { draft = ""; changingKey = true }
+                Button(L("Remove key"), role: .destructive) { voice.disconnect() }
+                Button(L("Open ElevenLabs")) { NSWorkspace.shared.open(URL(string: "https://elevenlabs.io/app")!) }
+            }.controlSize(.small)
         case .offline(let reason):
             status(false, L("Could not reach ElevenLabs: %@", reason))
             Button(L("Try again")) { voice.refresh() }.controlSize(.small)
