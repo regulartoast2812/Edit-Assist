@@ -1281,6 +1281,58 @@ struct Checks {
             check(!copy.outdated(by: "**Hello** world") && copy.outdated(by: "Hello there"),
                   "Tala's copy is outdated only when the script's words change, not its bold marks or her tags")
         }
+        // Kino groups a batch's files by shot code and works out what each shot would send (2026-11-04).
+        do {
+            check(KinoCode.parse("K1.1 front")! == ("K1", "K1.1", "front") && KinoCode.parse("k03")! == ("K3", "K3", "")
+                  && KinoCode.parse("K9 ref")! == ("K9", "K9", "ref") && KinoCode.parse("1.2")! == ("1", "1.2", ""),
+                  "Kino reads the shot code at the start of a file's name, and the words after it")
+            check(KinoCode.parse("hf_20260911_103632") == nil && KinoCode.parse("IMG_1234") == nil && KinoCode.parse("20260911_take") == nil
+                  && KinoCode.parse("Product hero") == nil, "A date, a camera number or a plain name is not a shot code")
+            let folder = URL(fileURLWithPath: "/batch", isDirectory: true)
+            let files = KinoCode.files(["K10.png", "K2.mp4", "K1.1.jpg", "K1.png", "K9 ref.mp4", "K9.png", "K1.mov", "notes.txt", "hf_2026.mp4"]
+                .map { folder.appendingPathComponent($0) })
+            check(files.map(\.handle) == ["hf-2026", "K1", "K1-video", "K1.1", "K2", "K9", "K9-ref", "K10"]
+                  && files.first { $0.handle == "K1.1" }?.shot == "K1" && files.first { $0.handle == "hf-2026" }?.shot == nil,
+                  "K1, K1.1 and K1's video go into shot K1, each with a tag of its own; a name without a code is in no shot")
+            check(KinoPrompt.tags(in: "Use @K1.1. Then @k2, mail@x").map(\.handle) == ["K1.1", "k2", "x"]
+                  && KinoPrompt.replacing("@K1.1 and @K7", { $0 == "K1.1" ? "image 1" : nil }) == "image 1 and @K7",
+                  "Kino finds the @tags in a prompt, without a full stop after them, and rewrites only the ones it sends")
+            func shot(_ names: [String]) -> [KinoFile] { KinoCode.files(names.map { folder.appendingPathComponent($0) }) }
+            var o3 = KinoSettings(); o3.model = "kling-o3"
+            let edit = KinoRequest.plan(files: shot(["K2.png", "K2.1.png", "K2.2.mp4"]), roles: ["K2.2": .edit], prompt: "Replace the pants in @K2.2 with @K2",
+                                        shared: "", settings: o3, durations: [folder.appendingPathComponent("K2.2.mp4").path: 6])
+            check(edit.endpoint.hasSuffix("kling-video/o3/video-edit") && edit.problems.isEmpty && edit.seconds == nil
+                  && edit.prompt.hasPrefix("Image 1 is a look reference") && edit.prompt.contains("Edit video 1: change only")
+                  && edit.prompt.contains("Replace the pants in video 1 with image 1"),
+                  "A video given the role Video to edit goes to Kling O3's edit endpoint, its length from the video, with each file's role said")
+            let follow = KinoRequest.plan(files: shot(["K3.png", "K3.1.mp4"]), roles: [:], prompt: "She turns", shared: "Easyshape jeans",
+                                          settings: o3, durations: [:])
+            check(follow.endpoint.hasSuffix("video-reference") && follow.prompt.contains("Follow only the camera path and pacing of video 1; do not carry over its people, speech")
+                  && follow.prompt.contains("Easyshape jeans\n\nShe turns") && follow.prompt.hasSuffix("No subtitles, no background music."),
+                  "A video follows by default, keeping out its people and their talking; the words for every shot come before the shot's")
+            check(KinoRequest.plan(files: shot(["K4.png", "K4.1.png", "K4.2.png", "K4.3.png", "K4.4.png", "K4.5.mp4"]), roles: [:], prompt: "x", shared: "",
+                                   settings: o3, durations: [:]).problems.contains { $0.contains("4") },
+                  "Kling O3 with a video takes four pictures, and says so before running")
+            var seedance = KinoSettings(); seedance.model = "seedance-2.5"
+            let mixed = KinoRequest.plan(files: shot(["K5.png", "K5.1.png"]), roles: ["K5": .start], prompt: "x", shared: "", settings: seedance, durations: [:])
+            check(mixed.endpoint.hasSuffix("reference-to-video") && mixed.notes.contains { $0.contains("K5") } && mixed.inputs.allSatisfy { $0.slot == "image_urls" },
+                  "Seedance with looks and a start frame sends the start frame as a look and says so")
+            check(KinoRequest.plan(files: shot(["K5.png"]), roles: ["K5": .start], prompt: "", shared: "", settings: seedance, durations: [:]).endpoint.hasSuffix("image-to-video"),
+                  "A start frame alone goes to Seedance's image-to-video, which needs no prompt")
+            let stray = KinoRequest.plan(files: shot(["K6.png", "K6.1.png"]), roles: ["K6.1": .unused], prompt: "@K6.1 and @K8", shared: "", settings: o3, durations: [:])
+            check(stray.problems.count == 2, "A tag for a file left out, or for no file of the shot, stops the shot")
+            let long = KinoRequest.plan(files: shot(["K7.mp4"]), roles: ["K7": .edit], prompt: "x", shared: "", settings: o3,
+                                        durations: [folder.appendingPathComponent("K7.mp4").path: 22])
+            check(long.problems.contains { $0.contains("15.5") }, "A video too long for Kling O3 to edit is caught before running")
+            var kling = KinoSettings(); kling.model = "kling-4.0"
+            let direct = KinoRequest.plan(files: shot(["K8.png", "K8.1.png", "K8.2.mp4"]), roles: ["K8": .start], prompt: "@K8.1 walks", shared: "",
+                                          settings: kling, durations: [:])
+            check(direct.inputs.map(\.slot) == ["first_frame", "refer_image", "feature_video"] && direct.prompt.contains("@refA walks"),
+                  "Kling 4.0 gets each file in its own slot, named by the id Kino gives it")
+            var fit = KinoSettings(); fit.model = "seedance-2.5"; fit.quality = "1080p"; fit.seconds = 30; fit.aspect = "21:9"
+            let fitted = fit.fitted(to: KinoModel.named("kling-o3"))
+            check(fitted.quality == "pro" && fitted.seconds == 15 && fitted.aspect == "9:16", "Switching model keeps the picture size and fits the length and shape")
+        }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {
             var project = Project(name: "Tabs", script: "**one**")

@@ -155,7 +155,7 @@ struct ContentView: View {
                         else if s.tab == "bo" { BoPage(watcher: s.bo) }
                         else if s.tab == "pix" { PixPage(desk: s.studio.pix, don: s.studio.don, project: s.project) }
                         else if s.tab == "don" { DonPage(don: s.studio.don, project: s.project) }
-                        else if s.tab == "kino" { KinoPage() }
+                        else if s.tab == "kino" { KinoPage(desk: s.kino, project: s.project) }
                         else if s.tab == "penny" { PennyPage() }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity).tint(theme)

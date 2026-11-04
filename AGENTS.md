@@ -185,8 +185,15 @@ product pictures go in as `PICTUREn` placeholders Pix swaps for the picture. Sch
 Downloads, named after the project and script, never over an earlier one. Briefs and Pix's jobs and chat are kept per
 script in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
 default, Codex as the backup you pick in Pix's chat, one call with no tools and a strict JSON schema each; the highlight
-runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
-how both services work (input roles, tagging, modes, API lifecycle) is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04.
+runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts; `KinoDesk`, `Sources/KinoDesk.swift`)
+works on a batch: a folder picked per project whose files are named by shot code. K1, K1.1 and K1.2 all go into shot K1's
+one prompt, each under its own tag (@K1.1); a code two files share is told apart by the words after it (K9-ref). Each file
+has a role (look, start or end frame, camera and motion, video to edit, sound, left out), and the roles decide the model's
+endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out.
+The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
+shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
+projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.
+How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`.
 **Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
 read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
