@@ -35,6 +35,9 @@ cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 # The app icon, drawn by Tools/MakeIcon.swift (rerun it, then iconutil, to change the design).
 mkdir -p "$STAGE/Contents/Resources"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
+# Kino's research notes (docs/kino), read on his page.
+mkdir -p "$STAGE/Contents/Resources/Kino"
+cp docs/kino/*.md "$STAGE/Contents/Resources/Kino/"
 # The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.
 xcrun coremlcompiler compile Resources/Models/WholeBodyPose.mlpackage "$STAGE/Contents/Resources" >/dev/null
 # Its licence travels with it (Apache-2.0 asks for the licence and the notice of changes).

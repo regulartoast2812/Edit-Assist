@@ -1806,7 +1806,7 @@ Notes: Use publicly accessible media URLs; asset:// references are rejected for 
 | `aspect_ratio` | string |  | "1:1" | `9:16` / `16:9` / `4:3` / `3:4` / `1:1` / `2:3` / `3:2` |
 | `resolution` | string |  | "720p" | `720p` / `1080p` |
 | `enhance_prompt` | boolean |  | false |  |
-| `custom_reference_id` | string|null |  | null |  |
+| `custom_reference_id` | string \| null |  | null |  |
 | `custom_reference_strength` | number |  | 1.0 | 0–1 |
 | `style_id` | string(uuid) |  | "3db34ab5-3439-4317-9e03-08dc30852e69" |  |
 | `style_strength` | number |  | 1.0 | 0–1 |
@@ -1824,7 +1824,7 @@ Notes: batch_size is 1 or 4 only. A custom_reference_id must belong to the calli
 | `aspect_ratio` | string |  | "1:1" | `9:16` / `16:9` / `4:3` / `3:4` / `1:1` / `2:3` / `3:2` |
 | `enhance_prompt` | boolean |  | false |  |
 | `resolution` | string |  | "720p" | `720p` / `1080p` |
-| `custom_reference_id` | string|null |  | null |  |
+| `custom_reference_id` | string \| null |  | null |  |
 | `custom_reference_strength` | number |  | 1.0 | 0–1 |
 | `seed` | integer |  |  | 1–1000000 |
 | `batch_size` | integer |  | 1 | `1` / `4` |
@@ -1842,10 +1842,10 @@ Notes: batch_size is 1 or 4 only. A custom_reference_id must belong to the calli
 | `style_id` | string(uuid) |  | "464ea177-8d40-4940-8d9d-b438bab269c7" |  |
 | `style_strength` | number |  | 1.0 | 0–1 |
 | `resolution` | string |  | "720p" | `720p` / `1080p` |
-| `seed` | integer|null |  | null |  |
-| `custom_reference_id` | string|null |  | null |  |
+| `seed` | integer \| null |  | null |  |
+| `custom_reference_id` | string \| null |  | null |  |
 | `custom_reference_strength` | number |  | 1.0 | 0–1 |
-| `image_reference_url` | string|null |  | null |  |
+| `image_reference_url` | string \| null |  | null |  |
 | `batch_size` | integer |  | 1 | `1` / `4` |
 
 Notes: batch_size is 1 or 4 only. A custom_reference_id must belong to the calling account and have completed training. · aspect_ratio defaults to 4:3; enhance_prompt defaults to false; style_id defaults to 464ea177-8d40-4940-8d9d-b438bab269c7. · Optional image_reference_url guides prompt enhancement; it is distinct from custom_reference_id for a trained character. · seed may be omitted or null; generation selects a random seed when it is absent. · Short prompts using the general style can be enhanced automatically even when enhance_prompt=false. · custom_reference_strength=0 uses the selected style's default character strength; it does not disable the character reference.

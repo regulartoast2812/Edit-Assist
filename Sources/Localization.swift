@@ -340,6 +340,17 @@ enum Vietnamese {
         "Connects your **media** (images, clips) to the **prompts**": "Ghép **media** của bạn (ảnh, clip) với **prompt**",
         "Works to the look in **Don's** brief": "Làm theo phong cách trong brief của **Don**",
         "Not connected yet: Kino is still being set up.": "Chưa kết nối: Kino vẫn đang được thiết lập.",
+        "RESEARCH": "TÌM HIỂU",
+        "As of %@": "Cập nhật %@",
+        "Kling and Higgsfield side by side": "So sánh Kling và Higgsfield",
+        "What a file can be in a shot, how each names it in the prompt, what each can make, a job's life":
+            "Vai trò của mỗi file trong một cảnh, cách mỗi bên gọi tên nó trong prompt, mỗi bên làm được gì, vòng đời một lượt tạo",
+        "Models, modes, limits, prompt structure and the API": "Các model, chế độ, giới hạn, cấu trúc prompt và API",
+        "Its models and tools, the API, and every endpoint's fields": "Các model và công cụ, API, và các trường của từng endpoint",
+        "This note is not in this copy of the app. Build it again with **./build.sh**.":
+            "Bản ứng dụng này chưa có ghi chú này. Hãy build lại bằng **./build.sh**.",
+        "A diagram: drawn in the web version of the map. The tables carry the same facts.":
+            "Một sơ đồ: được vẽ trong bản web của bản đồ. Các bảng có cùng thông tin.",
         "Numbers helper": "Trợ lý số liệu",
         "Your numbers helper": "Trợ lý số liệu của bạn",
         "Gets the numbers for the **products you run** from the company's **Grafana**": "Lấy số liệu của **các sản phẩm bạn đang chạy** từ **Grafana** của công ty",
