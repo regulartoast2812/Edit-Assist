@@ -725,6 +725,8 @@ final class Store: ObservableObject {
     let amir = AmirWatcher()
     /// Bo, the Drive helper: keeps Google Drive for Desktop syncing while the app is open.
     let bo = BoWatcher()
+    /// Tala, the voice helper: the ElevenLabs account, read when her page opens.
+    let tala = TalaVoice()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false

@@ -147,7 +147,7 @@ struct ContentView: View {
                         if s.tab == "Assistant" { conversation }
                         else if s.tab == "project" { projectPage }
                         else if s.tab == "amir" { AmirPage(watcher: s.amir) }
-                        else if s.tab == "tala" { TalaPage() }
+                        else if s.tab == "tala" { TalaPage(voice: s.tala, project: s.project) }
                         else if s.tab == "bo" { BoPage(watcher: s.bo) }
                         else if s.tab == "pix" { PixPage(script: s.project.script) }
                         else if s.tab == "don" { DonPage() }

@@ -137,7 +137,15 @@ Tabs cannot change during a run (a paused run still counts). Removing a script w
 
 **Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
-you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**
+you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) connects
+to ElevenLabs with your API key (`TalaVoice`, `ElevenLabs` in `Sources/ElevenLabs.swift`; the key lives in the Keychain,
+never in UserDefaults or projects.json) and, when her page opens, reads the plan's credits, My Voices (samples play from
+ElevenLabs, free) and the text-to-speech models. A voice-over is one MP3 per script, made from **Tala's own copy** of
+the script (`TalaCopy`, one file per script in Application Support/Edit Assist/tala): your ElevenLabs audio tags
+(`[excited]`, `[whispers]`) go there, never in the script, so highlight runs never see a tag. No voice sliders: the tags
+direct the delivery (you asked for none). Eleven v4 by default, since only v3 and v4 follow tags. A script longer than
+the model takes is sent in parts cut between lines or sentences, each with the text around it, and joined. Saved in a
+folder picked once, never over an earlier file. Credits are spent only when you press Make. Music waits for Don. **Bo**
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself on these signs: Google Drive not
 running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";

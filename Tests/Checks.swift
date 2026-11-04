@@ -1189,6 +1189,48 @@ struct Checks {
             var full = small; full.free = 5_000_000_000
             check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
         }
+        // Tala reads ElevenLabs' answers as its API documents them (2026-11-04).
+        do {
+            let plan = try ElevenLabs.account(from: Data(#"{"tier":"creator","character_count":12000,"character_limit":100000,"next_character_count_reset_unix":1767225600,"status":"active"}"#.utf8))
+            check(plan.tier == "creator" && plan.left == 88_000 && plan.resets == Date(timeIntervalSince1970: 1767225600), "Tala reads the plan and its credits left")
+            let page = try ElevenLabs.voices(from: Data(#"{"voices":[{"voice_id":"a1","name":"Rachel","category":"premade","labels":{"accent":"american","gender":"female","use_case":"narration"},"preview_url":"https://x.y/a.mp3"},{"name":"no id"}],"has_more":true,"next_page_token":"t2"}"#.utf8))
+            check(page.voices.map(\.id) == ["a1"] && page.voices[0].labels == ["american", "female", "narration"] && page.next == "t2",
+                  "Tala lists voices with their labels and follows to the next page")
+            let last = try ElevenLabs.voices(from: Data(#"{"voices":[],"has_more":false,"next_page_token":"t3"}"#.utf8))
+            check(last.next == nil, "Tala stops at the last page of voices")
+            let models = try ElevenLabs.models(from: Data(#"[{"model_id":"eleven_flash_v2_5","name":"Flash","can_do_text_to_speech":true,"maximum_text_length_per_request":40000,"model_rates":{"character_cost_multiplier":0.5}},{"model_id":"eleven_multilingual_sts_v2","can_do_text_to_speech":false},{"model_id":"alpha","can_do_text_to_speech":true,"requires_alpha_access":true}]"#.utf8))
+            check(models.map(\.id) == ["eleven_flash_v2_5"] && models[0].maxCharacters == 40_000 && models[0].creditsPerCharacter == 0.5,
+                  "Tala offers only the text-to-speech models the account can use, with their limits and cost")
+            check(ElevenLabs.message(in: Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)) == "Invalid API key",
+                  "Tala shows ElevenLabs' reason for refusing a key")
+            check(ElevenLabs.spoken("Hello **world**\n\nBuy **now**") == "Hello world\nBuy now", "Tala voices the script's words without bold marks")
+            let tagged = "[excited] Meet the bra. It lifts [whispers] like magic [laughs]\n[array] no"
+            check(ElevenLabs.tags(in: tagged).map { String(tagged[$0]) } == ["[excited]", "[whispers]", "[laughs]", "[array]"],
+                  "Tala finds the [tags] in her copy")
+            check(ElevenLabs.understandsTags("eleven_v4") && ElevenLabs.understandsTags("eleven_v3")
+                  && !ElevenLabs.understandsTags("eleven_multilingual_v2") && !ElevenLabs.understandsTags("eleven_flash_v2_5"),
+                  "Tala knows only Eleven v3 and v4 follow tags")
+            check(ElevenLabs.parts("short", max: 100) == ["short"], "A script the model takes at once is one part")
+            check(ElevenLabs.parts("One line here\nTwo line here\nThree", max: 27) == ["One line here\nTwo line here", "Three"],
+                  "Tala cuts a long script between lines")
+            check(ElevenLabs.parts("First sentence. Second sentence. Third one.", max: 20) == ["First sentence.", "Second sentence.", "Third one."],
+                  "Tala cuts a line too long for one part between sentences")
+            let long = String(repeating: "word ", count: 50).trimmingCharacters(in: .whitespaces)
+            let split = ElevenLabs.parts(long, max: 23)
+            check(split.allSatisfy { $0.count <= 23 } && split.joined(separator: " ") == long, "Tala never cuts mid-word or loses a word")
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tala-check-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let first = ElevenLabs.file(project: "Bra: launch", script: "Script 1", in: folder)
+            try Data().write(to: first)
+            check(first.lastPathComponent == "Bra- launch - Script 1 - voice-over.mp3"
+                  && ElevenLabs.file(project: "Bra: launch", script: "Script 1", in: folder).lastPathComponent == "Bra- launch - Script 1 - voice-over 2.mp3",
+                  "Tala names the voice-over after the project and script, never replacing an earlier one")
+            try? FileManager.default.removeItem(at: folder)
+            var copy = TalaCopy(script: "Hello **world**")
+            copy.text = "[excited] Hello world"
+            check(!copy.outdated(by: "**Hello** world") && copy.outdated(by: "Hello there"),
+                  "Tala's copy is outdated only when the script's words change, not its bold marks or her tags")
+        }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {
             var project = Project(name: "Tabs", script: "**one**")
