@@ -727,6 +727,8 @@ final class Store: ObservableObject {
     let bo = BoWatcher()
     /// Tala, the voice helper: the ElevenLabs account, read when her page opens.
     let tala = TalaVoice()
+    /// Don and Pix: Don's briefs, and Pix's jobs and chat, one script at a time.
+    let studio = Studio()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false

@@ -174,9 +174,18 @@ Support (each account's cache, old logs, lost_and_found, free space; never the d
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are
 noise). He only recommends: a cache is cleared Google's way (Disconnect account, sign in again), never by deleting
 Drive's folders, where files not yet uploaded live. Folders and drives are read off the main
-thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
-shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
-sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
+thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Don**, the ads expert, reads the open script when you ask
+(`DonReader`, `Sources/Studio.swift`) into a brief: product, vibe, voice, music, graphic style, the CTA words and look,
+and the lines the script gives no media for, which need AI video. **Pix** takes his jobs from that brief (`PixDesk`):
+**only the CTA is queued by itself**; a product schematic (for lines needing AI video) and anything you ask for in his
+chat are proposals you queue with a press, since GPT Image costs credit. The CTA is three 1080×1920 variants in one
+3560×1920 SVG with real text, as your earlier CTA files are, designed by the helper brain and opened in Illustrator;
+product pictures go in as `PICTUREn` placeholders Pix swaps for the picture. Schematics and pictures come from GPT Image
+(`OpenAIImages`; the OpenAI key lives in the Keychain; the newest full gpt-image model the key lists). Made files go to
+Downloads, named after the project and script, never over an earlier one. Briefs and Pix's jobs and chat are kept per
+script in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
+default, Codex as the backup you pick in Pix's chat, one call with no tools and a strict JSON schema each; the highlight
+runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
 how both services work (input roles, tagging, modes, API lifecycle) is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04.
 **Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
 read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
