@@ -1189,6 +1189,41 @@ struct Checks {
             var full = small; full.free = 5_000_000_000
             check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
         }
+        // Don's brief and Pix's jobs (2026-11-04).
+        do {
+            let brief = try DonBrief(answer: ["product": " Jeans ", "vibe": "Warm", "voice": "", "music": "", "graphicStyle": "Denim blue", "cta": "GET YOURS NOW!",
+                                              "ctaLook": "65% OFF badge", "videoShots": [["line": "Pull them on", "idea": "Quick pull-on"], ["line": " ", "idea": "x"]]],
+                                     from: "a\nb", project: "P", script: "Script 1")
+            check(brief.product == "Jeans" && brief.videoShots.map(\.line) == ["Pull them on"], "Don's brief keeps the lines that need AI video, trimmed")
+            check((try? DonBrief(answer: ["vibe": "", "graphicStyle": ""], from: "", project: "", script: "")) == nil, "An answer with no brief in it is refused")
+            check(DonBrief.lines("**65% OFF**\n\n**GET YOURS** NOW!") == ["65% OFF", "GET YOURS NOW!"], "Don reads the script's words without the bold marks")
+            check(!brief.outdated(by: "a\nb") && brief.outdated(by: "a\nc"), "Don's brief knows when the script changed after")
+            check(PixJob(kind: .schematic, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures
+                  && !PixJob(kind: .cta, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures, "Only a schematic waits for product pictures")
+            check(PixDesk.isSVG("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>A</text></svg>") && !PixDesk.isSVG("<svg><text>A</svg>") && !PixDesk.isSVG("<html/>"),
+                  "Pix keeps only a CTA that is well-formed SVG")
+            check(PixDesk.embed(#"<image href="PICTURE1"/><image href="PICTURE12"/>"#, pictures: [Data([1, 2])]) == #"<image href="data:image/jpeg;base64,AQI="/><image href="PICTURE12"/>"#,
+                  "Pix puts each product picture in for its name, and only that name")
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pix-check-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let first = PixDesk.file(project: "Easy/shapes", script: "Script 1", what: "CTA", ext: "svg", in: folder)
+            try Data().write(to: first)
+            check(first.lastPathComponent == "Easy-shapes - Script 1 - CTA.svg"
+                  && PixDesk.file(project: "Easy/shapes", script: "Script 1", what: "CTA", ext: "svg", in: folder).lastPathComponent == "Easy-shapes - Script 1 - CTA 2.svg",
+                  "Pix names a file after the project and script, never over an earlier one")
+            try? FileManager.default.removeItem(at: folder)
+            check(OpenAIImages.newestModel(in: Data(#"{"data":[{"id":"gpt-image-1"},{"id":"gpt-image-1.5"},{"id":"gpt-image-1-mini"},{"id":"gpt-5"},{"id":"gpt-image-1.10"}]}"#.utf8)) == "gpt-image-1.10"
+                  && OpenAIImages.newestModel(in: Data(#"{"data":[{"id":"dall-e-3"}]}"#.utf8)) == nil, "Pix picks the newest full GPT Image model the key has")
+            check((try? OpenAIImages.png(from: Data(#"{"data":[{"b64_json":"AQI="}]}"#.utf8))) == Data([1, 2]), "Pix reads GPT Image's picture")
+            check(OpenAIImages.message(in: Data(#"{"error":{"message":"Incorrect API key provided"}}"#.utf8)) == "Incorrect API key provided", "Pix shows OpenAI's reason for a refusal")
+            let schema = PixDesk.chatSchema
+            let items = ((schema["properties"] as? [String: Any])?["proposals"] as? [String: Any])?["items"] as? [String: Any]
+            check(schema["required"] as? [String] == ["attachPicturesTo", "proposals", "reply"] && items?["additionalProperties"] as? Bool == false,
+                  "Pix's chat schema is strict, as Codex needs")
+            let claude = Data((#"{"type":"system"}"# + "\n" + #"{"type":"result","is_error":false,"result":"```json\n{\"reply\":\"hi\"}\n```"}"#).utf8)
+            check((try? HelperBrain.answer(claude, provider: .claude))?["reply"] as? String == "hi", "The helper brain reads Claude's answer, fenced or not")
+            check((try? HelperBrain.answer(Data(#"{"reply":"yo"}"#.utf8), provider: .codex))?["reply"] as? String == "yo", "The helper brain reads Codex's last message")
+        }
         // Tala reads ElevenLabs' answers as its API documents them (2026-11-04).
         do {
             let plan = try ElevenLabs.account(from: Data(#"{"tier":"creator","character_count":12000,"character_limit":100000,"next_character_count_reset_unix":1767225600,"status":"active"}"#.utf8))

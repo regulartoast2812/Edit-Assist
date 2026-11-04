@@ -153,8 +153,8 @@ struct ContentView: View {
                         else if s.tab == "amir" { AmirPage(watcher: s.amir) }
                         else if s.tab == "tala" { TalaPage(voice: s.tala, project: s.project) }
                         else if s.tab == "bo" { BoPage(watcher: s.bo) }
-                        else if s.tab == "pix" { PixPage(script: s.project.script) }
-                        else if s.tab == "don" { DonPage() }
+                        else if s.tab == "pix" { PixPage(desk: s.studio.pix, don: s.studio.don, project: s.project) }
+                        else if s.tab == "don" { DonPage(don: s.studio.don, project: s.project) }
                         else if s.tab == "kino" { KinoPage() }
                         else if s.tab == "penny" { PennyPage() }
                         else { page(for: s.function) }
@@ -731,8 +731,8 @@ struct ContentView: View {
                 case "amir": AmirIcon(watcher: s.amir)
                 case "tala": PixelTala(pixel: 1.1)
                 case "bo": BoIcon(watcher: s.bo)
-                case "pix": PixelPix(pixel: 1.25)
-                case "don": PixelDon(pixel: 1.25)
+                case "pix": PixIcon(desk: s.studio.pix)
+                case "don": DonIcon(don: s.studio.don)
                 case "kino": PixelKino(pixel: 1.25)
                 default: PixelPenny(pixel: 1.25)
                 }
