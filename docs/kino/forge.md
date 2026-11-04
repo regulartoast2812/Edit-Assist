@@ -89,3 +89,56 @@ alone does not show what a control does.
   presumably uses Kling directly or the web.
 - What **Flow** and **Thư viện** do, and whether Forge stores outputs anywhere after Higgsfield's 7 days.
 - Whether **✦ AI** rewrites the prompt, and with what.
+
+## What Kino adds: four jobs Forge leaves to you
+
+Asked for on 2026-11-04. Each job lists how it works and the service limits it has to respect.
+
+### 1. Files join a prompt by their shot code
+- K1.1, K1.2 and K1.3 belong to shot K1: Kino groups files by the number before the dot and puts all of them into
+  K1's one prompt, each under its own tag (`@K1.1`). Words after the code ("K3 improve", "K9 ref") are labels, not new
+  shots.
+- The tags stay the same on screen. When sending, Kino translates them to each service's syntax (Kling 4.0 custom
+  `@id`s, Higgsfield's field order or `<<<image_n>>>`; README §3).
+- A group bigger than the chosen model takes is flagged before running. For example, Kling O3 on Higgsfield takes 4
+  images and exactly 1 video; Seedance 2.5 takes 30 images and 10 videos.
+
+### 2. The script drives the prompt and the tags
+- From the AI video script, Kino reads each shot's line and matches it to that shot's files.
+- He gives each file a role: start frame, end frame, product, look, motion or camera, video to edit.
+- He writes the prompt in the shape each service teaches (Kling 4.0: overall settings, then events by time;
+  Higgsfield: style, camera, lighting, action beat by beat). Each prompt names every file's role and inserts the
+  product's facts.
+- An edit is written as an edit ("Edit @K12: replace the pants… keep everything else unchanged") and sent to the edit
+  endpoint.
+- You review and change it before anything runs.
+
+### 3. Reading reference videos and cutting the useful part
+- **Find the takes.** A long reference is split at its cuts, since Kling's motion source must be one continuous take.
+- **Describe each take:** camera move, action, who is in it, whether someone talks. This uses stills for the
+  configured AI plus on-device checks: Vision's lip landmarks (already used by PeopleReader) for a moving mouth, and the
+  audio for speech.
+- **Match and cut.** Takes are matched to the shots that need them. The best part is cut to the service's limits:
+  - Kling 4.0: 3–30 s each, 5 videos at most, 30 s in total.
+  - Kling O3 on Higgsfield: 3–15.5 s, 1 video.
+  - MP4 only for Higgsfield uploads.
+- **File the cut.** Each cut is saved as the next code (K4.2), with the source and timecodes it came from, so it can
+  be recut.
+
+### 4. Prompting from a reference without copying what you don't want
+Reference videos are often a person talking to camera. Kino keeps the part you want, such as the camera move, pacing,
+body movement or product handling, and leaves the talking out. He does this in four ways:
+- **Cut around it:** prefer takes with no speech and a still mouth (job 3).
+- **Remove the sound from the cut before upload.** On Kling, speech in a video element binds a voice, and Kling 3.0
+  allows no native audio with a reference video anyway. Motion Control's `keep_original_sound` stays off.
+- **Use the right slot:**
+  - a motion or camera reference (`feature_video`), not a video to edit;
+  - a still frame, when only the look matters;
+  - words alone, when only the action matters.
+
+  Motion Control copies the whole performance, the mouth included, so it gets only takes without talking.
+- **Say what to take.** Each prompt says what to take from the reference and states the wanted action positively,
+  with one targeted exclusion. Kling's guide does this ("Reference the camera path and pacing of @video_1… do not carry
+  over its people or scene"), and Higgsfield's advice is to say what you want, with a few targeted "no" phrases. For
+  example: "Follow only the camera path and pacing of @K4.2. She holds the jeans up to camera, lips closed, smiling; no
+  talking."
