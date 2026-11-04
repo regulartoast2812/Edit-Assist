@@ -725,6 +725,10 @@ final class Store: ObservableObject {
     let amir = AmirWatcher()
     /// Bo, the Drive helper: keeps Google Drive for Desktop syncing while the app is open.
     let bo = BoWatcher()
+    /// Tala, the voice helper: the ElevenLabs account, read when her page opens.
+    let tala = TalaVoice()
+    /// Don and Pix: Don's briefs, and Pix's jobs and chat, one script at a time.
+    let studio = Studio()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false
@@ -892,6 +896,12 @@ final class Store: ObservableObject {
         guard !busy else { return }
         projects[index].addScript(); scriptDraft = nil; showScriptDraft = false; save()
         log("Script: added “\(project.openScript.name)” to “\(project.name)”")
+    }
+    /// A project dragged to another place in the sidebar.
+    func moveProject(_ id: UUID, to place: Int) {
+        guard !busy, let from = projects.firstIndex(where: { $0.id == id }) else { return }
+        let project = projects.remove(at: from)
+        projects.insert(project, at: min(max(place, 0), projects.count)); save()
     }
     func moveScript(_ id: UUID, to place: Int) {
         guard !busy else { return }

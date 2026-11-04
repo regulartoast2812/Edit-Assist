@@ -1189,6 +1189,98 @@ struct Checks {
             var full = small; full.free = 5_000_000_000
             check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
         }
+        // Don's brief and Pix's jobs (2026-11-04).
+        do {
+            let brief = try DonBrief(answer: ["product": " Jeans ", "vibe": "Warm", "voice": "", "music": "", "graphicStyle": "Denim blue", "cta": "GET YOURS NOW!",
+                                              "ctaLook": "65% OFF badge", "videoShots": [["line": "Pull them on", "idea": "Quick pull-on"], ["line": " ", "idea": "x"]]],
+                                     from: "a\nb", project: "P", script: "Script 1")
+            check(brief.product == "Jeans" && brief.videoShots.map(\.line) == ["Pull them on"], "Don's brief keeps the lines that need AI video, trimmed")
+            check((try? DonBrief(answer: ["vibe": "", "graphicStyle": ""], from: "", project: "", script: "")) == nil, "An answer with no brief in it is refused")
+            check(DonBrief.lines("**65% OFF**\n\n**GET YOURS** NOW!") == ["65% OFF", "GET YOURS NOW!"], "Don reads the script's words without the bold marks")
+            check(!brief.outdated(by: "a\nb") && brief.outdated(by: "a\nc"), "Don's brief knows when the script changed after")
+            check(PixJob(kind: .schematic, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures
+                  && !PixJob(kind: .cta, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures, "Only a schematic waits for product pictures")
+            check(PixDesk.isSVG("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>A</text></svg>") && !PixDesk.isSVG("<svg><text>A</svg>") && !PixDesk.isSVG("<html/>"),
+                  "Pix keeps only a CTA that is well-formed SVG")
+            check(PixDesk.embed(#"<image href="PICTURE1"/><image href="PICTURE12"/>"#, pictures: [Data([1, 2])]) == #"<image href="data:image/jpeg;base64,AQI="/><image href="PICTURE12"/>"#,
+                  "Pix puts each product picture in for its name, and only that name")
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pix-check-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let first = PixDesk.file(project: "Easy/shapes", script: "Script 1", what: "CTA", ext: "svg", in: folder)
+            try Data().write(to: first)
+            check(first.lastPathComponent == "Easy-shapes - Script 1 - CTA.svg"
+                  && PixDesk.file(project: "Easy/shapes", script: "Script 1", what: "CTA", ext: "svg", in: folder).lastPathComponent == "Easy-shapes - Script 1 - CTA 2.svg",
+                  "Pix names a file after the project and script, never over an earlier one")
+            try? FileManager.default.removeItem(at: folder)
+            check(OpenAIImages.newestModel(in: Data(#"{"data":[{"id":"gpt-image-1"},{"id":"gpt-image-1.5"},{"id":"gpt-image-1-mini"},{"id":"gpt-5"},{"id":"gpt-image-1.10"}]}"#.utf8)) == "gpt-image-1.10"
+                  && OpenAIImages.newestModel(in: Data(#"{"data":[{"id":"dall-e-3"}]}"#.utf8)) == nil, "Pix picks the newest full GPT Image model the key has")
+            check((try? OpenAIImages.png(from: Data(#"{"data":[{"b64_json":"AQI="}]}"#.utf8))) == Data([1, 2]), "Pix reads GPT Image's picture")
+            check(OpenAIImages.message(in: Data(#"{"error":{"message":"Incorrect API key provided"}}"#.utf8)) == "Incorrect API key provided", "Pix shows OpenAI's reason for a refusal")
+            let schema = PixDesk.chatSchema
+            let items = ((schema["properties"] as? [String: Any])?["proposals"] as? [String: Any])?["items"] as? [String: Any]
+            check(schema["required"] as? [String] == ["attachPicturesTo", "proposals", "reply"] && items?["additionalProperties"] as? Bool == false,
+                  "Pix's chat schema is strict, as Codex needs")
+            let claude = Data((#"{"type":"system"}"# + "\n" + #"{"type":"result","is_error":false,"result":"```json\n{\"reply\":\"hi\"}\n```"}"#).utf8)
+            check((try? HelperBrain.answer(claude, provider: .claude))?["reply"] as? String == "hi", "The helper brain reads Claude's answer, fenced or not")
+            check((try? HelperBrain.answer(Data(#"{"reply":"yo"}"#.utf8), provider: .codex))?["reply"] as? String == "yo", "The helper brain reads Codex's last message")
+        }
+        // Tala reads ElevenLabs' answers as its API documents them (2026-11-04).
+        do {
+            let plan = try ElevenLabs.account(from: Data(#"{"tier":"creator","character_count":12000,"character_limit":100000,"next_character_count_reset_unix":1767225600,"status":"active"}"#.utf8))
+            check(plan.tier == "creator" && plan.left == 88_000 && plan.resets == Date(timeIntervalSince1970: 1767225600), "Tala reads the plan and its credits left")
+            let page = try ElevenLabs.voices(from: Data(#"{"voices":[{"voice_id":"a1","name":"Rachel","category":"premade","labels":{"accent":"american","gender":"female","use_case":"narration"},"preview_url":"https://x.y/a.mp3"},{"name":"no id"}],"has_more":true,"next_page_token":"t2"}"#.utf8))
+            check(page.voices.map(\.id) == ["a1"] && page.voices[0].labels == ["american", "female", "narration"] && page.next == "t2",
+                  "Tala lists voices with their labels and follows to the next page")
+            let last = try ElevenLabs.voices(from: Data(#"{"voices":[],"has_more":false,"next_page_token":"t3"}"#.utf8))
+            check(last.next == nil, "Tala stops at the last page of voices")
+            let models = try ElevenLabs.models(from: Data(#"[{"model_id":"eleven_flash_v2_5","name":"Flash","can_do_text_to_speech":true,"maximum_text_length_per_request":40000,"model_rates":{"character_cost_multiplier":0.5}},{"model_id":"eleven_multilingual_sts_v2","can_do_text_to_speech":false},{"model_id":"alpha","can_do_text_to_speech":true,"requires_alpha_access":true}]"#.utf8))
+            check(models.map(\.id) == ["eleven_flash_v2_5"] && models[0].maxCharacters == 40_000 && models[0].creditsPerCharacter == 0.5,
+                  "Tala offers only the text-to-speech models the account can use, with their limits and cost")
+            check(ElevenLabs.message(in: Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)) == "Invalid API key",
+                  "Tala shows ElevenLabs' reason for refusing a key")
+            // A real answer, 2026-11-04: the key was known but restricted without Voices.
+            let restricted = Data(#"{"detail":{"status":"missing_permissions","message":"The API key you used is missing the permission voices_read to execute this operation."}}"#.utf8)
+            do { try ElevenLabs.check(401, restricted); check(false, "A key missing a permission is told apart from a wrong key") }
+            catch ElevenLabs.Failure.missing(let permission) { check(permission == "voices_read", "A key missing a permission is told apart from a wrong key") }
+            catch { check(false, "A key missing a permission is told apart from a wrong key") }
+            do { try ElevenLabs.check(401, Data(#"{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}"#.utf8)); check(false, "A wrong key is refused") }
+            catch ElevenLabs.Failure.rejected(let reason) { check(reason == "Invalid API key", "A wrong key is refused") }
+            catch { check(false, "A wrong key is refused") }
+            check(ElevenLabs.permissionName("voices_read") == "Voices (Read)" && ElevenLabs.permissionName("text_to_speech") == "Text to Speech"
+                  && ElevenLabs.permissionName("user_read") == "User (Read)", "Tala names a permission as ElevenLabs' key screen does")
+            check(ElevenLabs.spoken("Hello **world**\n\nBuy **now**") == "Hello world\nBuy now", "Tala voices the script's words without bold marks")
+            let tagged = "[excited] Meet the bra. It lifts [whispers] like magic [laughs]\n[array] no"
+            check(ElevenLabs.tags(in: tagged).map { String(tagged[$0]) } == ["[excited]", "[whispers]", "[laughs]", "[array]"],
+                  "Tala finds the [tags] in her copy")
+            check(ElevenLabs.understandsTags("eleven_v4") && ElevenLabs.understandsTags("eleven_v3")
+                  && !ElevenLabs.understandsTags("eleven_multilingual_v2") && !ElevenLabs.understandsTags("eleven_flash_v2_5"),
+                  "Tala knows only Eleven v3 and v4 follow tags")
+            check(ElevenLabs.parts("short", max: 100) == ["short"], "A script the model takes at once is one part")
+            check(ElevenLabs.parts("One line here\nTwo line here\nThree", max: 27) == ["One line here\nTwo line here", "Three"],
+                  "Tala cuts a long script between lines")
+            check(ElevenLabs.parts("First sentence. Second sentence. Third one.", max: 20) == ["First sentence.", "Second sentence.", "Third one."],
+                  "Tala cuts a line too long for one part between sentences")
+            let long = String(repeating: "word ", count: 50).trimmingCharacters(in: .whitespaces)
+            let split = ElevenLabs.parts(long, max: 23)
+            check(split.allSatisfy { $0.count <= 23 } && split.joined(separator: " ") == long, "Tala never cuts mid-word or loses a word")
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tala-check-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let first = ElevenLabs.file(project: "Bra: launch", script: "Script 1", in: folder)
+            try Data().write(to: first)
+            check(first.lastPathComponent == "Bra- launch - Script 1 - voice-over.mp3"
+                  && ElevenLabs.file(project: "Bra: launch", script: "Script 1", in: folder).lastPathComponent == "Bra- launch - Script 1 - voice-over 2.mp3",
+                  "Tala names the voice-over after the project and script, never replacing an earlier one")
+            let older = folder.appendingPathComponent("older.wav"), notes = folder.appendingPathComponent("notes.txt")
+            try Data().write(to: older); try Data().write(to: notes)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: older.path)
+            check(ElevenLabs.audioFiles(in: folder).map(\.url.lastPathComponent) == ["Bra- launch - Script 1 - voice-over.mp3", "older.wav"],
+                  "Tala's file browser lists the folder's sound files, newest first")
+            try? FileManager.default.removeItem(at: folder)
+            var copy = TalaCopy(script: "Hello **world**")
+            copy.text = "[excited] Hello world"
+            check(!copy.outdated(by: "**Hello** world") && copy.outdated(by: "Hello there"),
+                  "Tala's copy is outdated only when the script's words change, not its bold marks or her tags")
+        }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {
             var project = Project(name: "Tabs", script: "**one**")

@@ -137,7 +137,18 @@ Tabs cannot change during a run (a paused run still counts). Removing a script w
 
 **Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
-you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) has her page only. **Bo**
+you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) connects
+to ElevenLabs with your API key (`TalaVoice`, `ElevenLabs` in `Sources/ElevenLabs.swift`; the key lives in the Keychain,
+never in UserDefaults or projects.json) and, when her page opens, reads the plan's credits, My Voices (samples play from
+ElevenLabs, free) and the text-to-speech models. A voice-over is one MP3 per script, made from **Tala's own copy** of
+the script (`TalaCopy`, one file per script in Application Support/Edit Assist/tala): your ElevenLabs audio tags
+(`[excited]`, `[whispers]`) go there, never in the script, so highlight runs never see a tag. No voice sliders: the tags
+direct the delivery (you asked for none). Eleven v4 by default, since only v3 and v4 follow tags. A script longer than
+the model takes is sent in parts cut between lines or sentences, each with the text around it, and joined. Saved in a
+folder picked once, never over an earlier file. Credits are spent only when you press Make. Music waits for Don.
+Her page is laid out like ElevenLabs' Text to Speech page, in columns (you asked for it): the output folder and its
+sound files (play, drag into Premiere) on the left, the copy in the middle, voice (searchable), model and account on
+the right; under 980 points wide the files share the right column as a tab. **Bo**
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself on these signs: Google Drive not
 running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";
@@ -163,9 +174,18 @@ Support (each account's cache, old logs, lost_and_found, free space; never the d
 sorts the last day of log errors into kinds (`BoWatcher.kind(of:)`; Drive's own telemetry and settings fetches are
 noise). He only recommends: a cache is cleared Google's way (Disconnect account, sign in again), never by deleting
 Drive's folders, where files not yet uploaded live. Folders and drives are read off the main
-thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
-shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
-sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
+thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Don**, the ads expert, reads the open script when you ask
+(`DonReader`, `Sources/Studio.swift`) into a brief: product, vibe, voice, music, graphic style, the CTA words and look,
+and the lines the script gives no media for, which need AI video. **Pix** takes his jobs from that brief (`PixDesk`):
+**only the CTA is queued by itself**; a product schematic (for lines needing AI video) and anything you ask for in his
+chat are proposals you queue with a press, since GPT Image costs credit. The CTA is three 1080×1920 variants in one
+3560×1920 SVG with real text, as your earlier CTA files are, designed by the helper brain and opened in Illustrator;
+product pictures go in as `PICTUREn` placeholders Pix swaps for the picture. Schematics and pictures come from GPT Image
+(`OpenAIImages`; the OpenAI key lives in the Keychain; the newest full gpt-image model the key lists). Made files go to
+Downloads, named after the project and script, never over an earlier one. Briefs and Pix's jobs and chat are kept per
+script in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
+default, Codex as the backup you pick in Pix's chat, one call with no tools and a strict JSON schema each; the highlight
+runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
 how both services work (input roles, tagging, modes, API lifecycle) is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04.
 **Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
 read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.

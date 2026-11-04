@@ -99,6 +99,10 @@ struct ContentView: View {
     @State private var removingScript: ScriptTab?
     /// The script tab being dragged to another place.
     @State private var draggingScript: UUID?
+    /// The sidebar row being dragged ("project:…", "function:…", "helper:…"), and your order of functions and helpers.
+    @State private var draggingRow: String?
+    @AppStorage("functionOrder") private var functionOrder = ""
+    @AppStorage("helperOrder") private var helperOrder = ""
     @State private var renamingTitle = false
     @FocusState private var titleFocused: Bool
     /// Ends renaming in the header; an emptied name goes back to the default rather than leaving no title.
@@ -147,10 +151,10 @@ struct ContentView: View {
                         if s.tab == "Assistant" { conversation }
                         else if s.tab == "project" { projectPage }
                         else if s.tab == "amir" { AmirPage(watcher: s.amir) }
-                        else if s.tab == "tala" { TalaPage() }
+                        else if s.tab == "tala" { TalaPage(voice: s.tala, project: s.project) }
                         else if s.tab == "bo" { BoPage(watcher: s.bo) }
-                        else if s.tab == "pix" { PixPage(script: s.project.script) }
-                        else if s.tab == "don" { DonPage() }
+                        else if s.tab == "pix" { PixPage(desk: s.studio.pix, don: s.studio.don, project: s.project) }
+                        else if s.tab == "don" { DonPage(don: s.studio.don, project: s.project) }
                         else if s.tab == "kino" { KinoPage() }
                         else if s.tab == "penny" { PennyPage() }
                         else { page(for: s.function) }
@@ -234,22 +238,28 @@ struct ContentView: View {
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).disabled(s.busy)
                                 .guideTarget(project.id == s.selected ? "project" : "other-project")
+                                .sidebarDraggable("project:" + project.id.uuidString, dragging: $draggingRow, disabled: s.busy) { id in
+                                    guard let moved = UUID(uuidString: id), let place = s.projects.firstIndex(where: { $0.id == project.id }) else { return }
+                                    s.moveProject(moved, to: place)
+                                }
                         }
                     }
                     Divider()
                     VStack(alignment: .leading, spacing: 7) {
                         label(L("FUNCTIONS"))
-                        ForEach(EditFunction.allCases) { job in functionRow(job) }
+                        ForEach(SidebarOrder.ordered(EditFunction.allCases.map(\.rawValue), saved: functionOrder).compactMap(EditFunction.init)) { job in
+                            functionRow(job).sidebarDraggable("function:" + job.rawValue, dragging: $draggingRow) { id in
+                                functionOrder = SidebarOrder.moved(id, to: job.rawValue, in: SidebarOrder.ordered(EditFunction.allCases.map(\.rawValue), saved: functionOrder))
+                            }
+                        }
                     }
                     VStack(alignment: .leading, spacing: 7) {
                         label(L("HELPERS"))
-                        helperRow("amir", "Amir", "File helper") { AmirIcon(watcher: s.amir) }
-                        helperRow("tala", "Tala", "Voice helper") { PixelTala(pixel: 1.1) }
-                        helperRow("bo", "Bo", "Drive helper") { BoIcon(watcher: s.bo) }
-                        helperRow("pix", "Pix", "CTA & image helper") { PixelPix(pixel: 1.25) }
-                        helperRow("don", "Don", "Ads expert") { PixelDon(pixel: 1.25) }
-                        helperRow("kino", "Kino", "AI video helper") { PixelKino(pixel: 1.25) }
-                        helperRow("penny", "Penny", "Numbers helper") { PixelPenny(pixel: 1.25) }
+                        ForEach(SidebarOrder.ordered(Self.helpers.map(\.tab), saved: helperOrder), id: \.self) { tab in
+                            helper(tab).sidebarDraggable("helper:" + tab, dragging: $draggingRow) { id in
+                                helperOrder = SidebarOrder.moved(id, to: tab, in: SidebarOrder.ordered(Self.helpers.map(\.tab), saved: helperOrder))
+                            }
+                        }
                     }
                 }
             }.scrollIndicators(.never)
@@ -707,6 +717,27 @@ struct ContentView: View {
             label(L("RECOGNIZE"))
             Toggle(L("Faces and bodies"), isOn: $s.detectPeople)
         }.toggleStyle(.switch).controlSize(.small).padding(22).frame(width: 290)
+    }
+
+    /// The helpers in their first order; the sidebar shows them in yours (drag to change it).
+    static let helpers: [(tab: String, name: String, role: String)] = [
+        ("amir", "Amir", "File helper"), ("tala", "Tala", "Voice helper"), ("bo", "Bo", "Drive helper"), ("pix", "Pix", "CTA & image helper"),
+        ("don", "Don", "Ads expert"), ("kino", "Kino", "AI video helper"), ("penny", "Penny", "Numbers helper"),
+    ]
+    @ViewBuilder func helper(_ tab: String) -> some View {
+        if let helper = Self.helpers.first(where: { $0.tab == tab }) {
+            helperRow(helper.tab, helper.name, helper.role) {
+                switch tab {
+                case "amir": AmirIcon(watcher: s.amir)
+                case "tala": PixelTala(pixel: 1.1)
+                case "bo": BoIcon(watcher: s.bo)
+                case "pix": PixIcon(desk: s.studio.pix)
+                case "don": DonIcon(don: s.studio.don)
+                case "kino": PixelKino(pixel: 1.25)
+                default: PixelPenny(pixel: 1.25)
+                }
+            }
+        }
     }
 
     /// One function in the sidebar: its name, where it stands, and a quick start on the right.
@@ -1493,6 +1524,45 @@ struct ScriptTabDrop: DropDelegate {
     let target: UUID
     @Binding var dragging: UUID?
     let move: (UUID) -> Void
+    func dropEntered(info: DropInfo) { if let dragging, dragging != target { move(dragging) } }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
+}
+
+/// Your order for a sidebar list, kept as ids joined by commas: the ones you placed first, then any new ones in their
+/// first order.
+enum SidebarOrder {
+    static func ordered(_ ids: [String], saved: String) -> [String] {
+        let placed = saved.split(separator: ",").map(String.init).filter(ids.contains)
+        return placed + ids.filter { !placed.contains($0) }
+    }
+    /// `id` moved to where `target` is.
+    static func moved(_ id: String, to target: String, in order: [String]) -> String {
+        var order = order
+        guard let from = order.firstIndex(of: id), let to = order.firstIndex(of: target) else { return order.joined(separator: ",") }
+        order.insert(order.remove(at: from), at: to)
+        return order.joined(separator: ",")
+    }
+}
+
+extension View {
+    /// A sidebar row you can drag to another place in its own list ("kind:id"); the others slide aside as it passes.
+    func sidebarDraggable(_ id: String, dragging: Binding<String?>, disabled: Bool = false, move: @escaping (String) -> Void) -> some View {
+        let kind = id.prefix { $0 != ":" }
+        return self
+            .onDrag { if !disabled { dragging.wrappedValue = id }; return NSItemProvider(object: id as NSString) }
+            .onDrop(of: [.text], delegate: SidebarDrop(target: id, dragging: dragging) { dragged in
+                guard !disabled, dragged.prefix(while: { $0 != ":" }) == kind else { return }
+                withAnimation(.easeOut(duration: 0.15)) { move(String(dragged.drop { $0 != ":" }.dropFirst())) }
+            })
+    }
+}
+
+/// A sidebar row as a place to drop another: the dragged row moves there as soon as it is over it.
+struct SidebarDrop: DropDelegate {
+    let target: String
+    @Binding var dragging: String?
+    let move: (String) -> Void
     func dropEntered(info: DropInfo) { if let dragging, dragging != target { move(dragging) } }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
     func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
