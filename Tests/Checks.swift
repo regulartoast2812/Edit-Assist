@@ -1189,6 +1189,19 @@ struct Checks {
             var full = small; full.free = 5_000_000_000
             check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
         }
+        // Penny reads Grafana's answers as Grafana 11 gives them (2026-11-05).
+        do {
+            check(Grafana.user(from: Data(#"{"id":7,"login":"duc","email":"d@x.com","name":"Duc"}"#.utf8)) == Grafana.User(name: "Duc", email: "d@x.com", login: "duc")
+                  && Grafana.user(from: Data(#"{"message":"Unauthorized"}"#.utf8)) == nil, "Penny reads who is signed in")
+            let found = Grafana.found(from: Data(#"[{"uid":"a","title":"PMKT","type":"dash-db","folderTitle":"Ops","url":"/d/a/pmkt","isStarred":true},{"uid":"f","title":"Ops","type":"dash-folder"}]"#.utf8))
+            check(found.map(\.uid) == ["a"] && found[0].starred && found[0].folder == "Ops", "Penny lists dashboards, not folders")
+            let board = Grafana.board(from: Data(#"{"meta":{"folderTitle":"Ops"},"dashboard":{"uid":"b","title":"Breakdown","templating":{"list":[{"name":"product"},{"name":"publisher"}]},"panels":[{"id":1,"type":"table","title":"Ads","datasource":{"type":"mysql","uid":"m"},"targets":[{"refId":"A","rawSql":"SELECT 1"}]},{"id":2,"type":"row","title":"More","panels":[{"id":3,"type":"timeseries","title":"Spend","targets":[{"datasource":{"type":"postgres"},"rawSql":"SELECT 2"},{"rawSql":""}]}]}]}}"#.utf8))
+            check(board?.variables == ["product", "publisher"] && board?.panels.map(\.id) == [1, 3] && board?.panels[0].source == "mysql"
+                  && board?.panels[1].source == "postgres" && board?.panels[1].queries == ["SELECT 2"], "Penny reads a dashboard's filters and every panel's queries, rows opened up")
+            let rotated = HTTPURLResponse(url: Grafana.base, statusCode: 200, httpVersion: nil,
+                                          headerFields: ["Set-Cookie": "grafana_session=abc123; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax"])!
+            check(Grafana.sessionCookie(in: rotated) == "abc123", "Penny takes the renewed session Grafana sends")
+        }
         // Don's brief and Pix's jobs (2026-11-04).
         do {
             let brief = try DonBrief(answer: ["product": " Jeans ", "vibe": "Warm", "voice": "", "music": "", "graphicStyle": "Denim blue", "cta": "GET YOURS NOW!",

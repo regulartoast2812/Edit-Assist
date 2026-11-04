@@ -156,7 +156,7 @@ struct ContentView: View {
                         else if s.tab == "pix" { PixPage(desk: s.studio.pix, don: s.studio.don, project: s.project) }
                         else if s.tab == "don" { DonPage(don: s.studio.don, project: s.project) }
                         else if s.tab == "kino" { KinoPage(desk: s.kino, project: s.project) }
-                        else if s.tab == "penny" { PennyPage() }
+                        else if s.tab == "penny" { PennyPage(desk: s.penny) }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity).tint(theme)
                     if contextOpen {
@@ -734,7 +734,7 @@ struct ContentView: View {
                 case "pix": PixIcon(desk: s.studio.pix)
                 case "don": DonIcon(don: s.studio.don)
                 case "kino": PixelKino(pixel: 1.25)
-                default: PixelPenny(pixel: 1.25)
+                default: PennyIcon(desk: s.penny)
                 }
             }
         }

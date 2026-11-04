@@ -731,6 +731,8 @@ final class Store: ObservableObject {
     let kino = KinoDesk()
     /// Don and Pix: Don's briefs, and Pix's jobs and chat, one script at a time.
     let studio = Studio()
+    /// Penny: the company's Grafana, read with your sign-in.
+    let penny = PennyDesk()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false
