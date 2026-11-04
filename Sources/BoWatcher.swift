@@ -112,12 +112,12 @@ final class BoWatcher: ObservableObject {
         if drives.map(\.url) != roots { drives = roots.map { Drive(url: $0) } }
         let measure = lastMeasure.map { Date().timeIntervalSince($0) > 900 } ?? true
         if measure { lastMeasure = Date() }
-        let known = Self.knownAccounts
+        let known = Self.knownAccounts, log = driveLog
         Task.detached(priority: .utility) { [weak self] in
             var results: [(URL, Bool, Int)] = []
             for root in roots { results.append(Self.answers(root)) }
             let errors = Self.readErrors()
-            let (lag, quitting, settings, disconnecting) = Self.readDriveLog()
+            let (lag, quitting, settings, disconnecting) = Self.readDriveLog(log)
             let storage = measure ? Self.measure(known: known) : nil
             // Accounts by email: the ones Bo remembers, and any the measuring just found.
             var emails = known
@@ -145,8 +145,9 @@ final class BoWatcher: ObservableObject {
             || !finderMissing.isEmpty
         // Half-quit and stuck there: Drive restarts itself after a sign-out, an update or a settings change, and froze
         // doing so on 2026-11-03. Before the hold and the settings rule: a half-quit Drive does nothing and finishes
-        // nothing you started, so ending it is always right. Not again while a restart of Bo's is still going.
-        if let quitting, running, Date().timeIntervalSince(quitting) > 300, busyUntil.map({ Date() > $0 }) ?? true {
+        // nothing you started, so ending it is always right. Once in ten minutes, should it stay stuck.
+        if let quitting, running, Date().timeIntervalSince(quitting) > 300, busyUntil.map({ Date() > $0 }) ?? true,
+           lastRestart.map({ Date().timeIntervalSince($0) > 600 }) ?? true {
             restart(because: "Google Drive has been stuck quitting since \(quitting.formatted(date: .omitted, time: .shortened))")
             return
         }
@@ -222,24 +223,29 @@ final class BoWatcher: ObservableObject {
             for _ in 0 ..< 20 where apps.contains(where: { !$0.isTerminated }) { try? await Task.sleep(for: .milliseconds(500)) }
             if apps.contains(where: { !$0.isTerminated }) {
                 // Stuck quitting, it ignores even SIGTERM: SIGKILL, for it and its helper process.
-                let kill = Process()
-                kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill"); kill.arguments = ["-9", "-f", "Google Drive.app/Contents/MacOS/Google Drive"]
-                kill.standardOutput = FileHandle.nullDevice; kill.standardError = FileHandle.nullDevice
-                if (try? kill.run()) != nil { kill.waitUntilExit() }
+                _ = await Self.run("/usr/bin/pkill", ["-9", "-f", "Google Drive.app/Contents/MacOS/Google Drive"])
                 self.note("Google Drive would not quit: ended it")
                 try? await Task.sleep(for: .seconds(2))
             }
             if fileProvider {
                 // Yours, not the system's: macOS starts a new one as soon as anything asks for it.
-                let kill = Process()
-                kill.executableURL = URL(fileURLWithPath: "/usr/bin/killall"); kill.arguments = ["fileproviderd"]
-                kill.standardOutput = FileHandle.nullDevice; kill.standardError = FileHandle.nullDevice
-                if (try? kill.run()) != nil { kill.waitUntilExit() }
-                self.note(kill.terminationStatus == 0 ? "Restarted macOS's File Provider (fileproviderd)" : "Could not restart macOS's File Provider")
+                let status = await Self.run("/usr/bin/killall", ["fileproviderd"])
+                self.note(status == 0 ? "Restarted macOS's File Provider (fileproviderd)" : "Could not restart macOS's File Provider")
                 try? await Task.sleep(for: .seconds(3))
             }
             try? await Task.sleep(for: .seconds(2))
             self.launch()
+        }
+    }
+
+    /// Runs a command and waits for it without holding the main thread (waitUntilExit would spin its run loop).
+    nonisolated static func run(_ path: String, _ arguments: [String]) async -> Int32 {
+        await withCheckedContinuation { done in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+            process.terminationHandler = { done.resume(returning: $0.terminationStatus) }
+            if (try? process.run()) == nil { done.resume(returning: -1) }
         }
     }
 
@@ -305,13 +311,13 @@ final class BoWatcher: ObservableObject {
         return created.map { now.timeIntervalSince($0) < 3 * 3600 } ?? true
     }
 
-    /// The drives Finder shows less of than Drive has: at least 3 items and a tenth of the drive. Drives Drive has not
-    /// loaded yet (0 items in its database) and Finder listings that did not finish are left out.
+    /// The drives Finder shows less of than Drive has: at least 3 items and 2% of the drive (a tenth let a big drive hide
+    /// many). Drives Drive has not loaded yet (0 items in its database) and Finder listings that did not finish are left out.
     nonisolated static func gaps(account: String, email: String?, drive: [String: Int], finder: [String: Int?]) -> [Missing] {
         drive.compactMap { name, inDrive in
             guard inDrive > 0, let listed = finder[name], let inFinder = listed else { return nil }
             let gap = inDrive - inFinder
-            return gap >= 3 && Double(gap) >= Double(inDrive) * 0.1
+            return gap >= 3 && Double(gap) >= Double(inDrive) * 0.02
                 ? Missing(account: account, email: email, drive: name, inDrive: inDrive, inFinder: inFinder) : nil
         }.sorted { $0.gap > $1.gap }
     }
@@ -441,74 +447,98 @@ final class BoWatcher: ObservableObject {
         seconds >= 5400 ? "\(Int((Double(seconds) / 3600).rounded())) hours" : seconds >= 120 ? "\(seconds / 60) minutes" : "\(seconds) seconds"
     }
 
-    /// How long each account's changes have waited for Finder, from Drive's current log: "Slow working set change
-    /// acknowledgment: N sec" while it waits, "Slow working set change acknowledged after N sec" once Finder took them.
-    /// The latest of the two decides; still waiting, the wait goes on growing after Drive stops writing it (it went quiet
-    /// for hours on 2026-11-03 with the changes still not taken).
-    nonisolated static func finderLags(in text: String, now: Date) -> [String: Int] {
-        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let pattern = try! NSRegularExpression(pattern: #"^(\S+Z)\S \[[^\]]*core_(\d+)\].*Slow working set change (acknowledgment: (\d+) sec|acknowledged after)"#,
-                                               options: .anchorsMatchLines)
-        var lags: [String: Int] = [:]
-        for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let time = Range(match.range(at: 1), in: text).flatMap({ formatter.date(from: String(text[$0])) }),
-                  let account = Range(match.range(at: 2), in: text).map({ String(text[$0]) }) else { continue }
-            if let seconds = Range(match.range(at: 4), in: text).flatMap({ Int(text[$0]) }) {
-                lags[account] = seconds + max(0, Int(now.timeIntervalSince(time)))
-            } else {
-                lags[account] = nil
+    /// What Bo has read of Drive's current log: Drive only adds to it, so each minute he reads just the new lines, in one
+    /// pass (reading all 46 MB of a long-running log every minute took 7–23 s, 2026-11-04). A new log (Drive starts one
+    /// each launch) starts over. Times are kept as written and parsed only when needed.
+    final class DriveLog: @unchecked Sendable {
+        /// Which file, and how far into it.
+        var file: UInt64?, offset: UInt64 = 0
+        /// The end of a line Drive was still writing.
+        var partial = Data()
+        /// Finder's wait for each account: when the latest "acknowledgment: N sec" was written and N; nil once
+        /// "acknowledged after".
+        var waiting: [String: (stamp: Date, seconds: Int)] = [:]
+        var quitting: Date?
+        /// As written, copied out of the text: a Substring would keep the whole chunk read (up to 40 MB) alive.
+        var time: String?, update: String?, preparing: String?, settings: String?
+
+        /// One line of the log (see `finderLags`, `quittingSince`, `settingsShown`, `disconnectWaiting`).
+        func read(_ line: Substring) {
+            let stamp = BoWatcher.stamp(line)
+            if let stamp {
+                time = String(stamp)
+                if line.contains("UpdateViewViaDifferencer") { update = time }
             }
+            if line.contains("Slow working set change"), let stamp, let core = line.range(of: "core_") {
+                let account = String(line[core.upperBound...].prefix { $0.isNumber })
+                if line.contains("acknowledged after") { waiting[account] = nil }
+                else if let at = line.range(of: "acknowledgment: "), let seconds = Int(line[at.upperBound...].prefix { $0.isNumber }),
+                        let date = BoWatcher.date(stamp) { waiting[account] = (date, seconds) }
+            }
+            if quitting == nil, line.contains("StopAllAccounts with"), line.contains("initiated") { quitting = BoWatcher.date(stamp) }
+            if line.contains("Preparing to disconnect account") { preparing = update ?? time }
+            if line.contains("preferences_dialog") || line.contains("disconnect account") || line.contains("Disconnect account") { settings = time ?? settings }
         }
-        return lags
-    }
+        func read(_ text: String) { for line in text.split(separator: "\n") { read(line) } }
 
-    /// When Drive began quitting, if it did since it started: each launch writes a new log, so any such line is this run's.
-    nonisolated static func quittingSince(in text: String) -> Date? {
+        func lags(now: Date) -> [String: Int] { waiting.mapValues { $0.seconds + max(0, Int(now.timeIntervalSince($0.stamp))) } }
+        /// Drive redraws the dialog a few times as it opens (twice within 0.15 s on 2026-11-03): only a change a minute or
+        /// more later means it moved on.
+        var disconnecting: Date? {
+            guard let preparing = BoWatcher.date(preparing), let update = BoWatcher.date(update), update.timeIntervalSince(preparing) < 60 else { return nil }
+            return preparing
+        }
+    }
+    private let driveLog = DriveLog()
+
+    /// The time at the start of a log line ("2026-11-03T10:21:42.382ZI …"), as written.
+    nonisolated static func stamp(_ line: Substring) -> Substring? {
+        guard line.first == "2", let z = line.firstIndex(of: "Z") else { return nil }
+        return line[...z]
+    }
+    nonisolated static func date<S: StringProtocol>(_ stamp: S?) -> Date? {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        for line in text.split(separator: "\n") where line.contains("StopAllAccounts with") && line.contains("initiated") || line.contains("Quit initiated") {
-            if let z = line.firstIndex(of: "Z"), let time = formatter.date(from: String(line[...z])) { return time }
-        }
-        return nil
+        return stamp.flatMap { formatter.date(from: String($0)) }
     }
 
+    /// How long each account's changes have waited for Finder: "Slow working set change acknowledgment: N sec" while it
+    /// waits, "Slow working set change acknowledged after N sec" once Finder took them. The latest of the two decides;
+    /// still waiting, the wait goes on growing after Drive stops writing it (it went quiet for hours on 2026-11-03 with the
+    /// changes still not taken).
+    nonisolated static func finderLags(in text: String, now: Date) -> [String: Int] { let log = DriveLog(); log.read(text); return log.lags(now: now) }
+    /// When Drive began shutting down, if it did since it started: each launch writes a new log, so any such line is this
+    /// run's. "StopAllAccounts … initiated" only: "Quit initiated" is also written for a quit you then cancel at Drive's
+    /// "files are still uploading" question, and Drive goes on running.
+    nonisolated static func quittingSince(in text: String) -> Date? { let log = DriveLog(); log.read(text); return log.quitting }
     /// When Drive's settings were last on screen: its log writes each change to its windows ("preferences_dialog", the
     /// "Preparing to disconnect account" dialog) under the time of the line before.
-    nonisolated static func settingsShown(in text: String) -> Date? {
-        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var time: Date?, shown: Date?
-        for line in text.split(separator: "\n") {
-            if line.first == "2", let z = line.firstIndex(of: "Z"), let stamp = formatter.date(from: String(line[...z])) { time = stamp }
-            if line.contains("preferences_dialog") || line.contains("disconnect account") || line.contains("Disconnect account") { shown = time ?? shown }
-        }
-        return shown
-    }
-
+    nonisolated static func settingsShown(in text: String) -> Date? { let log = DriveLog(); log.read(text); return date(log.settings) }
     /// When Drive began showing "Preparing to disconnect account", if nothing in its windows has changed since: each change
     /// to them is a new "UpdateViewViaDifferencer" line, so a newer one means it moved on (done, cancelled, next step).
-    nonisolated static func disconnectWaiting(in text: String) -> Date? {
-        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var time: Date?, update: Date?, preparing: Date?
-        for line in text.split(separator: "\n") {
-            if line.first == "2", let z = line.firstIndex(of: "Z"), let stamp = formatter.date(from: String(line[...z])) {
-                time = stamp
-                if line.contains("UpdateViewViaDifferencer") { update = stamp }
-            }
-            if line.contains("Preparing to disconnect account") { preparing = update ?? time }
-        }
-        // Drive redraws the dialog a few times as it opens (twice within 0.15 s on 2026-11-03): only a change a minute
-        // or more later means it moved on.
-        guard let preparing, let update, update.timeIntervalSince(preparing) < 60 else { return nil }
-        return preparing
-    }
+    nonisolated static func disconnectWaiting(in text: String) -> Date? { let log = DriveLog(); log.read(text); return log.disconnecting }
 
-    /// Drive's current log, the whole of it since Drive started (the last confirmation can be hours back).
-    nonisolated static func readDriveLog(now: Date = Date()) -> (lags: [String: Int], quitting: Date?, settings: Date?, disconnecting: Date?) {
-        guard let handle = try? FileHandle(forReadingFrom: support.appendingPathComponent("Logs/drive_fs.txt")) else { return ([:], nil, nil, nil) }
-        defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        try? handle.seek(toOffset: size > 40_000_000 ? size - 40_000_000 : 0)
-        let text = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
-        return (finderLags(in: text, now: now), quittingSince(in: text), settingsShown(in: text), disconnectWaiting(in: text))
+    /// Reads what Drive added to its current log since last time (the last 40 MB of it, the first time).
+    nonisolated static func readDriveLog(_ log: DriveLog = DriveLog(), now: Date = Date()) -> (lags: [String: Int], quitting: Date?, settings: Date?, disconnecting: Date?) {
+        let url = support.appendingPathComponent("Logs/drive_fs.txt")
+        let file = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.systemFileNumber] as? NSNumber)?.uint64Value
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            let size = (try? handle.seekToEnd()) ?? 0
+            if file != log.file || size < log.offset {
+                // A new log: Drive restarted, and what the old one said no longer holds.
+                let fresh = DriveLog()
+                log.waiting = fresh.waiting; log.quitting = nil; log.time = nil; log.update = nil; log.preparing = nil; log.settings = nil
+                log.partial = Data(); log.file = file; log.offset = size > 40_000_000 ? size - 40_000_000 : 0
+            }
+            try? handle.seek(toOffset: log.offset)
+            let added = log.partial + ((try? handle.readToEnd()) ?? Data())
+            log.offset = size
+            // Up to the last full line; the rest waits for the next read.
+            let end = added.lastIndex(of: UInt8(ascii: "\n")).map { added.index(after: $0) } ?? added.startIndex
+            log.partial = Data(added[end...])
+            log.read(String(decoding: added[..<end], as: UTF8.self))
+        }
+        return (log.lags(now: now), log.quitting, date(log.settings), log.disconnecting)
     }
 
     // MARK: What Drive keeps on this Mac

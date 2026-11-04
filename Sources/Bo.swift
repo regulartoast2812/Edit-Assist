@@ -377,6 +377,7 @@ struct BoReconnectSheet: View {
             }
             Text(md: L("Google Drive has them, but Finder's copy of this account is broken, so they never show up. Restarting does not mend it: the account needs rebuilding."))
                 .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if !reconnect.missing.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(reconnect.missing.prefix(5)) { gap in
                     HStack {
@@ -387,6 +388,7 @@ struct BoReconnectSheet: View {
                 }
             }
             .padding(10).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            }
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(["Check Google Drive says **all files are up to date** (nothing still uploading)",
                                "In Google Drive: **⚙ → Preferences → ⚙**, then **Disconnect account** for this account",

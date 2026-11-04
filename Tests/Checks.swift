@@ -1124,6 +1124,7 @@ struct Checks {
             }
             check(BoWatcher.quittingSince(in: """
                 2026-11-03T07:45:03.870ZI [1:core_111] activity_monitor.cc:9:X Slow working set change acknowledgment: 95805 sec
+                2026-11-03T07:40:00.000ZI [1:Main] client.cc:4203:Quit Quit initiated from DFSAppDelegate.mm:162 (you cancelled it)
                 2026-11-03T07:48:10.214ZI [1:Main] client.cc:4254:StopAllAccounts StopAllAccounts with APP_RESTART_REQUESTED initiated from client.cc:3122
                 2026-11-03T09:27:43.042ZE [1:Main] client.cc:4248:StopAllAccounts Dropping Quit request since we are already quitting.
                 """) == ISO8601DateFormatter().date(from: "2026-11-03T07:48:10Z")!.addingTimeInterval(0.214)
@@ -1150,10 +1151,10 @@ struct Checks {
                   "Bo sees a disconnect still preparing, and that it moved on once Drive's windows change")
             check(BoWatcher.duration(94474) == "26 hours" && BoWatcher.duration(1800) == "30 minutes", "Bo says how long in hours or minutes")
             let gaps = BoWatcher.gaps(account: "1", email: "a@b.c",
-                                      drive: ["Team 02": 160, "Team 03": 22, "Not loaded": 0, "Slow": 204, "Small": 5, "Same": 7],
-                                      finder: ["Team 02": 117, "Team 03": 19, "Not loaded": 35, "Slow": Int?.none, "Small": 4, "Same": 7] as [String: Int?])
-            check(gaps.map(\.drive) == ["Team 02", "Team 03"] && gaps.first?.gap == 43,
-                  "Bo: Finder missing 3+ items and a tenth of a drive counts; drives Drive has not loaded, unfinished listings and small gaps do not")
+                                      drive: ["Team 02": 160, "Team 03": 22, "Not loaded": 0, "Slow": 204, "Small": 5, "Same": 7, "Big": 1000],
+                                      finder: ["Team 02": 117, "Team 03": 19, "Not loaded": 35, "Slow": Int?.none, "Small": 4, "Same": 7, "Big": 960] as [String: Int?])
+            check(gaps.map(\.drive) == ["Team 02", "Big", "Team 03"] && gaps.first?.gap == 43,
+                  "Bo: Finder missing 3+ items and 2% of a drive counts; drives Drive has not loaded, unfinished listings and small gaps do not")
             typealias Account = BoWatcher.Storage.Account
             let small = BoWatcher.Storage(accounts: [Account(id: "1", email: "a@b.c", bytes: 900_000_000)], logBytes: 100_000_000, logFiles: 5,
                                           free: 300_000_000_000)

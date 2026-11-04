@@ -119,7 +119,9 @@ you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits t
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself on these signs: Google Drive not
 running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";
-he restarts macOS's fileproviderd too); and Drive stuck half-quit for 5 minutes. A restart that cannot quit Drive ends
+he restarts macOS's fileproviderd too); and Drive stuck half-quit for 5 minutes ("StopAllAccounts … initiated" only: "Quit initiated" is also written for a quit
+you cancel). Bo reads Drive's log incrementally, new lines only, in one pass (`BoWatcher.DriveLog`): reading a long
+running 46 MB log whole each minute took 7–23 s. A restart that cannot quit Drive ends
 it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive had been half-quit for hours. Every 15 minutes Bo also
 compares the top of each drive in Drive's database (read only; immutable when Drive keeps it locked) with what Finder
 lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a dialog asking you to disconnect and
