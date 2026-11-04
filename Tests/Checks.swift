@@ -1155,6 +1155,27 @@ struct Checks {
                                       finder: ["Team 02": 117, "Team 03": 19, "Not loaded": 35, "Slow": Int?.none, "Small": 4, "Same": 7, "Big": 960] as [String: Int?])
             check(gaps.map(\.drive) == ["Team 02", "Big", "Team 03"] && gaps.first?.gap == 43,
                   "Bo: Finder missing 3+ items and 2% of a drive counts; drives Drive has not loaded, unfinished listings and small gaps do not")
+            // This Mac: projects idle for a month are archive candidates; drag copies a week old and a big Premiere cache.
+            let day = 86_400.0
+            func folder(_ name: String, _ kind: BoWatcher.Folder.Kind, _ gb: Int64, daysAgo: Double) -> BoWatcher.Folder {
+                .init(url: URL(fileURLWithPath: "/tmp/" + name), name: name, bytes: gb * 1_000_000_000, lastUsed: now.addingTimeInterval(-daysAgo * day), kind: kind)
+            }
+            let disk = [folder("Old", .project, 90, daysAgo: 40), folder("Fresh", .project, 7, daysAgo: 2), folder("Docs", .folder, 97, daysAgo: 150),
+                        folder("Drags", .dragCopies, 60, daysAgo: 85), folder("Cache", .mediaCache, 23, daysAgo: 0)]
+            check(BoWatcher.idleProjects(disk, now: now).map(\.name) == ["Old"], "Bo: only projects untouched for a month are archive candidates")
+            let roomy = BoWatcher.Storage(accounts: [], free: 300_000_000_000)
+            check(BoWatcher.advice(roomy, restartsToday: 0, folders: disk, now: now).map(\.id) == ["archive", "drags", "media-cache"],
+                  "Bo recommends archiving idle projects, clearing week-old drag copies and a big Premiere cache")
+            check(BoWatcher.advice(roomy, restartsToday: 0, folders: [folder("Fresh", .project, 7, daysAgo: 2), folder("Drags", .dragCopies, 2, daysAgo: 1)], now: now).isEmpty,
+                  "Bo leaves recent projects and fresh drag copies alone")
+            let settings = BoWatcher.DriveLog()
+            settings.read("""
+                2026-11-03T10:21:42.382ZI [1:Main] dialog.cc:87:UpdateViewViaDifferencer [UpdateViewDiff: additions="preferences_dialog {
+                      email: "a@b.c"
+                      quota_details: "Using 11.0 GB of 15.0 GB"
+                      sign_out_button_aria_label: "Disconnect account"
+                """)
+            check(settings.quotas["a@b.c"]?.text == "Using 11.0 GB of 15.0 GB", "Bo reads each account's Drive space from Drive's settings")
             typealias Account = BoWatcher.Storage.Account
             let small = BoWatcher.Storage(accounts: [Account(id: "1", email: "a@b.c", bytes: 900_000_000)], logBytes: 100_000_000, logFiles: 5,
                                           free: 300_000_000_000)

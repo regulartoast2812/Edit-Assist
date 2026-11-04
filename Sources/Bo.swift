@@ -117,7 +117,8 @@ struct BoPage: View {
                              "**Restarts** it by himself when a drive stops answering for 3 minutes",
                              "Opens it again if it is **not running**",
                              "Restarts macOS's **File Provider** when Finder stops showing Drive's changes",
-                             "Keeps track of Drive's **cache** and says when to **clear** it"], size: 11)
+                             "Keeps track of Drive's **cache** and says when to **clear** it",
+                             "Watches this **Mac's disk** and what you could **archive** to Drive"], size: 11)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -160,6 +161,7 @@ struct BoPage: View {
                 .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
             }
             recommendations
+            thisMac
             cache
             errorKinds
             VStack(alignment: .leading, spacing: 8) {
@@ -239,6 +241,18 @@ struct BoPage: View {
             tip(L("Drive's old logs take %@", Self.bytes(bytes)),
                 L("**%@ log files**, only of use to Google's support. Quit Google Drive, then delete all but **drive_fs.txt**.", files),
                 folder: support.appendingPathComponent("Logs"))
+        case .archive(let projects, let bytes):
+            tip(L("Archive %@ projects to Google Drive to free %@", projects, Self.bytes(bytes)),
+                L("They have not been touched for a month or more (marked below). Move each into Google Drive, then right-click it and choose **Remove Download** once it has uploaded: it stays in Drive and frees this Mac."),
+                note: L("Your work Drive has no storage limit of its own; the Gmail one has a 15 GB limit."))
+        case .dragCopies(let bytes, let newest):
+            tip(L("%@ of copies left by dragging files into apps", Self.bytes(bytes)),
+                L("macOS copies files you drag into some apps and does not clear them (newest from %@). Check you still have the originals, then delete them.",
+                  newest.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "?"),
+                folder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches"))
+        case .mediaCache(let bytes):
+            tip(L("Premiere's media cache takes %@", Self.bytes(bytes)),
+                L("Premiere rebuilds it when needed. Clear it in Premiere: **Settings → Media Cache → Delete…**, with your projects closed."))
         case .lowSpace(let free):
             tip(L("Your Mac has %@ free", Self.bytes(free)),
                 L("Drive needs room for the files you open. Free up space, or turn files you don't need offline back to online-only."))
@@ -262,6 +276,79 @@ struct BoPage: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// This Mac's disk, every minute; its biggest folders, every three hours; each Google account's Drive space.
+    var thisMac: some View {
+        section("THIS MAC", trailing: watcher.mac?.measured.map { L("Folders measured %@", $0.formatted(.relative(presentation: .named))) }) {
+            if let mac = watcher.mac {
+                let used = mac.total - mac.free, low = mac.free < BoWatcher.lowSpace
+                VStack(alignment: .leading, spacing: 6) {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.white.opacity(0.08))
+                            Capsule().fill(low ? Color.orange : accent).frame(width: geometry.size.width * CGFloat(used) / CGFloat(max(mac.total, 1)))
+                        }
+                    }.frame(height: 8)
+                    HStack {
+                        Text(L("%@ used", Self.bytes(used))).font(.system(size: 11))
+                        Spacer()
+                        Text(L("%@ free of %@", Self.bytes(mac.free), Self.bytes(mac.total))).font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(low ? .orange : .primary)
+                    }
+                }.padding(12)
+                if !watcher.quotas.isEmpty {
+                    Divider().opacity(0.4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(md: L("GOOGLE DRIVE SPACE")).font(.system(size: 8, weight: .bold)).tracking(1.2).foregroundStyle(.secondary)
+                        ForEach(watcher.quotas) { quota in
+                            HStack(spacing: 10) {
+                                Image(systemName: "cloud").frame(width: 18).foregroundStyle(.secondary)
+                                Text(quota.email).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                Text(quota.text).font(.system(size: 12, design: .monospaced))
+                                Text(quota.seen.formatted(.relative(presentation: .named))).font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text(md: L("As Google Drive's settings last showed it; open them to refresh.")).font(.system(size: 9)).foregroundStyle(.secondary)
+                    }.padding(12)
+                }
+                Divider().opacity(0.4)
+                if mac.measured == nil {
+                    Text(md: L("Measuring the biggest folders…")).font(.system(size: 11)).foregroundStyle(.secondary).padding(12)
+                } else {
+                    let idle = Set(BoWatcher.idleProjects(mac.folders).map(\.url))
+                    ForEach(mac.folders.prefix(10)) { folder in folderRow(folder, idle: idle.contains(folder.url)) }
+                }
+            } else {
+                Text(md: L("Measuring…")).font(.system(size: 12)).foregroundStyle(.secondary).padding(12)
+            }
+        }
+    }
+
+    func folderRow(_ folder: BoWatcher.Folder, idle: Bool) -> some View {
+        let icon = switch folder.kind { case .project: "film.stack"; case .folder: "folder"; case .mediaCache: "film"; case .dragCopies: "doc.on.doc" }
+        let tag: String? = idle ? L("Archive?") : folder.kind == .dragCopies ? L("Leftover copies") : folder.kind == .mediaCache ? L("Premiere cache") : nil
+        return HStack(spacing: 10) {
+            Image(systemName: icon).frame(width: 18).foregroundStyle(idle ? .orange : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(folder.name).font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                    if let tag {
+                        Text(tag).font(.system(size: 9, weight: .semibold)).padding(.horizontal, 5).padding(.vertical, 1)
+                            .background((idle ? Color.orange : accent).opacity(0.18), in: Capsule()).foregroundStyle(idle ? .orange : accent)
+                    }
+                }
+                if let used = folder.lastUsed {
+                    Text(L("Last changed %@", used.formatted(.relative(presentation: .named)))).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            Text(Self.bytes(folder.bytes)).font(.system(size: 12, design: .monospaced))
+            Button { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) } label: { Image(systemName: "folder") }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Show in Finder"))
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
     /// What Drive keeps on this Mac, measured every 15 minutes.

@@ -121,7 +121,10 @@ running; a drive that does not answer a listing within 15 s for three minutes (a
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";
 he restarts macOS's fileproviderd too); and Drive stuck half-quit for 5 minutes ("StopAllAccounts … initiated" only: "Quit initiated" is also written for a quit
 you cancel). Bo reads Drive's log incrementally, new lines only, in one pass (`BoWatcher.DriveLog`): reading a long
-running 46 MB log whole each minute took 7–23 s. A restart that cannot quit Drive ends
+running 46 MB log whole each minute took 7–23 s. Bo also shows this Mac's disk (free space each minute; the biggest folders every three hours
+by du in a separate process: Offline Projects projects, Documents, Downloads, Premiere's media cache, drag copies in
+~/Library/Caches/com.apple.SwiftUI.Drag-*; never inside Google Drive) and each account's Drive space as Drive's settings
+last showed it ("quota_details" in its log). He recommends archiving projects idle for 30 days; he deletes nothing. A restart that cannot quit Drive ends
 it with SIGKILL. A drive that answers can still be stale: on 2026-11-03 Drive had been half-quit for hours. Every 15 minutes Bo also
 compares the top of each drive in Drive's database (read only; immutable when Drive keeps it locked) with what Finder
 lists; a gap of 3+ items and a tenth of the drive that lasts 15 minutes opens a dialog asking you to disconnect and

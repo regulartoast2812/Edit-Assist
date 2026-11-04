@@ -35,6 +35,11 @@ import SQLite3
 /// brings up Bo's dialog, whose button restarts Google Drive (quit, forced if need be) so you can try again. Only Drive's
 /// own disconnect rebuilds Finder's copy: it lives in ~/Library/Application Support/FileProvider, which only Drive can
 /// remove, so moving Drive's own folder aside would not.
+/// This Mac's disk (2026-11-04, asked for while working offline): how full it is every minute, and every three hours
+/// the biggest folders (each Offline Projects project with when it was last used, Documents, Downloads, Premiere's media
+/// cache, copies left by dragging files into apps), so you can choose what to archive to Google Drive; with each
+/// account's Drive space as Drive's settings last showed it. Measured with du in a separate process, never inside the
+/// drives themselves.
 /// He also keeps track of what Drive keeps on this Mac (its cache, old logs, files it could not upload) and says when
 /// clearing is worth it (2026-11-03); he never deletes anything himself. Clearing the cache is done Google's way,
 /// disconnecting the account and signing in again, which keeps files that have not uploaded yet.
@@ -74,6 +79,12 @@ final class BoWatcher: ObservableObject {
     @Published private(set) var holdUntil: Date? = (UserDefaults.standard.object(forKey: "boHoldUntil") as? Date).flatMap { $0 > Date() ? $0 : nil }
     /// When each drive's gap was first seen, and how big it was.
     private var gapSince: [String: (time: Date, missing: Int)] = [:]
+    /// This Mac's disk: free space every minute, its biggest folders every three hours.
+    @Published private(set) var mac: MacSpace?
+    /// Each account's Google Drive space, as Drive's settings last showed it.
+    @Published private(set) var quotas: [Quota] = BoWatcher.savedQuotas
+    private var lastFolders: Date?
+    private var quotasSeeded = false
     /// What Drive keeps on this Mac; measured every 15 minutes.
     @Published private(set) var storage: Storage?
     /// How much the caches grew, and since when Bo has been measuring them.
@@ -96,6 +107,8 @@ final class BoWatcher: ObservableObject {
     /// Changes unconfirmed this long mean Finder has stopped taking them; a few minutes happen when Drive is busy.
     nonisolated static let finderStuckAfter = 1800
 
+    nonisolated static let launched = Date()
+
     init() {
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.check() } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.check() }
@@ -113,18 +126,30 @@ final class BoWatcher: ObservableObject {
         let measure = lastMeasure.map { Date().timeIntervalSince($0) > 900 } ?? true
         if measure { lastMeasure = Date() }
         let known = Self.knownAccounts, log = driveLog
+        // The biggest folders: two minutes after launch, then every three hours.
+        let folders = lastFolders.map { Date().timeIntervalSince($0) > 3 * 3600 } ?? (Date().timeIntervalSince(Self.launched) > 120)
+        if folders { lastFolders = Date() }
+        let previous = mac, seedQuotas = quotas.isEmpty && !quotasSeeded
+        quotasSeeded = true
         Task.detached(priority: .utility) { [weak self] in
             var results: [(URL, Bool, Int)] = []
             for root in roots { results.append(Self.answers(root)) }
             let errors = Self.readErrors()
             let (lag, quitting, settings, disconnecting) = Self.readDriveLog(log)
+            let mac = Self.measureMac(folders: folders ? Self.biggestFolders() : previous?.folders ?? [], measured: folders ? Date() : previous?.measured)
+            // Until Bo has seen a figure: the last ones in Drive's five newest older logs.
+            let quotas = log.quotas.merging(seedQuotas ? Self.quotasInOldLogs() : [:]) { $0.seen > $1.seen ? $0 : $1 }
             let storage = measure ? Self.measure(known: known) : nil
             // Accounts by email: the ones Bo remembers, and any the measuring just found.
             var emails = known
             for account in storage?.accounts ?? [] { if let email = account.email { emails[account.id] = email } }
             let missing = measure ? Self.compareFinder(emails: emails) : nil
-            await MainActor.run { self?.finish(results, errors: errors, lag: lag, quitting: quitting, settings: settings,
-                                                         disconnecting: disconnecting, storage: storage, missing: missing) }
+            await MainActor.run {
+                self?.mac = mac
+                self?.seen(quotas)
+                self?.finish(results, errors: errors, lag: lag, quitting: quitting, settings: settings,
+                             disconnecting: disconnecting, storage: storage, missing: missing)
+            }
         }
     }
 
@@ -461,6 +486,9 @@ final class BoWatcher: ObservableObject {
         var quitting: Date?
         /// As written, copied out of the text: a Substring would keep the whole chunk read (up to 40 MB) alive.
         var time: String?, update: String?, preparing: String?, settings: String?
+        /// Each account's "quota_details" in Drive's settings dump, under the "email" line before it, with when it was written.
+        var quotas: [String: (text: String, seen: Date)] = [:]
+        private var email: String?
 
         /// One line of the log (see `finderLags`, `quittingSince`, `settingsShown`, `disconnectWaiting`).
         func read(_ line: Substring) {
@@ -478,6 +506,8 @@ final class BoWatcher: ObservableObject {
             if quitting == nil, line.contains("StopAllAccounts with"), line.contains("initiated") { quitting = BoWatcher.date(stamp) }
             if line.contains("Preparing to disconnect account") { preparing = update ?? time }
             if line.contains("preferences_dialog") || line.contains("disconnect account") || line.contains("Disconnect account") { settings = time ?? settings }
+            if let value = BoWatcher.quoted(line, after: "email: \"") { email = value }
+            if let value = BoWatcher.quoted(line, after: "quota_details: \""), let email, let seen = BoWatcher.date(time) { quotas[email] = (value, seen) }
         }
         func read(_ text: String) { for line in text.split(separator: "\n") { read(line) } }
 
@@ -490,6 +520,13 @@ final class BoWatcher: ObservableObject {
         }
     }
     private let driveLog = DriveLog()
+
+    /// The value of a line like `  email: "a@b.c"`.
+    nonisolated static func quoted(_ line: Substring, after key: String) -> String? {
+        guard let start = line.range(of: key), line[..<start.lowerBound].allSatisfy({ $0 == " " }),
+              let end = line[start.upperBound...].firstIndex(of: "\"") else { return nil }
+        return String(line[start.upperBound ..< end])
+    }
 
     /// The time at the start of a log line ("2026-11-03T10:21:42.382ZI …"), as written.
     nonisolated static func stamp(_ line: Substring) -> Substring? {
@@ -539,6 +576,127 @@ final class BoWatcher: ObservableObject {
             log.read(String(decoding: added[..<end], as: UTF8.self))
         }
         return (log.lags(now: now), log.quitting, date(log.settings), log.disconnecting)
+    }
+
+    // MARK: This Mac's disk
+
+    struct Folder: Identifiable, Equatable {
+        enum Kind: Equatable { case project, folder, mediaCache, dragCopies }
+        let url: URL
+        let name: String
+        let bytes: Int64
+        /// The newest change in it (the folder and what is directly inside).
+        let lastUsed: Date?
+        let kind: Kind
+        var id: URL { url }
+    }
+    struct MacSpace: Equatable {
+        var total: Int64, free: Int64
+        var folders: [Folder] = []
+        /// When the folders were measured.
+        var measured: Date?
+    }
+    struct Quota: Codable, Equatable, Identifiable {
+        let email: String, text: String, seen: Date
+        var id: String { email }
+    }
+
+    static var savedQuotas: [Quota] {
+        (UserDefaults.standard.data(forKey: "boQuotas")).flatMap { try? JSONDecoder().decode([Quota].self, from: $0) } ?? []
+    }
+    /// Keeps the newest figure for each account: Drive writes them only while its settings are open.
+    private func seen(_ found: [String: (text: String, seen: Date)]) {
+        var all = Dictionary(uniqueKeysWithValues: quotas.map { ($0.email, $0) })
+        for (email, quota) in found where all[email].map({ quota.seen > $0.seen }) ?? true { all[email] = Quota(email: email, text: quota.text, seen: quota.seen) }
+        let sorted = all.values.sorted { $0.email < $1.email }
+        guard sorted != quotas else { return }
+        quotas = sorted
+        if let data = try? JSONEncoder().encode(sorted) { UserDefaults.standard.set(data, forKey: "boQuotas") }
+    }
+
+    nonisolated static func quotasInOldLogs() -> [String: (text: String, seen: Date)] {
+        let logs = ((try? FileManager.default.contentsOfDirectory(at: support.appendingPathComponent("Logs"), includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix("drive_fs_") && $0.pathExtension == "txt" }
+            .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+                    > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+        let log = DriveLog()
+        for url in logs.prefix(5).reversed() {
+            guard let data = try? Data(contentsOf: url, options: .alwaysMapped), data.count < 60_000_000 else { continue }
+            log.read(String(decoding: data, as: UTF8.self))
+        }
+        return log.quotas
+    }
+
+    nonisolated static func measureMac(folders: [Folder], measured: Date?) -> MacSpace? {
+        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
+        guard let values = try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: keys),
+              let total = values.volumeTotalCapacity, let free = values.volumeAvailableCapacityForImportantUsage else { return nil }
+        return MacSpace(total: Int64(total), free: free, folders: folders, measured: measured)
+    }
+
+    /// A folder's size from du in a separate process, three minutes at most: nil when it does not finish.
+    nonisolated static func du(_ url: URL) -> Int64? {
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("bo-du-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: out.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: out) }
+        guard let handle = try? FileHandle(forWritingTo: out) else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/du"); process.arguments = ["-sk", url.path]
+        process.standardOutput = handle; process.standardError = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        guard (try? process.run()) != nil else { return nil }
+        let finished = done.wait(timeout: .now() + 180) == .success
+        if process.isRunning { process.terminate() }
+        try? handle.close()
+        guard finished, let text = try? String(contentsOf: out, encoding: .utf8), let kb = Int64(text.prefix { $0.isNumber }) else { return nil }
+        return kb * 1024
+    }
+
+    /// The newest change to a folder or to anything directly inside it.
+    nonisolated static func lastUsed(_ url: URL) -> Date? {
+        let key: Set<URLResourceKey> = [.contentModificationDateKey]
+        let inside = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(key), options: [.skipsHiddenFiles])) ?? []
+        return ([url] + inside).compactMap { try? $0.resourceValues(forKeys: key).contentModificationDate }.max()
+    }
+
+    /// The folders worth knowing about, 1 GB and up, biggest first: each Offline Projects project, the other Documents
+    /// folders, Downloads, Desktop, Movies, Pictures, Music, Premiere's media cache and the drag copies. Never Google
+    /// Drive's own folders: walking them can download files or hang.
+    nonisolated static func biggestFolders() -> [Folder] {
+        let files = FileManager.default, home = files.homeDirectoryForCurrentUser
+        func folders(in url: URL) -> [URL] {
+            ((try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])) ?? [])
+                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])).map { $0.isDirectory == true && $0.isSymbolicLink != true } ?? false }
+        }
+        var found: [Folder] = []
+        func add(_ url: URL, _ kind: Folder.Kind, name: String? = nil) {
+            guard let bytes = du(url), bytes >= 1_000_000_000 else { return }
+            found.append(Folder(url: url, name: name ?? url.lastPathComponent, bytes: bytes, lastUsed: lastUsed(url), kind: kind))
+        }
+        let documents = home.appendingPathComponent("Documents"), projects = documents.appendingPathComponent("Offline Projects")
+        for project in folders(in: projects) { add(project, .project) }
+        for folder in folders(in: documents) where folder.lastPathComponent != "Offline Projects" { add(folder, .folder) }
+        for name in ["Downloads", "Desktop", "Movies", "Pictures", "Music"] { add(home.appendingPathComponent(name), .folder) }
+        let adobe = home.appendingPathComponent("Library/Application Support/Adobe/Common")
+        let caches = ["Media Cache Files", "Media Cache"].map { adobe.appendingPathComponent($0) }.filter { files.fileExists(atPath: $0.path) }
+        let cacheBytes = caches.compactMap(du).reduce(0, +)
+        if cacheBytes >= 1_000_000_000, let first = caches.first {
+            found.append(Folder(url: first, name: "Premiere media cache", bytes: cacheBytes, lastUsed: caches.compactMap(lastUsed).max(), kind: .mediaCache))
+        }
+        // Copies macOS makes when files are dragged into some apps, and does not clear.
+        let drags = folders(in: home.appendingPathComponent("Library/Caches")).filter { $0.lastPathComponent.hasPrefix("com.apple.SwiftUI.Drag-") }
+        let dragBytes = drags.compactMap(du).reduce(0, +)
+        if dragBytes >= 1_000_000_000 {
+            found.append(Folder(url: home.appendingPathComponent("Library/Caches"), name: "Copies left by dragging files into apps", bytes: dragBytes,
+                                lastUsed: drags.compactMap(lastUsed).max(), kind: .dragCopies))
+        }
+        return found.sorted { $0.bytes > $1.bytes }
+    }
+
+    /// Projects not touched for 30 days: what archiving to Google Drive would free.
+    nonisolated static func idleProjects(_ folders: [Folder], now: Date = Date()) -> [Folder] {
+        folders.filter { $0.kind == .project && ($0.lastUsed.map { now.timeIntervalSince($0) > 30 * 86_400 } ?? false) }
     }
 
     // MARK: What Drive keeps on this Mac
@@ -638,18 +796,24 @@ final class BoWatcher: ObservableObject {
         case oldLogs(bytes: Int64, files: Int)
         case unuploaded(files: Int, bytes: Int64)
         case lowSpace(free: Int64)
+        case archive(projects: Int, bytes: Int64)
+        case dragCopies(bytes: Int64, newest: Date?)
+        case mediaCache(bytes: Int64)
         var id: String {
             switch self {
             case .clearCache(let account, _): "cache-\(account.id)"
             case .oldLogs: "logs"
             case .unuploaded: "unuploaded"
             case .lowSpace: "space"
+            case .archive: "archive"
+            case .dragCopies: "drags"
+            case .mediaCache: "media-cache"
             }
         }
     }
     nonisolated static let cacheLimit: Int64 = 2_000_000_000, logLimit: Int64 = 500_000_000, lowSpace: Int64 = 20_000_000_000
 
-    nonisolated static func advice(_ storage: Storage, restartsToday: Int) -> [Advice] {
+    nonisolated static func advice(_ storage: Storage, restartsToday: Int, folders: [Folder] = [], now: Date = Date()) -> [Advice] {
         var advice: [Advice] = []
         let short = storage.free.map { $0 < lowSpace } ?? false
         for account in storage.accounts {
@@ -660,9 +824,16 @@ final class BoWatcher: ObservableObject {
         if storage.unuploadedFiles > 0 { advice.append(.unuploaded(files: storage.unuploadedFiles, bytes: storage.unuploadedBytes)) }
         if storage.logBytes > logLimit { advice.append(.oldLogs(bytes: storage.logBytes, files: storage.logFiles)) }
         if short, let free = storage.free { advice.append(.lowSpace(free: free)) }
+        // This Mac: projects to archive (5 GB or more of them), a week-old pile of drag copies, a big Premiere cache.
+        let idle = idleProjects(folders, now: now), idleBytes = idle.reduce(0) { $0 + $1.bytes }
+        if idleBytes >= 5_000_000_000 { advice.append(.archive(projects: idle.count, bytes: idleBytes)) }
+        if let drags = folders.first(where: { $0.kind == .dragCopies }), drags.lastUsed.map({ now.timeIntervalSince($0) > 7 * 86_400 }) ?? true {
+            advice.append(.dragCopies(bytes: drags.bytes, newest: drags.lastUsed))
+        }
+        if let cache = folders.first(where: { $0.kind == .mediaCache }), cache.bytes >= 10_000_000_000 { advice.append(.mediaCache(bytes: cache.bytes)) }
         return advice
     }
-    var advice: [Advice] { storage.map { Self.advice($0, restartsToday: restartsToday) } ?? [] }
+    var advice: [Advice] { storage.map { Self.advice($0, restartsToday: restartsToday, folders: mac?.folders ?? []) } ?? [] }
 
     // MARK: Errors in Drive's log, by kind
 
