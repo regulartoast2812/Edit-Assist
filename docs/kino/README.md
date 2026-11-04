@@ -9,6 +9,9 @@ The details, with a source after every fact, are in:
 - [higgsfield.md](higgsfield.md): Higgsfield's own models and the ones it hosts, tools (DoP presets, Cinema Studio,
   Elements, Popcorn, Canvas…), the API and its **field tables for all 84 endpoints** (Appendix A), MCP/CLI, workflow.
 
+- [forge.md](forge.md): what the team's current generator, KlingDom Forge, does well and what to fix, read against
+  this research.
+
 The visual map is [map.html](map.html): Kino's page shows it in the app, and the same file is published as its web
 version (https://claude.ai/artifact/JgjYHNaJacY8tsS66iC25c). Change the map there, then republish it to that link.
 
