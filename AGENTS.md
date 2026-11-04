@@ -7,11 +7,33 @@ Treat every change to decision logic as a change to what happens in their timeli
 ## Before you finish any change
 
 1. `./build.sh` — it runs `./test.sh` first and installs nothing if a check fails or a recorded
-   decision replays differently. Do not use `--skip-tests` without saying so to the user.
+   decision replays differently. Do not use `--skip-tests` without saying so to the user. In a chat's worktree,
+   `Tools/ship.sh` instead (it runs `./build.sh`; see Parallel chats).
 2. Report which files you changed and whether any of it is **automation** (Desktop.swift,
    LiveFeed.swift, Store.swift's run/doTile/doSize/doOpen/navigation code) or **UI only**
    (App.swift, Overlay.swift drawing, Models.swift labels). A UI request does not touch automation;
    if it must, say so before doing it.
+
+## Parallel chats
+
+Several chats can work on this project at once, usually one per helper. Each works in a folder of its own.
+- **Start**: from the main folder, `Tools/new-chat.sh <helper>` makes `../Edit Assist-<helper>`, a git worktree on its
+  own branch, with the fixtures, probes and MakeFixtures (not in git) linked back. Without them a worktree replays
+  almost nothing and still passes. Work, test and commit only in that folder, and only the files you changed (never
+  `git add -A` / `commit -a` in the main folder while other chats are running).
+- **Finish with `Tools/ship.sh`, not `./build.sh`**: commit your files, then ship from the worktree. It merges main in
+  (so the app keeps what the other chats shipped; on a conflict it stops for you to resolve and run it again), runs
+  `./build.sh` there (every check and replay, nothing installed if one fails), relaunches the app, and moves main up to
+  your branch. Ships and builds take turns (`Tools/build-lock.zsh`). A plain `./build.sh` on a branch installs an app
+  without the others' work (it says so). While working, `./test.sh` checks without installing.
+- **One chat drives the screen.** The app uses the real mouse, keyboard and Premiere; never run or test it live while
+  another chat might, and never build while a highlight run or a Bo restart is in progress.
+- **Shared files** (App.swift sidebar and pages, Localization.swift, Models.swift, Store.swift, test.sh's `SOURCES`,
+  this file's Helpers paragraph): keep edits there small, expect merge conflicts, and keep both sides when resolving.
+  A helper's own files (Kino.swift, BoWatcher.swift, …) belong to its chat.
+- **New fixtures made in a worktree** are not in git: run `Tools/new-chat.sh <helper>` again (from the main folder)
+  to move them into the main folder and link them back, before the worktree is removed.
+- **Releases** (`release.sh`) only from main, by one chat, when the user asks.
 
 ## Safeguards and how to extend them
 

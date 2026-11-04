@@ -11,6 +11,9 @@ KC="edit-assist-signing.keychain"
 reveal=0
 [[ "${1-}" == "--reveal" ]] && reveal=1
 
+source Tools/build-lock.zsh
+mkdir -p .build
+
 # Safeguard: nothing is installed unless every check passes and every recorded decision replays
 # unchanged. --skip-tests exists for emergencies only; say so if you use it.
 if [[ "${1-}" != "--skip-tests" && "${2-}" != "--skip-tests" ]]; then
@@ -73,4 +76,7 @@ rmdir dist 2>/dev/null || true
 open "$TARGET"
 (( reveal )) && open -R "$TARGET"
 echo "Installed and relaunched: $TARGET"
+# A branch built without main merged in drops what the other chats shipped; Tools/ship.sh merges it first.
+git merge-base --is-ancestor main HEAD 2>/dev/null ||
+  echo "NOTE: this build lacks commits on main (other chats' work). Tools/ship.sh merges main in first." >&2
 echo "Signature: $(codesign -dvvv "$TARGET" 2>&1 | grep -E '^Authority=' || echo 'ad-hoc')"
