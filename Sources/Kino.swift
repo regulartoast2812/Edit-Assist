@@ -42,17 +42,22 @@ struct PixelKino: View {
     }
 }
 
-/// Kino's page (2026-11-04), laid out like KlingDom Forge, the team's generator, with what it lacked (docs/kino/forge.md):
-/// the batch's media on the left, grouped by shot code; the shots in the middle, each with its files and their roles,
-/// the prompt with @tags, the settings the chosen model takes and what Kino would send to it; the takes and the two
-/// accounts on the right. Under 1180 points the media column goes (each shot shows its own files); under 820 the right
-/// column goes under the shots. Before a folder: Kino, the research beside him, and choosing the batch.
+/// Kino's page (redrawn 2026-11-04: the first one read as one long form). The batch's shots down the left, one line each
+/// with their pictures, what the shot does and whether it is ready; the chosen shot in the middle, read top to bottom in
+/// the order it is made (its files and their roles, the prompt, the settings, what Kino sends), with anything to fix
+/// first; its takes on the right. A role has one colour everywhere: on the file, on its @tag in the prompt and in what is
+/// sent; Kino's orange is only for what is chosen and for running. "Every shot", at the top of the list, holds what each
+/// shot starts from. Accounts open from the top bar. Under 1100 points the takes go under the shot. Before a folder:
+/// Kino, the research beside him, and choosing the batch.
 struct KinoPage: View {
     @ObservedObject var desk: KinoDesk
     let project: Project
     @State private var reading: KinoResearch?
     @State private var hovered: KinoResearch?
     @State private var showingResearch = false
+    @State private var showingAccounts = false
+    /// "Every shot" is open in the middle instead of a shot.
+    @State private var everyShot = false
     private let accent = PixelKino.theme
 
     var body: some View {
@@ -60,7 +65,7 @@ struct KinoPage: View {
             if desk.folder == nil { start } else { workspace }
         }
         .onAppear { desk.open(project: project.id) }
-        .onChange(of: project.id) { _, id in desk.open(project: id) }
+        .onChange(of: project.id) { _, id in everyShot = false; desk.open(project: id) }
         // Files renamed or added in Finder show when you come back.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in desk.refresh() }
         .sheet(item: $reading) { KinoResearchSheet(doc: $0) }
@@ -81,7 +86,7 @@ struct KinoPage: View {
                              "Name the files by **shot**: **K1**, **K1.1** and **K1.2** all go into shot K1's prompt",
                              "Words after the code are a label: **K9 ref** is a file of shot K9"], numbered: true, size: 11)
                     Button { desk.chooseFolder() } label: { Label(L("Choose the batch folder…"), systemImage: "folder") }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).tint(accent)
                 }
                 section(L("ACCOUNTS")) { KinoAccounts(desk: desk) }
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -133,14 +138,32 @@ struct KinoPage: View {
     // MARK: The batch
 
     var workspace: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             header
             GeometryReader { size in
-                let width = size.size.width
-                HStack(alignment: .top, spacing: 12) {
-                    if width >= 1180 { panel { media }.frame(width: 230) }
-                    shots(sideBelow: width < 820).frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if width >= 820 { panel { ThinScrollView { side } }.frame(width: 270) }
+                let wide = size.size.width >= 1100
+                HStack(alignment: .top, spacing: 14) {
+                    rail.frame(width: 236)
+                    ThinScrollView {
+                        VStack(alignment: .leading, spacing: 26) {
+                            if let code = desk.selected, !everyShot, desk.shots.contains(code) {
+                                KinoShotDesk(desk: desk, code: code, openAccounts: { showingAccounts = true }, openEveryShot: { everyShot = true })
+                                if !wide { KinoTakes(desk: desk, code: code, columns: 4) }
+                            } else if desk.shots.isEmpty && !everyShot {
+                                empty
+                            } else {
+                                batchDesk
+                            }
+                        }
+                        .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 24)
+                        .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if wide, let code = desk.selected, !everyShot, desk.shots.contains(code) {
+                        ThinScrollView { KinoTakes(desk: desk, code: code, columns: 2).padding(14) }
+                            .frame(width: 256).frame(maxHeight: .infinity)
+                            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
+                    }
                 }
             }
         }
@@ -154,12 +177,12 @@ struct KinoPage: View {
             Button { desk.chooseFolder() } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.fill").foregroundStyle(accent)
-                    Text(desk.folder?.lastPathComponent ?? "").font(.system(size: 12, weight: .medium)).lineLimit(1)
-                    Text(L("Change…")).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(desk.folder?.lastPathComponent ?? "").font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(.white.opacity(0.06), in: Capsule())
-            }.buttonStyle(.plain).help(desk.folder?.path(percentEncoded: false) ?? "")
+            }.buttonStyle(.plain).help(L("Choose another batch folder"))
             Text(L("%@ shots · %@ pictures · %@ videos", codes.count, desk.files.filter { $0.kind == .image }.count, desk.files.filter { $0.kind == .video }.count))
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             Button { desk.refresh() } label: { Image(systemName: "arrow.clockwise") }
@@ -167,132 +190,155 @@ struct KinoPage: View {
             Spacer(minLength: 8)
             Button { showingResearch.toggle() } label: { Label(L("Research"), systemImage: "books.vertical") }
                 .popover(isPresented: $showingResearch, arrowEdge: .bottom) { research.padding(6).frame(width: 340) }
+            Button { showingAccounts.toggle() } label: {
+                Label(L("Accounts"), systemImage: "key")
+                    .overlay(alignment: .topLeading) {
+                        if desk.missingKey(codes) { Circle().fill(.red).frame(width: 6, height: 6).offset(x: -2, y: -1) }
+                    }
+            }
+            .help(desk.missingKey(codes) ? L("A key these shots need is missing") : L("Higgsfield and Kling keys"))
+            .popover(isPresented: $showingAccounts, arrowEdge: .bottom) { KinoAccounts(desk: desk).padding(16).frame(width: 300) }
             if !codes.isEmpty {
-                Text(desk.blocker(codes)).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 Button {} label: { Label(L("Run all · %@ takes", takes), systemImage: "play.fill") }
-                    .buttonStyle(.borderedProminent).disabled(true)
+                    .buttonStyle(.borderedProminent).tint(accent).disabled(true).help(desk.blocker(codes))
             }
         }
     }
 
-    var media: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            heading(L("MEDIA"))
+    // MARK: Left: the shots
+
+    var rail: some View {
+        let broken = desk.shots.filter { !desk.plan($0).problems.isEmpty }.count
+        return VStack(alignment: .leading, spacing: 0) {
+            railRow(chosen: everyShot || desk.shots.isEmpty, action: { everyShot = true }) {
+                Image(systemName: "slider.horizontal.3").font(.system(size: 13)).foregroundStyle(accent)
+                    .frame(width: 36, height: 36).background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("Every shot")).font(.system(size: 12.5, weight: .semibold))
+                    Text(KinoSummary.settings(desk.batch.settings)).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            HStack(alignment: .firstTextBaseline) {
+                heading(L("SHOTS"))
+                Text("\(desk.shots.count)").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                Spacer()
+                if broken > 0 {
+                    Text(broken == 1 ? L("1 to fix") : L("%@ to fix", broken)).font(.system(size: 10, weight: .medium)).foregroundStyle(.red)
+                }
+            }
+            .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
             ThinScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(desk.shots, id: \.self) { code in
-                        let chosen = desk.selected == code
-                        Button { desk.selected = code } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack {
-                                    Text(code).font(.system(size: 11, weight: .bold)).foregroundStyle(chosen ? accent : .primary)
-                                    Spacer()
-                                    Text("\(desk.files(in: code).count)").font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: 4)], alignment: .leading, spacing: 4) {
-                                    ForEach(desk.files(in: code)) { file in
-                                        KinoThumb(url: file.url, width: 46, height: 46)
-                                            .opacity(desk.role(of: file, in: code) == .unused ? 0.35 : 1)
-                                            .help("@" + file.handle)
+                        let problems = desk.plan(code).problems.count
+                        railRow(chosen: !everyShot && desk.selected == code, action: { everyShot = false; desk.selected = code }) {
+                            KinoFan(files: desk.files(in: code).filter { desk.role(of: $0, in: code) != .unused })
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(code).font(.system(size: 12.5, weight: .bold))
+                                    Spacer(minLength: 4)
+                                    if problems > 0 {
+                                        Text("\(problems)").font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white)
+                                            .frame(minWidth: 15).padding(.vertical, 1).background(.red, in: Capsule())
+                                            .help(problems == 1 ? L("1 to fix") : L("%@ to fix", problems))
+                                    } else {
+                                        Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundStyle(.green).help(L("Ready"))
                                     }
                                 }
+                                Text(KinoSummary.what(desk, code)).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
                             }
-                            .padding(6).contentShape(Rectangle())
-                            .background(chosen ? accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        }.buttonStyle(.plain)
-                    }
-                    if !desk.loose.isEmpty {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(L("Not in a shot")).font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
-                            Text(md: L("Their names start with no shot code. Rename one **K4.2** to put it in shot K4."))
-                                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 46), spacing: 4)], alignment: .leading, spacing: 4) {
-                                ForEach(desk.loose) { KinoThumb(url: $0.url, width: 46, height: 46).opacity(0.6).help($0.url.lastPathComponent) }
-                            }
-                        }.padding(6)
-                    }
-                }
-            }
-        }
-    }
-
-    func shots(sideBelow: Bool) -> some View {
-        ScrollViewReader { proxy in
-            ThinScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    everyShot
-                    if desk.shots.isEmpty {
-                        Text(md: L("No files named by shot in this folder yet. Name them **K1**, **K1.1**, **K2**… and they show here."))
-                            .font(.system(size: 12)).foregroundStyle(.secondary).padding(12)
-                    }
-                    ForEach(desk.shots, id: \.self) { code in
-                        KinoShotCard(desk: desk, code: code, open: desk.selected == code) {
-                            desk.selected = desk.selected == code ? nil : code
-                        }.id(code)
-                    }
-                    if sideBelow { side.padding(14).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 11)) }
-                }
-            }
-            .onChange(of: desk.selected) { _, code in
-                if let code { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(code, anchor: .top) } }
-            }
-        }
-    }
-
-    /// What every shot starts from: the settings, and the words said in each prompt (the product's facts, the look).
-    var everyShot: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                heading(L("EVERY SHOT"))
-                Spacer()
-                Text(L("Change a shot and only that shot changes")).font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-            KinoSettingsRow(settings: Binding(get: { desk.batch.settings }, set: { desk.setBatchSettings($0) }))
-            TextField(L("Said in every shot's prompt: the product's facts, the look…"),
-                      text: Binding(get: { desk.batch.shared }, set: { desk.setShared($0) }), axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...6)
-                .padding(8).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
-        }
-        .padding(12).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 11))
-    }
-
-    // MARK: Right: takes and accounts
-
-    var side: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                heading(L("TAKES"))
-                if desk.outputs.isEmpty {
-                    Text(md: L("Each take is saved in the batch's **Kino** folder as soon as it is made, named by its shot (K2 take 1). Higgsfield deletes its own copy after 7 days."))
-                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(desk.outputs, id: \.self) { url in
-                        HStack(spacing: 8) {
-                            KinoThumb(url: url, width: 52, height: 36)
-                            Text(url.deletingPathExtension().lastPathComponent).font(.system(size: 11)).lineLimit(2)
-                            Spacer(minLength: 0)
-                            Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "magnifyingglass") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Show in Finder"))
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { NSWorkspace.shared.open(url) }
-                        .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
                     }
-                    Text(md: L("Drag a take into **Premiere** to use it.")).font(.system(size: 10)).foregroundStyle(.secondary)
+                    if !desk.loose.isEmpty { loose }
                 }
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                heading(L("ACCOUNTS"))
-                KinoAccounts(desk: desk)
+        }
+        .padding(6)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
+    }
+
+    func railRow<Content: View>(chosen: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) { content() }
+                .padding(.horizontal, 8).padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(chosen ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chosen ? accent.opacity(0.35) : .clear))
+        }.buttonStyle(.plain)
+    }
+
+    var loose: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                heading(L("NOT IN A SHOT"))
+                Text("\(desk.loose.count)").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            Text(md: L("Their names start with no shot code. Rename one **K4.2** to put it in shot K4."))
+                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 40), spacing: 4)], alignment: .leading, spacing: 4) {
+                ForEach(desk.loose) { file in
+                    KinoThumb(url: file.url, width: 40, height: 50).opacity(0.55).help(file.url.lastPathComponent)
+                        .contextMenu { Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) } }
+                }
+            }
+        }
+        .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 8)
+    }
+
+    // MARK: Middle: every shot, or none yet
+
+    /// What every shot starts from, and the shots that have their own settings.
+    var batchDesk: some View {
+        let own = desk.shots.filter { desk.shot($0).settings != nil }
+        return VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("Every shot")).font(.system(size: 24, weight: .bold, design: .rounded))
+                Text(L("What each shot starts from. Change a shot and only that shot changes."))
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            KinoSection(title: L("SAID IN EVERY PROMPT"), note: L("Before each shot's own words")) {
+                TextField(L("The product's facts and the look: Easyshape jeans, smooth waistband, metal buckle…"),
+                          text: Binding(get: { desk.batch.shared }, set: { desk.setShared($0) }), axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(3...8)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 9))
+            }
+            KinoSection(title: L("SETTINGS")) {
+                KinoSettingsRow(settings: Binding(get: { desk.batch.settings }, set: { desk.setBatchSettings($0) }))
+            }
+            if !own.isEmpty {
+                KinoSection(title: L("SHOTS WITH THEIR OWN SETTINGS")) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(own, id: \.self) { code in
+                            HStack(spacing: 10) {
+                                Button { everyShot = false; desk.selected = code } label: {
+                                    Text(code).font(.system(size: 12, weight: .bold)).foregroundStyle(accent)
+                                }.buttonStyle(.plain)
+                                Text(KinoSummary.settings(desk.settings(code))).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                Button(L("Use every shot's")) { desk.setSettings(nil, for: code) }.buttonStyle(.link).font(.system(size: 11))
+                            }
+                            .padding(.vertical, 7)
+                            if code != own.last { Divider() }
+                        }
+                    }
+                }
             }
         }
     }
 
-    func panel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) { content() }
-            .padding(14).frame(maxHeight: .infinity, alignment: .top)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 11))
+    var empty: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("No shots yet")).font(.system(size: 24, weight: .bold, design: .rounded))
+            Text(md: L("Name the files in **%@** by shot and they show here:", desk.folder?.lastPathComponent ?? ""))
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            Bullets(["**K1**, **K1.1** and **K1.2** all go into shot K1's prompt",
+                     "Words after the code are a label: **K9 ref** is a file of shot K9"], size: 11)
+            Button { NSWorkspace.shared.open(desk.folder!) } label: { Label(L("Open the folder"), systemImage: "folder") }
+                .padding(.top, 4)
+        }
     }
 
     func heading(_ title: String) -> some View {
@@ -309,165 +355,309 @@ struct KinoPage: View {
     }
 }
 
-/// One shot. Closed: one line (model · inputs · picture · length · takes) and whether it is ready, so twenty shots can
-/// be read at a glance. Open: its files with their roles, the prompt, its settings, and what Kino would send.
-struct KinoShotCard: View {
+/// A part of the middle column: its heading, a note or control on the right, then what it holds. No box: the parts are
+/// set apart by space, so the few things that are boxed (the prompt, a problem) stand out.
+struct KinoSection<Content: View, Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: () -> Trailing
+    @ViewBuilder var content: () -> Content
+    init(title: String, @ViewBuilder trailing: @escaping () -> Trailing, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title; self.trailing = trailing; self.content = content
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                trailing()
+            }
+            content()
+        }
+    }
+}
+
+extension KinoSection where Trailing == Text {
+    init(title: String, note: String = "", @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, trailing: { Text(note).font(.system(size: 10.5)).foregroundStyle(.tertiary) }, content: content)
+    }
+}
+
+/// The words the shot list and the shot's title use: what a shot does, said by its roles, and its settings in one line.
+enum KinoSummary {
+    @MainActor static func what(_ desk: KinoDesk, _ code: String) -> String {
+        let files = desk.files(in: code)
+        func first(_ role: KinoRole) -> KinoFile? { files.first { desk.role(of: $0, in: code) == role } }
+        if let edit = first(.edit) { return L("Edits @%@", edit.handle) }
+        if let motion = first(.motion) {
+            return desk.settings(code).model == "kling-motion" ? L("Moves from @%@", motion.handle) : L("Camera from @%@", motion.handle)
+        }
+        if let start = first(.start) { return L("Opens on @%@", start.handle) }
+        let looks = files.filter { desk.role(of: $0, in: code) == .look }
+        if looks.count == 1 { return L("Looks like @%@", looks[0].handle) }
+        if looks.count > 1 { return L("Looks from %@ pictures", looks.count) }
+        return L("From words only")
+    }
+
+    static func settings(_ settings: KinoSettings) -> String {
+        let model = KinoModel.named(settings.model)
+        let current = settings.fitted(to: model)
+        let quality = model.qualities.first { $0.id == current.quality }?.title
+        let aspect = model.aspects.isEmpty ? nil : current.aspect == "adaptive" ? L("Follows the files") : current.aspect
+        return [model.short, aspect, quality, "×\(current.takes)"].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+extension KinoModel {
+    /// The name without its version in brackets, where a line is short: "Kling O3".
+    var short: String { name.components(separatedBy: " (").first ?? name }
+}
+
+extension KinoRole {
+    /// One colour per role, the same on the file, on its @tag in the prompt and in what is sent. Red is kept for what is
+    /// wrong, green for ready, Kino's orange for what is chosen.
+    var tint: NSColor {
+        switch self {
+        case .look: .systemBlue
+        case .start, .end: .systemTeal
+        case .motion: .systemPurple
+        case .edit: .systemYellow
+        case .sound: .systemMint
+        case .unused: .secondaryLabelColor
+        }
+    }
+    var color: Color { Color(nsColor: tint) }
+}
+
+/// Up to three of a shot's pictures, fanned like prints on a desk, in the shot list.
+struct KinoFan: View {
+    let files: [KinoFile]
+    var body: some View {
+        let shown = Array(files.prefix(3))
+        ZStack(alignment: .leading) {
+            if shown.isEmpty {
+                RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .frame(width: 28, height: 38)
+            }
+            ForEach(Array(shown.enumerated().reversed()), id: \.element.id) { index, file in
+                KinoThumb(url: file.url, width: 28, height: 38, corner: 5)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.black.opacity(0.5), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, x: 1)
+                    .offset(x: CGFloat(index) * 9)
+            }
+        }
+        .frame(width: 46, alignment: .leading)
+    }
+}
+
+/// The chosen shot, top to bottom as it is made: what it is and whether it can run, anything to fix, its files and their
+/// roles, the prompt, the settings, and what Kino would send.
+struct KinoShotDesk: View {
     @ObservedObject var desk: KinoDesk
     let code: String
-    let open: Bool
-    let toggle: () -> Void
+    let openAccounts: () -> Void
+    let openEveryShot: () -> Void
     @State private var insert: String?
     @State private var showingSent = false
     private let accent = PixelKino.theme
 
     var body: some View {
         let plan = desk.plan(code)
-        let settings = desk.settings(code)
         let files = desk.files(in: code)
-        VStack(alignment: .leading, spacing: 12) {
-            Button(action: toggle) { summary(plan, settings, files) }.buttonStyle(.plain)
-            if open {
-                FlowLayout(spacing: 10) {
+        let model = KinoModel.named(desk.settings(code).model)
+        VStack(alignment: .leading, spacing: 26) {
+            title(plan, files, model)
+            if !plan.problems.isEmpty { problems(plan) }
+            KinoSection(title: L("IN THIS SHOT"), note: L("Press a tag to put it in the prompt")) {
+                FlowLayout(spacing: 14) {
                     ForEach(files) { file in
                         KinoFileTile(file: file, role: desk.role(of: file, in: code), seconds: desk.durations[file.id],
+                                     sentAs: plan.inputs.first { $0.handle == file.handle }?.tag,
                                      choose: { desk.setRole($0, of: file, in: code) }, tag: { insert = "@" + file.handle })
                     }
                 }
-                prompt(plan)
-                VStack(alignment: .leading, spacing: 4) {
-                    KinoSettingsRow(settings: Binding(get: { desk.settings(code) }, set: { desk.setSettings($0, for: code) }),
-                                    lengthFrom: plan.seconds == nil ? files.first { desk.role(of: $0, in: code) == .edit }?.handle : nil)
-                    if desk.shot(code).settings != nil {
-                        Button(L("Use every shot's settings")) { desk.setSettings(nil, for: code) }
-                            .buttonStyle(.link).font(.system(size: 10))
-                    }
-                }
-                sent(plan)
-                HStack(spacing: 10) {
-                    Text(desk.blocker([code])).font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button {} label: {
-                        Label(settings.takes > 1 ? L("Run %@ · %@ takes", code, settings.takes) : L("Run %@", code), systemImage: "play.fill")
-                    }.buttonStyle(.borderedProminent).disabled(true)
-                }
             }
+            KinoSection(title: L("PROMPT"), trailing: { count(plan, model) }) { prompt(plan, files) }
+            KinoSection(title: L("SETTINGS"), trailing: {
+                if desk.shot(code).settings != nil {
+                    Button(L("Use every shot's settings")) { desk.setSettings(nil, for: code) }.buttonStyle(.link).font(.system(size: 10.5))
+                } else {
+                    Text(L("As every shot")).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                }
+            }) {
+                KinoSettingsRow(settings: Binding(get: { desk.settings(code) }, set: { desk.setSettings($0, for: code) }),
+                                base: desk.shot(code).settings == nil ? nil : desk.batch.settings,
+                                lengthFrom: plan.seconds == nil ? files.first { desk.role(of: $0, in: code) == .edit }?.handle : nil)
+            }
+            sent(plan)
         }
-        .padding(12)
-        .background(.white.opacity(open ? 0.06 : 0.035), in: RoundedRectangle(cornerRadius: 11))
-        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(open ? accent.opacity(0.45) : .clear))
     }
 
-    func summary(_ plan: KinoPlan, _ settings: KinoSettings, _ files: [KinoFile]) -> some View {
-        let model = KinoModel.named(settings.model)
+    func title(_ plan: KinoPlan, _ files: [KinoFile], _ model: KinoModel) -> some View {
+        let settings = desk.settings(code)
         let used = files.filter { desk.role(of: $0, in: code) != .unused }
         let counts = [(KinoKind.image, "%@ pictures", "1 picture"), (.video, "%@ videos", "1 video"), (.audio, "%@ sounds", "1 sound")]
             .compactMap { kind, many, one -> String? in
                 let count = used.filter { $0.kind == kind }.count
                 return count == 0 ? nil : count == 1 ? L(one) : L(many, count)
             }
-        let quality = model.qualities.first { $0.id == settings.fitted(to: model).quality }?.title
-        let parts = [model.name, counts.isEmpty ? L("Text only") : counts.joined(separator: " + "), quality,
-                     plan.seconds.map { "\($0) s" } ?? L("the video's length"), "×\(settings.takes)"].compactMap { $0 }
-        return HStack(spacing: 10) {
-            Text(code).font(.system(size: 13, weight: .bold)).foregroundStyle(accent)
-            Text(parts.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-            Spacer(minLength: 6)
-            if plan.problems.isEmpty {
-                Label(L("Ready"), systemImage: "checkmark.circle.fill").font(.system(size: 10.5)).foregroundStyle(accent)
-            } else {
-                Label(plan.problems.count == 1 ? L("1 to fix") : L("%@ to fix", plan.problems.count), systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10.5)).foregroundStyle(.orange)
+        let length = plan.seconds.map { "\($0) s" } ?? files.first { desk.role(of: $0, in: code) == .edit }.map { L("as long as @%@", $0.handle) }
+        let line = [L("%@ through %@", model.name, model.service.rawValue), counts.isEmpty ? L("Text only") : counts.joined(separator: " + "),
+                    length, settings.takes == 1 ? L("1 take") : L("%@ takes", settings.takes)].compactMap { $0 }
+        return HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(code).font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text(KinoSummary.what(desk, code)).font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text(line.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-        }
-        .contentShape(Rectangle())
-    }
-
-    func prompt(_ plan: KinoPlan) -> some View {
-        let sent = Set(plan.inputs.map { $0.handle.lowercased() })
-        let text = desk.shot(code).prompt
-        return ZStack(alignment: .topLeading) {
-            KinoPromptView(text: Binding(get: { desk.shot(code).prompt }, set: { desk.setPrompt($0, for: code) }),
-                           sent: sent, tint: NSColor(accent), insert: $insert)
-            if text.isEmpty {
-                Text(md: L("What happens in the shot. Press a file's **@tag** to name it: \"@%@ is held up to the camera…\"", desk.files(in: code).first?.handle ?? code))
-                    .font(.system(size: 13)).foregroundStyle(.tertiary).padding(.horizontal, 13).padding(.vertical, 10)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(height: 120)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    /// Where the shot goes, what stops it, what Kino changes, and the prompt as the service reads it.
-    func sent(_ plan: KinoPlan) -> some View {
-        let model = KinoModel.named(desk.settings(code).model)
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "paperplane").font(.system(size: 10)).foregroundStyle(.secondary)
-                Text(plan.endpoint).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                Spacer()
-                if let limit = model.promptLimit {
-                    Text(L("%@ / %@ characters", plan.prompt.count.formatted(), limit.formatted()))
-                        .font(.system(size: 10, design: .monospaced)).foregroundStyle(plan.prompt.count > limit ? Color.orange : .secondary)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 6) {
+                Button {} label: {
+                    Label(settings.takes > 1 ? L("Run %@ · %@ takes", code, settings.takes) : L("Run %@", code), systemImage: "play.fill")
+                        .padding(.horizontal, 4)
+                }
+                .buttonStyle(.borderedProminent).tint(accent).controlSize(.large).disabled(true)
+                if desk.missingKey([code]) {
+                    Button(desk.blocker([code]), action: openAccounts).buttonStyle(.link).font(.system(size: 10.5))
+                } else {
+                    Text(desk.blocker([code])).font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
             }
-            ForEach(plan.problems, id: \.self) { status(false, $0) }
-            ForEach(plan.notes, id: \.self) { status(nil, $0) }
-            DisclosureGroup(isExpanded: $showingSent) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(plan.inputs, id: \.handle) { input in
-                        HStack(spacing: 6) {
-                            Text("@" + input.handle).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(accent)
-                            Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
-                            Text(input.slot).font(.system(size: 10.5, design: .monospaced))
-                            Text("· " + input.tag).font(.system(size: 10.5)).foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(plan.prompt.isEmpty ? " " : plan.prompt).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8).background(.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
-                }.padding(.top, 4)
-            } label: {
-                Text(L("What Kino sends")).font(.system(size: 11, weight: .medium))
-            }
         }
-        .padding(10).background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    func status(_ good: Bool?, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: good == nil ? "info.circle" : good == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 10)).foregroundStyle(good == nil ? Color.secondary : good == true ? accent : .orange)
-            Text(md: text).font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+    /// What stops the shot, boxed in red above everything else.
+    func problems(_ plan: KinoPlan) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(plan.problems.count == 1 ? L("1 TO FIX") : L("%@ TO FIX", plan.problems.count))
+                .font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.red)
+            ForEach(plan.problems, id: \.self) { problem in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.red)
+                    Text(md: problem).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.red.opacity(0.3)))
+    }
+
+    func count(_ plan: KinoPlan, _ model: KinoModel) -> some View {
+        Group {
+            if let limit = model.promptLimit {
+                Text(L("%@ of %@ characters sent", plan.prompt.count.formatted(), limit.formatted()))
+                    .foregroundStyle(plan.prompt.count > limit ? Color.red : Color(nsColor: .tertiaryLabelColor))
+            }
+        }
+        .font(.system(size: 10.5).monospacedDigit())
+    }
+
+    func prompt(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
+        let text = desk.shot(code).prompt
+        var tints: [String: NSColor] = [:]
+        for file in files where plan.inputs.contains(where: { $0.handle == file.handle }) { tints[file.handle.lowercased()] = desk.role(of: file, in: code).tint }
+        return VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                KinoPromptView(text: Binding(get: { desk.shot(code).prompt }, set: { desk.setPrompt($0, for: code) }), tints: tints, insert: $insert)
+                if text.isEmpty {
+                    Text(md: L("What happens in the shot. Press a file's **@tag** to name it: \"@%@ is held up to the camera…\"", files.first?.handle ?? code))
+                        .font(.system(size: 13)).foregroundStyle(.tertiary).padding(.horizontal, 13).padding(.vertical, 12)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(height: 112)
+            .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.06)))
+            Button(action: openEveryShot) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "text.badge.plus").font(.system(size: 10))
+                    Text(L("Every shot adds")).font(.system(size: 10.5, weight: .semibold))
+                    Text(desk.batch.shared.isEmpty ? L("nothing yet") : desk.batch.shared).font(.system(size: 10.5)).lineLimit(1)
+                }
+                .foregroundStyle(.secondary).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help(L("Change what every shot's prompt says"))
+        }
+    }
+
+    /// Where the shot goes and what Kino changes on the way; the request itself, as the service reads it, on demand.
+    func sent(_ plan: KinoPlan) -> some View {
+        KinoSection(title: L("WHAT KINO SENDS"), trailing: {
+            Text(plan.endpoint).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary).textSelection(.enabled).lineLimit(1)
+        }) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(plan.notes, id: \.self) { note in
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Image(systemName: "info.circle").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text(md: note).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                DisclosureGroup(isExpanded: $showingSent) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                            ForEach(plan.inputs, id: \.handle) { input in
+                                let role = desk.files(in: code).first { $0.handle == input.handle }.map { desk.role(of: $0, in: code) } ?? .unused
+                                GridRow {
+                                    Text("@" + input.handle).font(.system(size: 11, weight: .semibold)).foregroundStyle(role.color)
+                                    Image(systemName: "arrow.right").font(.system(size: 8)).foregroundStyle(.tertiary)
+                                    Text(input.tag).font(.system(size: 11))
+                                    Text(input.slot).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        Text(plan.prompt.isEmpty ? " " : plan.prompt).font(.system(size: 11, design: .monospaced)).lineSpacing(2).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10).background(.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Text(L("The request, as the service reads it")).font(.system(size: 11.5, weight: .medium))
+                }
+            }
         }
     }
 }
 
-/// A file in its shot: its picture, its tag (press it to put it in the prompt) and its role.
+/// A file in its shot: its picture framed in its role's colour, its tag (press it to put it in the prompt), its role, and
+/// what the service will call it.
 struct KinoFileTile: View {
     let file: KinoFile
     let role: KinoRole
     let seconds: Double?
+    let sentAs: String?
     let choose: (KinoRole) -> Void
     let tag: () -> Void
-    private let accent = PixelKino.theme
+    static let width: CGFloat = 116
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            KinoThumb(url: file.url, width: 120, height: 84)
-                .overlay(alignment: .topTrailing) {
+        let off = role == .unused
+        VStack(alignment: .leading, spacing: 6) {
+            KinoThumb(url: file.url, width: Self.width, height: 146, corner: 9)
+                .opacity(off ? 0.3 : 1)
+                .overlay {
+                    if off {
+                        RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    } else {
+                        RoundedRectangle(cornerRadius: 9).strokeBorder(role.color, lineWidth: 2)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
                     if file.kind != .image {
                         Label(seconds.map { $0.formatted(.number.precision(.fractionLength(0...1))) + " s" } ?? "",
                               systemImage: file.kind == .video ? "video.fill" : "waveform")
-                            .font(.system(size: 9, weight: .semibold)).foregroundStyle(.white)
-                            .padding(.horizontal, 5).padding(.vertical, 2).background(.black.opacity(0.6), in: Capsule()).padding(4)
+                            .font(.system(size: 9.5, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2).background(.black.opacity(0.65), in: Capsule()).padding(6)
                     }
                 }
-                .opacity(role == .unused ? 0.35 : 1)
                 .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
                 .help(file.url.lastPathComponent)
             Button(action: tag) {
-                Text("@" + file.handle).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent).lineLimit(1)
+                HStack(spacing: 3) {
+                    Text("@" + file.handle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Image(systemName: "plus").font(.system(size: 8, weight: .bold)).opacity(0.6)
+                }
+                .foregroundStyle(off ? Color.secondary : role.color)
             }.buttonStyle(.plain).help(L("Put @%@ in the prompt where the cursor is", file.handle))
             Menu {
                 ForEach(KinoRole.choices(file.kind)) { option in
@@ -476,12 +666,15 @@ struct KinoFileTile: View {
                     }
                 }
             } label: {
-                Label(L(role.title), systemImage: role.icon).font(.system(size: 10.5))
+                Label(L(role.title), systemImage: role.icon).font(.system(size: 11, weight: .medium))
             }
             .menuStyle(.borderlessButton).fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(role.color.opacity(off ? 0.08 : 0.16), in: Capsule())
             .help(L(role.detail))
+            Text(sentAs.map { L("Sent as %@", $0) } ?? L("Not sent")).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
         }
-        .frame(width: 120, alignment: .leading)
+        .frame(width: Self.width, alignment: .leading)
         .contextMenu {
             Button(L("Open")) { NSWorkspace.shared.open(file.url) }
             Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
@@ -489,17 +682,79 @@ struct KinoFileTile: View {
     }
 }
 
-/// The model and the settings it takes: only what the chosen model has, so the form follows the model.
+/// A shot's takes: a frame for each the run makes, in the shot's shape, filled by the takes already in the batch's Kino
+/// folder; the batch's other takes below.
+struct KinoTakes: View {
+    @ObservedObject var desk: KinoDesk
+    let code: String
+    let columns: Int
+    var body: some View {
+        let settings = desk.settings(code)
+        let made = desk.outputs.filter { $0.deletingPathExtension().lastPathComponent.hasPrefix(code + " ") }
+        let others = desk.outputs.filter { !made.contains($0) }
+        let ratio: CGFloat = switch settings.aspect { case "16:9": 16 / 9; case "1:1": 1; case "4:3": 4 / 3; case "3:4": 3 / 4; default: 9 / 16 }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L("TAKES")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Spacer()
+                Text(code).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(maximum: 120), spacing: 10, alignment: .top), count: columns), alignment: .leading, spacing: 12) {
+                ForEach(0..<max(settings.takes, made.count), id: \.self) { index in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Color.clear.aspectRatio(ratio, contentMode: .fit)
+                            .overlay {
+                                if index < made.count {
+                                    GeometryReader { box in KinoThumb(url: made[index], width: box.size.width, height: box.size.height, corner: 8) }
+                                } else {
+                                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.03))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.14), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                                        .overlay(Image(systemName: "film").font(.system(size: 15)).foregroundStyle(.quaternary))
+                                }
+                            }
+                            .onTapGesture(count: 2) { if index < made.count { NSWorkspace.shared.open(made[index]) } }
+                            .onDrag { index < made.count ? NSItemProvider(contentsOf: made[index]) ?? NSItemProvider() : NSItemProvider() }
+                        Text(L("Take %@", index + 1)).font(.system(size: 10.5, weight: .medium))
+                        Text(index < made.count ? L("Drag into Premiere") : L("Not made yet")).font(.system(size: 9.5)).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            Text(md: L("Each take is saved in **%@ › Kino** as soon as it is made. Higgsfield deletes its own copy after 7 days.", desk.folder?.lastPathComponent ?? ""))
+                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if !others.isEmpty {
+                Divider()
+                Text(L("OTHER TAKES IN THIS BATCH")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                ForEach(others, id: \.self) { url in
+                    HStack(spacing: 8) {
+                        KinoThumb(url: url, width: 30, height: 40, corner: 5)
+                        Text(url.deletingPathExtension().lastPathComponent).font(.system(size: 11)).lineLimit(2)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { NSWorkspace.shared.open(url) }
+                    .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
+                    .contextMenu { Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+                }
+            }
+        }
+    }
+}
+
+/// The model and the settings it takes: only what the chosen model has, so the form follows the model. With `base`, the
+/// settings every shot has, what this shot changes is ringed in Kino's colour.
 struct KinoSettingsRow: View {
     @Binding var settings: KinoSettings
+    var base: KinoSettings? = nil
     /// The video a shot edits, whose length the take has: no length to pick then.
     var lengthFrom: String? = nil
+    private let accent = PixelKino.theme
     var body: some View {
         let model = KinoModel.named(settings.model)
         let current = settings.fitted(to: model)
-        VStack(alignment: .leading, spacing: 4) {
+        let usual = base?.fitted(to: model)
+        VStack(alignment: .leading, spacing: 6) {
             FlowLayout(spacing: 6) {
-                pill(model.name) {
+                pill(model.name, icon: "sparkles", changed: base.map { $0.model != settings.model } ?? false) {
                     ForEach([KinoModel.Service.higgsfield, .kling], id: \.self) { service in
                         Section(L("Through %@", service.rawValue)) {
                             ForEach(KinoModel.all.filter { $0.service == service }) { option in
@@ -511,39 +766,41 @@ struct KinoSettingsRow: View {
                     }
                 }
                 if let lengthFrom {
-                    Text(L("As long as @%@", lengthFrom)).font(.system(size: 11)).foregroundStyle(.secondary).padding(.vertical, 4)
+                    plain(L("As long as @%@", lengthFrom), icon: "timer")
                 } else if let range = model.seconds {
-                    pill(current.seconds.map { "\($0) s" } ?? L("Auto (%@ s)", model.defaultSeconds)) {
+                    pill(current.seconds.map { "\($0) s" } ?? L("Auto (%@ s)", model.defaultSeconds), icon: "timer", changed: usual.map { $0.seconds != current.seconds } ?? false) {
                         Button(L("Auto (%@ s)", model.defaultSeconds)) { settings = with(current) { $0.seconds = nil } }
                         ForEach(Array(range), id: \.self) { value in Button("\(value) s") { settings = with(current) { $0.seconds = value } } }
                     }
                 }
                 if !model.aspects.isEmpty {
-                    pill(aspect(current.aspect)) {
+                    pill(aspect(current.aspect), icon: "aspectratio", changed: usual.map { $0.aspect != current.aspect } ?? false) {
                         ForEach(model.aspects, id: \.self) { value in Button(aspect(value)) { settings = with(current) { $0.aspect = value } } }
                     }
                 }
                 if !model.qualities.isEmpty {
-                    pill(model.qualities.first { $0.id == current.quality }?.title ?? "") {
+                    pill(model.qualities.first { $0.id == current.quality }?.title ?? "", icon: "dial.medium", changed: usual.map { $0.quality != current.quality } ?? false) {
                         ForEach(model.qualities, id: \.id) { option in Button(option.title) { settings = with(current) { $0.quality = option.id } } }
                     }
                 }
                 if model.sound == true {
                     Button { settings = with(current) { $0.sound.toggle() } } label: {
                         Label(L(current.sound ? "Sound on" : "Sound off"), systemImage: current.sound ? "speaker.wave.2.fill" : "speaker.slash")
-                            .font(.system(size: 11))
-                            .padding(.horizontal, 9).padding(.vertical, 4)
-                            .background(.white.opacity(0.06), in: Capsule())
+                            .font(.system(size: 11, weight: .medium))
+                            .padding(.horizontal, 10).frame(height: 26)
+                            .background(.white.opacity(0.07), in: Capsule())
+                            .overlay(Capsule().strokeBorder(accent.opacity(usual.map { $0.sound != current.sound } ?? false ? 0.8 : 0)))
                     }.buttonStyle(.plain)
                 } else if model.id == "kling-4.0" {
-                    Text(L("Always makes sound")).font(.system(size: 10)).foregroundStyle(.secondary).padding(.vertical, 4)
+                    plain(L("Always makes sound"), icon: "speaker.wave.2")
                 }
                 Picker("", selection: Binding(get: { current.takes }, set: { value in settings = with(current) { $0.takes = value } })) {
                     ForEach(1...4, id: \.self) { Text("×\($0)").tag($0) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 150).help(L("Takes a run makes"))
+                .pickerStyle(.segmented).labelsHidden().frame(width: 140).help(L("Takes a run makes"))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(accent.opacity(usual.map { $0.takes != current.takes } ?? false ? 0.8 : 0)))
             }
-            Text(L(model.note)).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(L(model.note)).font(.system(size: 10.5)).foregroundStyle(.tertiary)
         }
     }
 
@@ -555,11 +812,19 @@ struct KinoSettingsRow: View {
 
     func aspect(_ value: String) -> String { value == "adaptive" ? L("Follows the files") : value }
 
-    func pill<Items: View>(_ title: String, @ViewBuilder items: () -> Items) -> some View {
-        Menu { items() } label: { Text(title).font(.system(size: 11, weight: .medium)) }
+    func pill<Items: View>(_ title: String, icon: String, changed: Bool, @ViewBuilder items: () -> Items) -> some View {
+        Menu { items() } label: { Label(title, systemImage: icon).font(.system(size: 11, weight: .medium)) }
             .menuStyle(.borderlessButton).fixedSize()
-            .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(.white.opacity(0.06), in: Capsule())
+            .padding(.horizontal, 10).frame(height: 26)
+            .background(changed ? accent.opacity(0.14) : .white.opacity(0.07), in: Capsule())
+            .overlay(Capsule().strokeBorder(accent.opacity(changed ? 0.8 : 0)))
+            .help(changed ? L("Changed for this shot") : "")
+    }
+
+    func plain(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            .padding(.horizontal, 10).frame(height: 26)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
     }
 }
 
@@ -570,10 +835,9 @@ struct KinoAccounts: View {
     @State private var klingKey = ""
     @State private var keyID = ""
     @State private var secret = ""
-    private let accent = PixelKino.theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             account("Higgsfield", L("Seedance 2.5, Kling O3 and Motion Control"), saved: desk.hasHiggsfield,
                     remove: desk.removeHiggsfield, site: "https://console.higgsfield.ai") {
                 TextField(L("Key ID"), text: $keyID).textFieldStyle(.roundedBorder)
@@ -581,6 +845,7 @@ struct KinoAccounts: View {
                 Button(L("Save")) { desk.saveHiggsfield(id: keyID, secret: secret); keyID = ""; secret = "" }
                     .disabled(keyID.trimmingCharacters(in: .whitespaces).isEmpty || secret.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            Divider()
             account("Kling", L("Kling 4.0 Omni, from Kling itself"), saved: desk.hasKling,
                     remove: { desk.saveKling(nil) }, site: "https://kling.ai/dev/api-key") {
                 SecureField(L("API key"), text: $klingKey).textFieldStyle(.roundedBorder).onSubmit(saveKling)
@@ -595,18 +860,18 @@ struct KinoAccounts: View {
 
     func account<Fields: View>(_ name: String, _ what: String, saved: Bool, remove: @escaping () -> Void, site: String,
                                @ViewBuilder fields: () -> Fields) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
-                Image(systemName: saved ? "checkmark.circle.fill" : "key").font(.system(size: 11)).foregroundStyle(saved ? accent : .secondary)
-                Text(name).font(.system(size: 12, weight: .semibold))
+                Image(systemName: saved ? "checkmark.circle.fill" : "key").font(.system(size: 11)).foregroundStyle(saved ? Color.green : .secondary)
+                Text(name).font(.system(size: 12.5, weight: .semibold))
                 Spacer()
-                Button { NSWorkspace.shared.open(URL(string: site)!) } label: { Image(systemName: "arrow.up.right.square") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Get a key from %@", name))
+                Button(L("Get a key")) { NSWorkspace.shared.open(URL(string: site)!) }.buttonStyle(.link).font(.system(size: 10.5))
             }
-            Text(what).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(what).font(.system(size: 10.5)).foregroundStyle(.secondary)
             if saved {
                 HStack(spacing: 8) {
                     Text(L("Key saved · checked on the first run")).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Spacer()
                     Button(L("Remove"), role: .destructive, action: remove).controlSize(.small)
                 }
             } else {
@@ -621,6 +886,7 @@ struct KinoThumb: View {
     let url: URL
     let width: CGFloat
     let height: CGFloat
+    var corner: CGFloat = 6
     @State private var image: NSImage?
     private static let cache = NSCache<NSString, NSImage>()
     var body: some View {
@@ -628,7 +894,7 @@ struct KinoThumb: View {
             Rectangle().fill(.white.opacity(0.06))
             if let image { Image(nsImage: image).resizable().scaledToFill() }
         }
-        .frame(width: width, height: height).clipShape(RoundedRectangle(cornerRadius: 6))
+        .frame(width: width, height: height).clipShape(RoundedRectangle(cornerRadius: corner))
         .task(id: url) { image = await load() }
     }
     private func load() async -> NSImage? {
@@ -642,12 +908,12 @@ struct KinoThumb: View {
     }
 }
 
-/// A shot's prompt as you write it: tags of files the shot sends in Kino's colour, any other @tag in orange (it names no
-/// file this shot sends). A file's tag button puts its tag where the cursor is.
+/// A shot's prompt as you write it: the tag of each file the shot sends in its role's colour, any other @tag in red and
+/// underlined (it names no file this shot sends). A file's tag button puts its tag where the cursor is.
 struct KinoPromptView: NSViewRepresentable {
     @Binding var text: String
-    let sent: Set<String>
-    let tint: NSColor
+    /// The role's colour of each file sent, by its tag in lower case.
+    let tints: [String: NSColor]
     @Binding var insert: String?
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -663,7 +929,8 @@ struct KinoPromptView: NSViewRepresentable {
         editor.drawsBackground = false
         editor.font = .systemFont(ofSize: 13)
         editor.textColor = .labelColor
-        editor.textContainerInset = NSSize(width: 8, height: 10)
+        editor.insertionPointColor = NSColor(PixelKino.theme)
+        editor.textContainerInset = NSSize(width: 8, height: 12)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
@@ -673,7 +940,7 @@ struct KinoPromptView: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        let changed = context.coordinator.parent.sent != sent
+        let changed = context.coordinator.parent.tints != tints
         context.coordinator.parent = self
         guard let view = scroll.documentView as? NSTextView else { return }
         if view.string != text { view.string = text; context.coordinator.color(view) } else if changed { context.coordinator.color(view) }
@@ -699,13 +966,19 @@ struct KinoPromptView: NSViewRepresentable {
             let all = NSRange(location: 0, length: storage.length)
             storage.beginEditing()
             storage.removeAttribute(.backgroundColor, range: all)
+            storage.removeAttribute(.underlineStyle, range: all)
             let lines = NSMutableParagraphStyle()
-            lines.lineSpacing = 4
+            lines.lineSpacing = 5
             storage.addAttributes([.paragraphStyle: lines, .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 13)], range: all)
             for tag in KinoPrompt.tags(in: view.string) {
-                let color = parent.sent.contains(tag.handle.lowercased()) ? parent.tint : NSColor.systemOrange
-                storage.addAttributes([.foregroundColor: color, .backgroundColor: color.withAlphaComponent(0.14),
-                                       .font: NSFont.systemFont(ofSize: 13, weight: .semibold)], range: NSRange(tag.range, in: view.string))
+                let range = NSRange(tag.range, in: view.string)
+                if let tint = parent.tints[tag.handle.lowercased()] {
+                    storage.addAttributes([.foregroundColor: tint, .backgroundColor: tint.withAlphaComponent(0.16),
+                                           .font: NSFont.systemFont(ofSize: 13, weight: .semibold)], range: range)
+                } else {
+                    storage.addAttributes([.foregroundColor: NSColor.systemRed, .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
+                                           .underlineColor: NSColor.systemRed, .font: NSFont.systemFont(ofSize: 13, weight: .semibold)], range: range)
+                }
             }
             storage.endEditing()
         }

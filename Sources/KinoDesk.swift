@@ -41,14 +41,19 @@ final class KinoDesk: ObservableObject {
 
     /// Why shots cannot run yet, said once: a missing key, something to fix, or sending, which is not built yet.
     func blocker(_ codes: [String]) -> String {
-        let services = Set(codes.map { KinoModel.named(settings($0).model).service })
-        let missing = [KinoModel.Service.higgsfield, .kling].filter { services.contains($0) && !($0 == .kling ? hasKling : hasHiggsfield) }
+        let missing = missingKeys(codes)
         if missing.count > 1 { return L("Add your Higgsfield and Kling keys to run") }
         if let service = missing.first { return L("Add your %@ key to run", service.rawValue) }
         let broken = codes.filter { !plan($0).problems.isEmpty }.count
         if broken > 0 { return codes.count == 1 ? L("Fix what is marked first") : L("%@ shots to fix first", broken) }
         return L("Sending is built next, tested with your keys")
     }
+    /// The services these shots go to whose key is not saved.
+    func missingKeys(_ codes: [String]) -> [KinoModel.Service] {
+        let services = Set(codes.map { KinoModel.named(settings($0).model).service })
+        return [KinoModel.Service.higgsfield, .kling].filter { services.contains($0) && !($0 == .kling ? hasKling : hasHiggsfield) }
+    }
+    func missingKey(_ codes: [String]) -> Bool { !missingKeys(codes).isEmpty }
 
     /// The project's batch, when the page opens or the project changes; the folder is read every time.
     func open(project id: UUID) {
