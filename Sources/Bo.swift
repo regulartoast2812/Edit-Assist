@@ -105,6 +105,12 @@ struct PanickedBo: View {
 struct BoPage: View {
     @ObservedObject var watcher: BoWatcher
     private let accent = PixelBo.theme
+    /// Folders waiting for you to confirm moving them to the Trash.
+    @State private var trashing: Trashing?
+    struct Trashing: Identifiable {
+        let title: String, what: String, urls: [URL]
+        var id: String { title }
+    }
 
     var body: some View {
         ThinScrollView {
@@ -181,6 +187,9 @@ struct BoPage: View {
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
         }.scrollIndicators(.automatic)
+        .confirmationDialog(trashing?.title ?? "", isPresented: Binding(get: { trashing != nil }, set: { if !$0 { trashing = nil } }), presenting: trashing) { item in
+            Button(L("Move to Trash"), role: .destructive) { watcher.trash(item.urls, what: item.what); trashing = nil }
+        } message: { _ in Text(md: L("You can put them back from the Trash until you empty it.")) }
     }
 
     func section<Content: View>(_ title: String, trailing: String? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -232,34 +241,63 @@ struct BoPage: View {
                 steps: ["Check that Drive says **all files are up to date** (nothing still uploading)",
                         "In Google Drive: **Settings → Preferences → ⚙ → Disconnect account**",
                         "Sign in again: Drive builds a fresh cache and your files come back"],
-                note: L("Google's way: never delete Drive's folders by hand, files not yet uploaded live there."))
+                note: L("Google's way: never delete Drive's folders by hand, files not yet uploaded live there.")) {
+                Button(L("Open Google Drive")) { watcher.openGoogleDrive() }.buttonStyle(.borderedProminent).tint(accent)
+            }
         case .unuploaded(let files, let bytes):
             tip(L("%@ files Drive could not upload", files),
-                L("Drive set them aside (**%@**). Check whether you still need them, upload any you do, then delete the rest.", Self.bytes(bytes)),
-                folder: support.appendingPathComponent("lost_and_found"))
+                L("Drive set them aside (**%@**). Drag any you still need into My Drive to upload them, then delete the rest.", Self.bytes(bytes))) {
+                Button(L("Show the files")) { NSWorkspace.shared.open(support.appendingPathComponent("lost_and_found")) }
+                if let drive = watcher.archiveDrive { Button(L("Open My Drive")) { NSWorkspace.shared.open(drive) } }
+            }
         case .oldLogs(let bytes, let files):
             tip(L("Drive's old logs take %@", Self.bytes(bytes)),
-                L("**%@ log files**, only of use to Google's support. Quit Google Drive, then delete all but **drive_fs.txt**.", files),
-                folder: support.appendingPathComponent("Logs"))
+                L("**%@ log files**, only of use to Google's support. Quit Google Drive, then delete all but **drive_fs.txt**.", files)) {
+                Button(L("Show the logs")) { NSWorkspace.shared.open(support.appendingPathComponent("Logs")) }
+            }
         case .archive(let projects, let bytes):
             tip(L("Archive %@ projects to Google Drive to free %@", projects, Self.bytes(bytes)),
-                L("They have not been touched for a month or more (marked below). Move each into Google Drive, then right-click it and choose **Remove Download** once it has uploaded: it stays in Drive and frees this Mac."),
-                note: L("Your work Drive has no storage limit of its own; the Gmail one has a 15 GB limit."))
+                L("They have not been touched for a month or more (marked below). Drag them into your Drive, then right-click each and choose **Remove Download** once it has uploaded: it stays in Drive and frees this Mac."),
+                note: L("Your work Drive has no storage limit of its own; the Gmail one has a 15 GB limit.")) {
+                Button(L("Show the projects")) {
+                    NSWorkspace.shared.activateFileViewerSelecting(BoWatcher.idleProjects(watcher.mac?.folders ?? []).map(\.url))
+                }.buttonStyle(.borderedProminent).tint(accent)
+                if let drive = watcher.archiveDrive {
+                    Button(L("Open %@", drive.deletingLastPathComponent().lastPathComponent.replacingOccurrences(of: "GoogleDrive-", with: ""))) { NSWorkspace.shared.open(drive) }
+                }
+            }
         case .dragCopies(let bytes, let newest):
+            let parts = watcher.mac?.folders.first { $0.kind == .dragCopies }?.parts ?? []
             tip(L("%@ of copies left by dragging files into apps", Self.bytes(bytes)),
                 L("macOS copies files you drag into some apps and does not clear them (newest from %@). Check you still have the originals, then delete them.",
-                  newest.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "?"),
-                folder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches"))
+                  newest.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "?")) {
+                Button(L("Show them")) { NSWorkspace.shared.activateFileViewerSelecting(parts) }
+                Button(L("Move to Trash…")) {
+                    trashing = Trashing(title: L("Move %@ of drag copies to the Trash?", Self.bytes(bytes)), what: "the drag copies", urls: parts)
+                }.disabled(parts.isEmpty)
+            }
         case .mediaCache(let bytes):
+            let parts = watcher.mac?.folders.first { $0.kind == .mediaCache }?.parts ?? []
             tip(L("Premiere's media cache takes %@", Self.bytes(bytes)),
-                L("Premiere rebuilds it when needed. Clear it in Premiere: **Settings → Media Cache → Delete…**, with your projects closed."))
+                L("Premiere rebuilds it when needed: your projects open a little slower the first time after.")) {
+                Button(L("Show it")) { NSWorkspace.shared.activateFileViewerSelecting(parts) }
+                Button(L("Move to Trash…")) {
+                    trashing = Trashing(title: L("Move Premiere's %@ media cache to the Trash?", Self.bytes(bytes)), what: "Premiere's media cache", urls: parts)
+                }.disabled(parts.isEmpty || watcher.premiereOpen)
+                if watcher.premiereOpen { Text(md: L("Quit Premiere first")).font(.system(size: 10)).foregroundStyle(.orange) }
+            }
         case .lowSpace(let free):
             tip(L("Your Mac has %@ free", Self.bytes(free)),
-                L("Drive needs room for the files you open. Free up space, or turn files you don't need offline back to online-only."))
+                L("Drive needs room for the files you open. Free up space, or turn files you don't need offline back to online-only.")) {
+                Button(L("Open Storage settings")) {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.settings.Storage") { NSWorkspace.shared.open(url) }
+                }
+            }
         }
     }
 
-    func tip(_ title: String, _ detail: String, steps: [String] = [], note: String? = nil, folder: URL? = nil) -> some View {
+    /// A recommendation: what and why, the steps when there are any, and buttons that do it or open where it is done.
+    func tip<Actions: View>(_ title: String, _ detail: String, steps: [String] = [], note: String? = nil, @ViewBuilder actions: () -> Actions) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "lightbulb.fill").foregroundStyle(.orange).font(.system(size: 13))
             VStack(alignment: .leading, spacing: 6) {
@@ -272,7 +310,7 @@ struct BoPage: View {
                     }
                 }
                 if let note { Text(md: note).font(.system(size: 10)).foregroundStyle(.secondary) }
-                if let folder { Button(L("Show in Finder")) { NSWorkspace.shared.open(folder) }.controlSize(.small) }
+                HStack(spacing: 8) { actions() }.controlSize(.small).padding(.top, 2)
             }
             Spacer(minLength: 0)
         }

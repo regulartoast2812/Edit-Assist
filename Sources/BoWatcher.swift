@@ -127,7 +127,7 @@ final class BoWatcher: ObservableObject {
         if measure { lastMeasure = Date() }
         let known = Self.knownAccounts, log = driveLog
         // The biggest folders: two minutes after launch, then every three hours.
-        let folders = lastFolders.map { Date().timeIntervalSince($0) > 3 * 3600 } ?? (Date().timeIntervalSince(Self.launched) > 120)
+        let folders = lastFolders.map { Date().timeIntervalSince($0) > 3 * 3600 } ?? (Date().timeIntervalSince(Self.launched) > 120 || mac?.measured != nil)
         if folders { lastFolders = Date() }
         let previous = mac, seedQuotas = quotas.isEmpty && !quotasSeeded
         quotasSeeded = true
@@ -588,6 +588,8 @@ final class BoWatcher: ObservableObject {
         /// The newest change in it (the folder and what is directly inside).
         let lastUsed: Date?
         let kind: Kind
+        /// What it is made of, when it gathers several folders (the media cache's, the drag copies').
+        var parts: [URL] = []
         var id: URL { url }
     }
     struct MacSpace: Equatable {
@@ -682,16 +684,50 @@ final class BoWatcher: ObservableObject {
         let caches = ["Media Cache Files", "Media Cache"].map { adobe.appendingPathComponent($0) }.filter { files.fileExists(atPath: $0.path) }
         let cacheBytes = caches.compactMap(du).reduce(0, +)
         if cacheBytes >= 1_000_000_000, let first = caches.first {
-            found.append(Folder(url: first, name: "Premiere media cache", bytes: cacheBytes, lastUsed: caches.compactMap(lastUsed).max(), kind: .mediaCache))
+            found.append(Folder(url: first, name: "Premiere media cache", bytes: cacheBytes, lastUsed: caches.compactMap(lastUsed).max(), kind: .mediaCache, parts: caches))
         }
         // Copies macOS makes when files are dragged into some apps, and does not clear.
         let drags = folders(in: home.appendingPathComponent("Library/Caches")).filter { $0.lastPathComponent.hasPrefix("com.apple.SwiftUI.Drag-") }
         let dragBytes = drags.compactMap(du).reduce(0, +)
         if dragBytes >= 1_000_000_000 {
             found.append(Folder(url: home.appendingPathComponent("Library/Caches"), name: "Copies left by dragging files into apps", bytes: dragBytes,
-                                lastUsed: drags.compactMap(lastUsed).max(), kind: .dragCopies))
+                                lastUsed: drags.compactMap(lastUsed).max(), kind: .dragCopies, parts: drags))
         }
         return found.sorted { $0.bytes > $1.bytes }
+    }
+
+    // MARK: Doing what Bo recommends
+
+    /// My Drive in Finder for the account to archive into: the work one (no limit of its own) before a Gmail one.
+    var archiveDrive: URL? {
+        let cloud = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage")
+        let emails = (storage?.accounts.compactMap(\.email) ?? Array(Self.knownAccounts.values)).sorted { a, _ in !a.hasSuffix("@gmail.com") }
+        return emails.map { cloud.appendingPathComponent("GoogleDrive-\($0)/My Drive") }.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Premiere is open: its media cache is in use.
+    var premiereOpen: Bool {
+        NSWorkspace.shared.runningApplications.contains { $0.localizedName?.hasPrefix("Adobe Premiere") == true || $0.bundleIdentifier?.hasPrefix("com.adobe.PremierePro") == true }
+    }
+
+    func openGoogleDrive() {
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleID) else { note("Google Drive is not installed"); return }
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// Moves folders to the Trash (you can put them back from there), then measures again. Off the main thread: moving is
+    /// quick on one disk, but not always.
+    func trash(_ urls: [URL], what: String) {
+        note("Moving \(what) to the Trash")
+        Task.detached(priority: .userInitiated) { [weak self] in
+            var failed: [String] = []
+            for url in urls { do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch { failed.append(url.lastPathComponent) } }
+            await MainActor.run {
+                guard let self else { return }
+                self.note(failed.isEmpty ? "Moved \(what) to the Trash" : "Could not move \(failed.joined(separator: ", ")) to the Trash")
+                self.lastFolders = nil; self.check()
+            }
+        }
     }
 
     /// Projects not touched for 30 days: what archiving to Google Drive would free.
@@ -726,7 +762,13 @@ final class BoWatcher: ObservableObject {
     static func recordRestart(at time: Date = Date()) {
         UserDefaults.standard.set(Array((restarts + [time.timeIntervalSince1970]).suffix(50)), forKey: "boRestarts")
     }
-        var restartsToday: Int { Self.restarts.filter { Date().timeIntervalSince1970 - $0 < 86_400 }.count }
+    /// Restarts in the last day, since the biggest account was last connected: a rebuilt account starts afresh (four
+    /// restarts from before a rebuild still asked for another one, 2026-11-04).
+    var restartsToday: Int {
+        let connected = storage?.accounts.first.flatMap { try? Self.support.appendingPathComponent($0.id).resourceValues(forKeys: [.creationDateKey]).creationDate }
+        let since = max(Date().timeIntervalSince1970 - 86_400, connected?.timeIntervalSince1970 ?? 0)
+        return Self.restarts.filter { $0 > since }.count
+    }
     /// Account emails by Drive's number, remembered: they are only in the log, and logs are replaced.
     static var knownAccounts: [String: String] { UserDefaults.standard.dictionary(forKey: "boAccounts") as? [String: String] ?? [:] }
 

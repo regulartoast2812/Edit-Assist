@@ -173,7 +173,8 @@ noise). He only recommends: a cache is cleared Google's way (Disconnect account,
 Drive's folders, where files not yet uploaded live. Folders and drives are read off the main
 thread: macOS asks before an app reads Downloads, and the app must not freeze while it asks. **Pix** (the end-of-video CTA, from each script's CTA line, laid out in your Illustrator CTA file; images with GPT Image)
 shows the CTA line it finds, for now the script's last line. **Don**, the ads expert, will read the script or script
-sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only.
+sheet and recommend the vibe, voice, music and graphic style the other helpers work to; his page only, for now. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts) has his page only;
+how both services work (input roles, tagging, modes, API lifecycle) is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04.
 **Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
 read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art

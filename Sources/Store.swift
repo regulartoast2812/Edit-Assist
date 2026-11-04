@@ -895,6 +895,12 @@ final class Store: ObservableObject {
         projects[index].addScript(); scriptDraft = nil; showScriptDraft = false; save()
         log("Script: added “\(project.openScript.name)” to “\(project.name)”")
     }
+    /// A project dragged to another place in the sidebar.
+    func moveProject(_ id: UUID, to place: Int) {
+        guard !busy, let from = projects.firstIndex(where: { $0.id == id }) else { return }
+        let project = projects.remove(at: from)
+        projects.insert(project, at: min(max(place, 0), projects.count)); save()
+    }
     func moveScript(_ id: UUID, to place: Int) {
         guard !busy else { return }
         projects[index].moveScript(id, to: place); save()
