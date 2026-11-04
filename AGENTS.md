@@ -145,7 +145,10 @@ the script (`TalaCopy`, one file per script in Application Support/Edit Assist/t
 (`[excited]`, `[whispers]`) go there, never in the script, so highlight runs never see a tag. No voice sliders: the tags
 direct the delivery (you asked for none). Eleven v4 by default, since only v3 and v4 follow tags. A script longer than
 the model takes is sent in parts cut between lines or sentences, each with the text around it, and joined. Saved in a
-folder picked once, never over an earlier file. Credits are spent only when you press Make. Music waits for Don. **Bo**
+folder picked once, never over an earlier file. Credits are spent only when you press Make. Music waits for Don.
+Her page is laid out like ElevenLabs' Text to Speech page, in columns (you asked for it): the output folder and its
+sound files (play, drag into Premiere) on the left, the copy in the middle, voice (searchable), model and account on
+the right; under 980 points wide the files share the right column as a tab. **Bo**
 (`BoWatcher`) checks Google Drive for Desktop every minute and restarts it by himself on these signs: Google Drive not
 running; a drive that does not answer a listing within 15 s for three minutes (at most once every half hour); Finder
 not taking Drive's changes for 30 minutes ("Slow working set change acknowledgment" with no "acknowledged after";

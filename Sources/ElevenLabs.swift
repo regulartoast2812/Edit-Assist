@@ -33,6 +33,13 @@ final class TalaVoice: ObservableObject {
         /// Credits per character: Flash costs half.
         let creditsPerCharacter: Double
     }
+    /// A sound file in the output folder.
+    struct AudioFile: Identifiable, Equatable {
+        let url: URL
+        let date: Date
+        let bytes: Int64
+        var id: URL { url }
+    }
     enum Connection: Equatable {
         case noKey, checking, connected, rejected(String), offline(String)
         /// ElevenLabs knows the key, but it lacks a permission Tala needs (its id, e.g. voices_read).
@@ -58,6 +65,8 @@ final class TalaVoice: ObservableObject {
     /// The part being made, counted from 1, while a voice-over is made.
     @Published private(set) var making: (part: Int, of: Int)?
     @Published private(set) var made: URL?
+    /// The output folder's sound files, newest first.
+    @Published private(set) var files: [AudioFile] = []
     @Published private(set) var failure: String?
     /// The voice sample or voice-over playing.
     @Published private(set) var playing: String?
@@ -113,6 +122,7 @@ final class TalaVoice: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         folder = url
         UserDefaults.standard.set(url.path, forKey: "talaFolder")
+        refreshFiles()
         return true
     }
 
@@ -138,6 +148,7 @@ final class TalaVoice: ObservableObject {
                 let file = ElevenLabs.file(project: project, script: script, in: folder)
                 try audio.write(to: file, options: .atomic)
                 made = file
+                refreshFiles()
             } catch ElevenLabs.Failure.missing(let permission) {
                 failure = L("this key is missing **%@**: turn it on for the key in ElevenLabs", ElevenLabs.permissionName(permission))
             } catch ElevenLabs.Failure.rejected(let detail) {
@@ -170,10 +181,20 @@ final class TalaVoice: ObservableObject {
         connection = .noKey; account = nil; voices = []; models = []
     }
 
-    /// The first look, when Tala's page opens.
+    /// The first look, when Tala's page opens. The output folder is read every time: files come and go in Finder.
     func open() {
+        refreshFiles()
         guard !loaded else { return }
         refresh()
+    }
+
+    /// Reads the output folder off the main thread (macOS may ask before an app reads a folder like Downloads).
+    func refreshFiles() {
+        guard let folder else { files = []; return }
+        Task {
+            let found = await Task.detached(priority: .utility) { ElevenLabs.audioFiles(in: folder) }.value
+            if self.folder == folder { files = found }
+        }
     }
 
     /// Reads the account, voices and models again with the saved key.
@@ -219,10 +240,9 @@ final class TalaVoice: ObservableObject {
         play(url, id: voice.id)
     }
 
-    /// Plays the voice-over just made. Again to stop.
-    func playMade() {
-        guard let made else { return }
-        play(made, id: made.path)
+    /// Plays a sound file, a voice-over made here or any in the output folder. Again to stop.
+    func play(_ file: URL) {
+        play(file, id: file.path)
     }
 
     private func play(_ url: URL, id: String) {
@@ -416,6 +436,18 @@ enum ElevenLabs {
         let (data, response) = try await URLSession.shared.data(for: request)
         try check((response as? HTTPURLResponse)?.statusCode ?? 0, data)
         return data
+    }
+
+    /// The sound files in a folder, newest first.
+    static func audioFiles(in folder: URL) -> [TalaVoice.AudioFile] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
+        return urls.filter { ["mp3", "wav", "m4a", "aac", "aif", "aiff", "flac"].contains($0.pathExtension.lowercased()) }
+            .compactMap { url in
+                guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
+                return .init(url: url, date: values.contentModificationDate ?? .distantPast, bytes: Int64(values.fileSize ?? 0))
+            }
+            .sorted { $0.date > $1.date }
     }
 
     /// "<project> - <script> - voice-over.mp3" in the folder, numbered rather than replacing an earlier one.

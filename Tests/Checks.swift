@@ -1235,6 +1235,11 @@ struct Checks {
             check(first.lastPathComponent == "Bra- launch - Script 1 - voice-over.mp3"
                   && ElevenLabs.file(project: "Bra: launch", script: "Script 1", in: folder).lastPathComponent == "Bra- launch - Script 1 - voice-over 2.mp3",
                   "Tala names the voice-over after the project and script, never replacing an earlier one")
+            let older = folder.appendingPathComponent("older.wav"), notes = folder.appendingPathComponent("notes.txt")
+            try Data().write(to: older); try Data().write(to: notes)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: older.path)
+            check(ElevenLabs.audioFiles(in: folder).map(\.url.lastPathComponent) == ["Bra- launch - Script 1 - voice-over.mp3", "older.wav"],
+                  "Tala's file browser lists the folder's sound files, newest first")
             try? FileManager.default.removeItem(at: folder)
             var copy = TalaCopy(script: "Hello **world**")
             copy.text = "[excited] Hello world"
