@@ -95,7 +95,7 @@ th.h, td.h { border-left: 3px solid var(--hf); }
 .strip::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 8px; border-top: 2px solid var(--muted); background: repeating-linear-gradient(90deg, var(--muted) 0 1px, transparent 1px 12px); opacity: 0.5; }
 .frame { position: relative; display: grid; gap: 6px; align-content: start; min-width: 0; }
 .frame::before { content: attr(data-tc); position: absolute; top: -30px; left: 0; font: 500 11px var(--mono); color: var(--accent); background: var(--panel); padding-right: 6px; }
-.thumb { aspect-ratio: 16 / 9; max-width: 100%; border: 2px solid var(--accent); border-radius: 5px; background: var(--accent-soft); display: grid; place-items: center; font: 600 12px var(--mono); color: var(--accent); }
+.thumb { height: 64px; border: 2px solid var(--accent); border-radius: 5px; background: var(--accent-soft); display: grid; place-items: center; font: 600 12px var(--mono); color: var(--accent); }
 .frame p, .tile p { margin: 0; font-size: 12.5px; color: var(--muted); }
 .fields { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
 .fields code.k { color: var(--kling); }
