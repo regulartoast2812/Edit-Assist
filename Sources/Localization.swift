@@ -544,6 +544,7 @@ enum Vietnamese {
         "Give each file a **role**, write what happens, and Kino shows what he would send": "Chọn **vai trò** cho từng file, viết chuyện gì xảy ra, và Kino cho thấy sẽ gửi gì",
         "In %@": "Trong %@",
         "Kino": "Kino",
+        "Drop files, or press to choose them. Drag a file over the shot to see its other places: end frame, video to edit…": "Thả file vào, hoặc bấm để chọn. Kéo file qua shot để thấy các chỗ khác: khung cuối, video cần sửa…",
         "%@ of %@ pictures": "%@ / %@ ảnh",
         "%@ of %@ sounds": "%@ / %@ âm thanh",
         "%@ of %@ videos": "%@ / %@ video",

@@ -702,9 +702,12 @@ struct KinoFan: View {
 }
 
 /// One shot, as a card in the list. Its header: the fold arrow, the code and what the shot does, the model, the takes, whether
-/// it can run, and its menu. Under it, left to right: its files in their places (a dashed + box for each place the model
-/// still has room for), the prompt with the settings and Run under it, and its takes. Narrow, the files go above the prompt
-/// and the takes are left to the header's count. Files dropped anywhere on the card join the shot with their usual role.
+/// it can run, and its menu. Under it, left to right: its files, each with its role on it, and one + box to add more; the
+/// prompt with the settings and Run under it; its takes. Narrow, the files go above the prompt and the takes are left to the
+/// header's count. Files dropped anywhere on the card, or on the +, join the shot with their usual role (the first picture
+/// opens it). While files are dragged over the card, a box for each place the model still has room for (end frame, video to
+/// edit…) shows after them, to drop on for that role; the role is part of what is sent (its slot and endpoint), not only
+/// words in the prompt (docs/kino/kling.md §4).
 struct KinoShotCard: View {
     @ObservedObject var desk: KinoDesk
     let code: String
@@ -715,6 +718,10 @@ struct KinoShotCard: View {
     let openEveryShot: () -> Void
     @State private var insert: String?
     @State private var targeted = false
+    /// How many of the card's own boxes and files files are dragged over.
+    @State private var over = 0
+    /// The places shown while files are dragged over the card; kept a moment after, so moving between them does not hide them.
+    @State private var places = false
     @State private var showingRequest = false
     private let accent = PixelKino.theme
     /// Room for four places a row, five when the list is wide.
@@ -747,6 +754,13 @@ struct KinoShotCard: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent : chosen ? accent.opacity(0.45) : .white.opacity(0.07),
                                                                 lineWidth: targeted ? 2 : 1))
         .kinoDrop($targeted) { desk.add($0, into: code); desk.selected = code }
+        .onChange(of: targeted || over > 0) { _, dragging in
+            if dragging { withAnimation(.easeOut(duration: 0.15)) { places = true }; return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                if !(targeted || over > 0) { withAnimation(.easeOut(duration: 0.15)) { places = false } }
+            }
+        }
     }
 
     func header(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
@@ -794,7 +808,8 @@ struct KinoShotCard: View {
         }
     }
 
-    /// The shot's places, files in theirs and a dashed + box for each the model still has room for; files left out last.
+    /// The shot's files in their places' order, files left out last; one + box while the model has room, and while files are
+    /// dragged over the card, a box for each place it has room for.
     func inputs(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
         let model = KinoModel.named(desk.settings(code).model)
         let roles = desk.roles(code)
@@ -811,25 +826,34 @@ struct KinoShotCard: View {
                 Text(L("IN THIS SHOT")).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
                 Text(room.joined(separator: " · ")).font(.system(size: 9.5, weight: .medium).monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1)
             }
+            let empty = slots.filter { if case .empty = $0 { true } else { false } }
+            let shown = slots.filter { if case .file = $0 { true } else { false } }
             FlowLayout(spacing: 8) {
-                ForEach(Array(slots.enumerated()), id: \.offset) { _, slot in
+                // The files, the + box (nil) while the model has room, then the places for each role while files are dragged in.
+                let items: [KinoSlot?] = shown + (empty.isEmpty ? [] : [nil]) + (places ? empty : [])
+                ForEach(Array(items.enumerated()), id: \.offset) { _, slot in
                     switch slot {
-                    case .file(let file):
+                    case nil:
+                        KinoAddSlot(drop: { desk.add($0, into: code); desk.selected = code }, choose: { desk.choose(into: code) }, hovered: hovered)
+                    case .file(let file)?:
                         let role = roles[file.handle] ?? .look
                         let index = plan.inputs.firstIndex { $0.handle == file.handle }
                         KinoFileTile(file: file, role: role, seconds: desk.durations[file.id], number: index.map { $0 + 1 },
                                      sentAs: index.map { plan.inputs[$0].tag }, missing: desk.missing.contains(file.id), shot: code,
                                      choose: { desk.setRole($0, of: file, in: code) }, tag: { insert = "@" + file.handle },
                                      takeOut: { desk.takeOut(file, of: code) },
-                                     drop: { desk.add($0, into: code, as: role == .unused ? nil : role); desk.selected = code })
-                    case .empty(let role):
+                                     drop: { desk.add($0, into: code, as: role == .unused ? nil : role); desk.selected = code }, hovered: hovered)
+                    case .empty(let role)?:
                         KinoEmptySlot(role: role, motionControl: model.id == "kling-motion",
-                                      drop: { desk.add($0, into: code, as: role); desk.selected = code }, choose: { desk.choose(into: code, as: role) })
+                                      drop: { desk.add($0, into: code, as: role); desk.selected = code }, choose: { desk.choose(into: code, as: role) },
+                                      hovered: hovered)
                     }
                 }
             }
         }
     }
+
+    func hovered(_ inside: Bool) { over = max(0, over + (inside ? 1 : -1)) }
 
     /// The prompt, what stops the shot or what Kino changes on the way, then the settings and Run.
     func middle(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
@@ -964,6 +988,8 @@ struct KinoFileTile: View {
     let tag: () -> Void
     let takeOut: () -> Void
     let drop: ([URL]) -> Void
+    /// Files dragged onto it or off it.
+    var hovered: (Bool) -> Void = { _ in }
     static let width: CGFloat = 80
     static let height: CGFloat = 100
     @State private var hovering = false
@@ -1034,6 +1060,7 @@ struct KinoFileTile: View {
         .onHover { hovering = $0 }
         .onDrag { NSItemProvider(contentsOf: file.url) ?? NSItemProvider() }
         .kinoDrop($targeted, drop)
+        .onChange(of: targeted) { _, inside in hovered(inside) }
         .help(file.url.lastPathComponent)
         .contextMenu {
             ForEach(KinoRole.choices(file.kind)) { option in
@@ -1057,6 +1084,7 @@ struct KinoEmptySlot: View {
     let motionControl: Bool
     let drop: ([URL]) -> Void
     let choose: () -> Void
+    var hovered: (Bool) -> Void = { _ in }
     @State private var targeted = false
     @State private var hovering = false
     var body: some View {
@@ -1077,7 +1105,36 @@ struct KinoEmptySlot: View {
         .onHover { hovering = $0 }
         .onTapGesture(perform: choose)
         .kinoDrop($targeted, drop)
+        .onChange(of: targeted) { _, inside in hovered(inside) }
         .help(L(role.detail))
+    }
+}
+
+/// The box that adds files to a shot: drop files on it or press it to choose them. Each takes its usual role, which its
+/// pill changes; dragged over the card, the places for other roles show beside it.
+struct KinoAddSlot: View {
+    let drop: ([URL]) -> Void
+    let choose: () -> Void
+    var hovered: (Bool) -> Void = { _ in }
+    @State private var targeted = false
+    @State private var hovering = false
+    private let accent = PixelKino.theme
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: "plus").font(.system(size: 18, weight: .light))
+            Text(L("Add")).font(.system(size: 10.5, weight: .semibold))
+        }
+        .foregroundStyle(targeted || hovering ? accent : Color.secondary)
+        .frame(width: KinoFileTile.width, height: KinoFileTile.height)
+        .background(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(targeted ? 0.14 : hovering ? 0.06 : 0)))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(targeted ? accent : hovering ? accent.opacity(0.6) : .white.opacity(0.2),
+                                                               style: StrokeStyle(lineWidth: targeted ? 2 : 1.3, dash: targeted ? [] : [5, 3.5])))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(perform: choose)
+        .kinoDrop($targeted, drop)
+        .onChange(of: targeted) { _, inside in hovered(inside) }
+        .help(L("Drop files, or press to choose them. Drag a file over the shot to see its other places: end frame, video to edit…"))
     }
 }
 
