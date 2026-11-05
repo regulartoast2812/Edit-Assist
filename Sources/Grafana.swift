@@ -39,7 +39,9 @@ enum Grafana {
     /// A read (GET), or a query (POST to /api/ds/query), with the session; a session past its rotation is renewed once.
     static func request(_ path: String, body: Data? = nil, renewed: Bool = false) async throws -> Data {
         guard let session else { throw Failure.signedOut }
-        var request = URLRequest(url: URL(string: path, relativeTo: base)!, timeoutInterval: 60)
+        // "" is Grafana's own page, which URL(string:) can't make.
+        guard let url = path.isEmpty ? base : URL(string: path, relativeTo: base) else { throw Failure.refused(0, L("Penny asked Grafana for a page that can't exist: %@", path)) }
+        var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpShouldHandleCookies = false
         request.setValue("grafana_session=\(session)", forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

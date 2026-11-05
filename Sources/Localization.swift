@@ -597,6 +597,7 @@ enum Vietnamese {
         "Grafana did not say who you are.": "Grafana không cho biết bạn là ai.",
         "Grafana refused (%@): %@": "Grafana từ chối (%@): %@",
         "Signed in as %@": "Đã đăng nhập: %@",
+        "Penny asked Grafana for a page that can't exist: %@": "Penny đã hỏi Grafana một trang không thể có: %@",
         "Grafana showed no dashboards to read.": "Grafana không có dashboard nào để đọc.",
         "Read the dashboards again": "Đọc lại các dashboard",
         "Read the numbers again": "Đọc lại số liệu",
