@@ -197,10 +197,16 @@ How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-1
 **Penny** (the numbers of the products you run, from the company's Grafana) signs in to grafana.selless.com (Grafana
 11.2; Google sign-in only, its login form is off) in a private web view and keeps only the `grafana_session` cookie, in
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401
-asks `api/user/auth-tokens/rotate` for the new one once before counting you signed out. He reads the dashboards you can
-see and, for the three you use (and your starred ones), their filters and panel queries, saved as Grafana sent them in
-penny/ beside projects.json, never in git: the campaign, sales and revenue sheet is to be built from those queries,
-run directly, not by loading dashboards. He only reads, never changes anything in Grafana. Each helper has a colour, their body's, for their sidebar button and page.
+asks `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once) before
+counting you signed out. He reads the dashboards you can see and saves the three you use (and your starred ones) as
+Grafana sent them in penny/ beside projects.json, never in git. His page draws the one you pick as Grafana draws it
+(`PennyBoard`, the `Grafana` dashboard model in `Sources/GrafanaBoard.swift`; views in `Sources/PennyPanels.swift`): its
+filters, its rows and panels on the 24-column grid, each panel's own queries run through `/api/ds/query` with the
+filters written in as Grafana writes them for SQL (quoted, All as every value or the all-value; `$__timeFilter` and the
+other macros left to Grafana), then the panel's transformations (calculateField, organize, concatenate) and its units,
+decimals, thresholds and cell colours. A closed row reads its panels when opened. Your filters and time are kept per
+dashboard; what each panel last answered (columns, rows, a stat's values or the error) is written to penny/answers/.
+He only reads, never changes anything in Grafana, and runs no query of his own beyond the dashboards'. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 

@@ -47,11 +47,11 @@ struct PixelPenny: View {
 /// Penny in the sidebar, at work while he reads Grafana.
 struct PennyIcon: View {
     @ObservedObject var desk: PennyDesk
-    var body: some View { PixelPenny(pixel: 1.25, busyUntil: desk.exploring ? .distantFuture : nil) }
+    var body: some View { PixelPenny(pixel: 1.25, busyUntil: desk.exploring || desk.reading ? .distantFuture : nil) }
 }
 
-/// Penny's page: signed in to the company's Grafana with your Google account, the dashboards you can see, and the three
-/// you use read down to the queries behind their panels, to build your campaign, sales and revenue sheet from (2026-11-05).
+/// Penny's page: signed in to the company's Grafana with your Google account, the dashboard you pick drawn as Grafana
+/// draws it, with its filters and time, from the queries the dashboard itself runs (2026-11-05).
 struct PennyPage: View {
     @ObservedObject var desk: PennyDesk
     @State private var signingIn = false
@@ -61,7 +61,7 @@ struct PennyPage: View {
         ThinScrollView {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                PixelPenny(pixel: 4, busyUntil: desk.exploring || desk.state == .checking ? .distantFuture : nil, previewOnHover: true)
+                PixelPenny(pixel: 4, busyUntil: desk.exploring || desk.reading || desk.state == .checking ? .distantFuture : nil, previewOnHover: true)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(md: L("Your numbers helper")).font(.system(size: 13, weight: .semibold))
                     Bullets(["Gets the numbers for the **products you run** from the company's **Grafana**",
@@ -69,8 +69,11 @@ struct PennyPage: View {
                              "**Only reads**: never changes anything in Grafana"], size: 11)
                 }
             }
-            section(L("GRAFANA"), trailing: Grafana.base.host) { account }
-            if case .signedIn = desk.state { section(L("WHAT PENNY CAN SEE")) { seen } }
+            if case .signedIn(let user) = desk.state {
+                signedIn(user)
+            } else {
+                section(L("GRAFANA"), trailing: Grafana.base.host) { account }
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
         }.scrollIndicators(.automatic)
         .onAppear { desk.open() }
@@ -82,16 +85,24 @@ struct PennyPage: View {
         }
     }
 
-    @ViewBuilder var account: some View {
-        switch desk.state {
-        case .checking:
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Checking with Grafana…")).font(.system(size: 12)) }
-        case .signedIn(let user):
-            status(true, L("Signed in as **%@**", user.name.isEmpty ? user.login : user.name) + (user.email.isEmpty ? "" : " · \(user.email)"))
+    @ViewBuilder func signedIn(_ user: Grafana.User) -> some View {
+        if let board = desk.board {
+            BoardView(board: board, desk: desk, user: user)
+        } else if desk.exploring {
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Reading your dashboards…")).font(.system(size: 12)) }
+        } else {
+            status(false, desk.failure ?? L("Grafana showed no dashboards to read."))
             HStack(spacing: 8) {
-                Button(L("Read again")) { desk.explore() }.disabled(desk.exploring)
+                Button(L("Read the dashboards again")) { desk.explore() }
                 Button(L("Sign out"), role: .destructive) { desk.signOut() }
             }.controlSize(.small)
+        }
+    }
+
+    @ViewBuilder var account: some View {
+        switch desk.state {
+        case .checking, .signedIn:
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Checking with Grafana…")).font(.system(size: 12)) }
         case .failed(let reason):
             status(false, reason)
             HStack(spacing: 8) {
@@ -102,54 +113,6 @@ struct PennyPage: View {
             Text(md: L("The company's Grafana only takes **Sign in with Google**. Sign in once here with your work account; Penny keeps the session in your Mac's **Keychain** and asks again when Grafana ends it."))
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button(L("Sign in with Google")) { signingIn = true }
-        }
-    }
-
-    @ViewBuilder var seen: some View {
-        if desk.exploring {
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Reading your dashboards…")).font(.system(size: 12)) }
-        }
-        if let failure = desk.failure { status(false, failure) }
-        if !desk.dashboards.isEmpty {
-            status(nil, L("**%@** dashboards you can see, **%@** starred", desk.dashboards.count, desk.dashboards.filter(\.starred).count))
-        }
-        ForEach(desk.boards) { board in
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(board.title).font(.system(size: 13, weight: .semibold))
-                    if !board.folder.isEmpty { Text(board.folder).font(.system(size: 10)).foregroundStyle(.secondary) }
-                    Spacer()
-                    Text(L("%@ panels", board.panels.count)).font(.system(size: 10)).foregroundStyle(.secondary)
-                    Button { NSWorkspace.shared.open(Grafana.base.appendingPathComponent("d/\(board.uid)")) } label: { Image(systemName: "arrow.up.right.square") }
-                        .buttonStyle(.borderless).help(L("Open in the browser"))
-                }
-                if !board.variables.isEmpty {
-                    Text(L("Filters: %@", board.variables.joined(separator: ", "))).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-                ForEach(board.panels) { panel in
-                    DisclosureGroup {
-                        ForEach(Array(panel.queries.enumerated()), id: \.offset) { _, query in
-                            Text(query).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(6)
-                                .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 5))
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(panel.title.isEmpty ? L("Untitled") : panel.title).font(.system(size: 11))
-                            Text([panel.type, panel.source].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 9)).foregroundStyle(.secondary)
-                            Spacer()
-                            if !panel.queries.isEmpty { Text(L("%@ queries", panel.queries.count)).font(.system(size: 9)).foregroundStyle(.secondary) }
-                        }
-                    }
-                }
-            }
-            .padding(10).background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
-        }
-        if desk.explored != nil {
-            HStack(spacing: 8) {
-                Text(L("Saved on this Mac only, to build your sheet from")).font(.system(size: 10)).foregroundStyle(.secondary)
-                Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([PennyDesk.folder]) }.controlSize(.small)
-            }
         }
     }
 
