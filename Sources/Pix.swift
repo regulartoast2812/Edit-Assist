@@ -82,7 +82,7 @@ struct PixPage: View {
         .onChange(of: project.openScript.id) { _, id in open(id) }
     }
 
-    private func open(_ id: UUID) { desk.load(script: id); don.load(script: id); attached = [] }
+    private func open(_ id: UUID) { desk.load(script: id); don.load(script: id); don.load(project: project.id); attached = [] }
 
     @ViewBuilder var briefMissing: some View {
         HStack(spacing: 10) {
@@ -91,8 +91,8 @@ struct PixPage: View {
                 Text(md: L("Don is reading the script…")).font(.system(size: 12))
             } else {
                 Text(md: L("Don hasn't read this script yet: Pix takes his jobs from Don's brief.")).font(.system(size: 12))
-                Button(L("Ask Don to read it")) { don.read(script: project.openScript.id, text: project.script, project: project.name, name: project.openScript.name) }
-                    .controlSize(.small).disabled(DonBrief.lines(project.script).isEmpty)
+                Button(L("Ask Don to read it")) { don.read(project) }
+                    .controlSize(.small).disabled(don.source(project).lines.isEmpty)
             }
             Spacer(minLength: 0)
         }

@@ -53,6 +53,7 @@ struct DonPage: View {
     @ObservedObject var don: DonReader
     let project: Project
     private let accent = PixelDon.theme
+    @State private var link = ""
 
     var body: some View {
         ThinScrollView {
@@ -66,6 +67,7 @@ struct DonPage: View {
                              "Briefs the other helpers, so they all work to the same idea"], size: 11)
                 }
             }
+            section(L("SCRIPT SHEET"), trailing: don.sheet.map { [$0.title, $0.tab].filter { !$0.isEmpty }.joined(separator: " · ") }) { sheet }
             section(L("THE BRIEF"), trailing: project.openScript.name) { brief }
             if let shots = don.brief?.videoShots, !shots.isEmpty {
                 section(L("LINES THAT NEED AI VIDEO"), trailing: L("%@ with no media", shots.count)) {
@@ -88,19 +90,63 @@ struct DonPage: View {
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
         }.scrollIndicators(.automatic)
-        .onAppear { don.load(script: project.openScript.id) }
-        .onChange(of: project.openScript.id) { _, id in don.load(script: id) }
+        .onAppear { open() }
+        .onChange(of: project.openScript.id) { _, _ in open() }
+    }
+
+    private func open() {
+        don.load(script: project.openScript.id); don.load(project: project.id)
+        link = don.sheet?.link ?? ""
+    }
+
+    /// The project's script sheet: its link, read with Claude's Google Sheets connector, and what Don found in it.
+    @ViewBuilder var sheet: some View {
+        let typed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        HStack(spacing: 8) {
+            TextField(L("Paste the Google Sheets link"), text: $link).textFieldStyle(.roundedBorder).font(.system(size: 12))
+                .onSubmit { if !typed.isEmpty { don.readSheet(typed, project: project.id) } }
+            Button(don.sheet?.link == typed ? L("Read again") : L("Read")) { don.readSheet(typed, project: project.id) }
+                .controlSize(.small).disabled(don.sheetReading || typed.isEmpty)
+        }
+        if don.sheetReading {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(md: L("Don is reading the sheet…")).font(.system(size: 12))
+            }
+        } else if let sheet = don.sheet, let read = sheet.read {
+            Text(L("%@ versions · read %@", sheet.versions.count, read.formatted(date: .abbreviated, time: .shortened)))
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        } else {
+            Text(md: L("Copy the link with the script's tab open. Don reads it with your Claude account's **Google Sheets** connector and changes nothing in it."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        if let failure = don.sheetFailure { status(false, failure) }
+    }
+
+    /// Which script Don reads for the open one: the pasted script or one of the sheet's versions.
+    @ViewBuilder var source: some View {
+        if let sheet = don.sheet, !sheet.versions.isEmpty {
+            Picker(L("Read from"), selection: Binding(get: { sheet.version(for: project.openScript)?.name ?? "" },
+                                                      set: { don.pick($0.isEmpty ? nil : $0, script: project.openScript.id) })) {
+                Text(L("The project's script")).tag("")
+                ForEach(sheet.versions) { version in
+                    Text(version.name + "  " + L("%@ lines, %@ with no media", version.lines.count, version.unfilmed)).tag(version.name)
+                }
+            }
+            .pickerStyle(.menu).fixedSize().font(.system(size: 12)).disabled(don.reading != nil)
+        }
     }
 
     @ViewBuilder var brief: some View {
-        let empty = DonBrief.lines(project.script).isEmpty
+        let empty = don.source(project).lines.isEmpty
+        source
         if don.reading == project.openScript.id {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(md: L("Don is reading the script… (a minute or two)")).font(.system(size: 12))
             }
         } else if let brief = don.brief {
-            if brief.outdated(by: project.script) {
+            if don.outdated(project) {
                 HStack(spacing: 10) {
                     status(false, L("The script changed since Don read it"))
                     readButton(L("Read again"))
@@ -116,11 +162,12 @@ struct DonPage: View {
                 row(L("CTA look"), brief.ctaLook)
             }
             HStack(spacing: 10) {
-                Text(L("Read %@", brief.read.formatted(date: .abbreviated, time: .shortened))).font(.system(size: 10)).foregroundStyle(.secondary)
-                if !brief.outdated(by: project.script) { readButton(L("Read again")) }
+                let read = brief.read.formatted(date: .abbreviated, time: .shortened)
+                Text(brief.sheet.map { L("Read from %@ in the sheet, %@", $0, read) } ?? L("Read %@", read)).font(.system(size: 10)).foregroundStyle(.secondary)
+                if !don.outdated(project) { readButton(L("Read again")) }
             }
         } else if empty {
-            Text(md: L("No script yet: paste one in the project first.")).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(md: L("No script yet: paste one in the project, or read it from the script sheet above.")).font(.system(size: 12)).foregroundStyle(.secondary)
         } else {
             Text(md: L("Don hasn't read this script yet. He briefs the others from it, and Pix queues the CTA.")).font(.system(size: 12))
             readButton(L("Read the script"))
@@ -129,8 +176,8 @@ struct DonPage: View {
     }
 
     func readButton(_ title: String) -> some View {
-        Button(title) { don.read(script: project.openScript.id, text: project.script, project: project.name, name: project.openScript.name) }
-            .controlSize(.small).disabled(don.reading != nil || DonBrief.lines(project.script).isEmpty)
+        Button(title) { don.read(project) }
+            .controlSize(.small).disabled(don.reading != nil || don.source(project).lines.isEmpty)
     }
 
     @ViewBuilder func row(_ name: String, _ value: String) -> some View {

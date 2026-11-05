@@ -1298,6 +1298,44 @@ struct Checks {
             check((try? DonBrief(answer: ["vibe": "", "graphicStyle": ""], from: "", project: "", script: "")) == nil, "An answer with no brief in it is refused")
             check(DonBrief.lines("**65% OFF**\n\n**GET YOURS** NOW!") == ["65% OFF", "GET YOURS NOW!"], "Don reads the script's words without the bold marks")
             check(!brief.outdated(by: "a\nb") && brief.outdated(by: "a\nc"), "Don's brief knows when the script changed after")
+            // The script sheet (2026-11-05), as the CraftyHold working file lays it out.
+            let link = DonSheet.address("https://docs.google.com/spreadsheets/d/1HGTHRZbMbwVFYx0HRW6iM4aQvILoP8tgIu3GFEETmA0/edit?gid=1658507630#gid=1658507630")
+            check(link?.id == "1HGTHRZbMbwVFYx0HRW6iM4aQvILoP8tgIu3GFEETmA0" && link?.tab == 1658507630, "Don finds the sheet and its tab in the link")
+            check(DonSheet.address("https://docs.google.com/spreadsheets/d/1HGTHRZbMbwVFYx0HRW6iM4aQvILoP8tgIu3GFEETmA0/edit")?.tab == nil
+                  && DonSheet.address("https://example.com/a") == nil, "A link without a tab reads the first; anything else is not a sheet")
+            check(DonSheet.column("Khoảng cut từ source") == .cut && DonSheet.column("Source") == .source && DonSheet.column("Cảnh") == .scene
+                  && DonSheet.column("Text/Voiceover") == .text && DonSheet.column("Hiệu ứng ") == .effect && DonSheet.column("Extra Notes") == .notes,
+                  "Don reads the sheet's headers in Vietnamese or English, the cut range before the source")
+            let rows = [["Version", "Cảnh", "Text/Voiceover", "Hiệu ứng ", "Khoảng cut từ source", "Source", "Comment ", "Extra Notes"],
+                        ["v1.0\nUtility demo", "1", "Pens\nGlasses", "", "1-2", "H8 open.mp4", "", "nhanh hơn", "ref videos"],
+                        ["", "2", "Cards"],
+                        ["", "", "", "", "", ""],
+                        ["v1.1\n\nGifting + Lifestyle", "1", "THE gift", "", "0-2", "H22 full clip.mp4\n"],
+                        ["v1.1\nGifting + Lifestyle", "1", "Again", "", "", "H1.mp4"]]
+            let versions = DonSheet.versions(rows, tab: "Video")
+            check(versions.map(\.name) == ["v1.0 · Utility demo", "v1.1 · Gifting + Lifestyle", "v1.1 · Gifting + Lifestyle (2)"],
+                  "A filled Version cell starts a version, named on one line, never twice the same")
+            check(versions.first?.lines.map(\.text) == ["Pens\nGlasses", "Cards"] && versions.first?.unfilmed == 1 && versions[1].lines.first?.source == "H22 full clip.mp4",
+                  "Each version keeps its lines and their source; empty rows are skipped")
+            check(DonSheet.described(versions[0].lines[0]) == "Pens / Glasses [media: H8 open.mp4] [editor notes: nhanh hơn]"
+                  && DonSheet.described(versions[0].lines[1]) == "Cards [no media]", "Don is told each line's footage, or that it has none")
+            check(DonSheet.versions([["Name", "Price"], ["A", "1"]], tab: "Pricing").isEmpty, "A tab with no words column holds no script")
+            var sheet = DonSheet(link: "x", versions: versions)
+            check(sheet.version(for: ScriptTab(name: "v1.1"))?.name == "v1.1 · Gifting + Lifestyle" && sheet.version(for: ScriptTab(name: "Script 1"))?.name == "v1.0 · Utility demo"
+                  && sheet.version(for: ScriptTab(name: "Script 1", script: "Hello")) == nil, "A script is read from the version named like its tab, or the first when nothing is pasted")
+            let tab = ScriptTab(name: "v1.1")
+            sheet.picks[tab.id.uuidString] = ""
+            check(sheet.version(for: tab) == nil, "Choosing the project's script over the sheet sticks")
+            let stream = [#"{"type":"system","subtype":"init","mcp_servers":[{"name":"claude.ai Google Sheets","status":"connected"}]}"#,
+                          #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__claude_ai_Google_Sheets__get_spreadsheet","input":{}}]}}"#,
+                          #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"{\"properties\":{\"title\":\"CraftyHold - Working File\"}}"}]}}"#,
+                          #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__claude_ai_Google_Sheets__get_values","input":{}}]}}"#,
+                          #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"{\"range\":\"'Image Script'!A1:B2\",\"values\":[[\"Text\"],[\"Hi\"]]}"}]}]}}"#]
+            let read = try SheetsConnector.cells(in: Data(stream.joined(separator: "\n").utf8))
+            check(read.title == "CraftyHold - Working File" && read.tab == "Image Script" && read.rows == [["Text"], ["Hi"]],
+                  "The cells come from the connector's own answer, the tab from its range")
+            let unconnected = #"{"type":"system","subtype":"init","mcp_servers":[{"name":"claude.ai Google Sheets","status":"needs-auth"}]}"#
+            check((try? SheetsConnector.cells(in: Data(unconnected.utf8))) == nil, "No cells without the Sheets connector")
             check(PixJob(kind: .schematic, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures
                   && !PixJob(kind: .cta, title: "", detail: "", state: .queued, project: "", script: "").waitsForPictures, "Only a schematic waits for product pictures")
             check(PixDesk.isSVG("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>A</text></svg>") && !PixDesk.isSVG("<svg><text>A</svg>") && !PixDesk.isSVG("<html/>"),

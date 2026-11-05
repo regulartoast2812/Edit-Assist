@@ -39,6 +39,8 @@ struct DonBrief: Codable, Equatable {
     var from: String
     var project: String
     var script: String
+    /// The script sheet's version it was read from; nil for the script pasted in the project.
+    var sheet: String?
     var read = Date()
 
     init(product: String = "", vibe: String = "", voice: String = "", music: String = "", graphicStyle: String = "", cta: String = "",
@@ -72,15 +74,196 @@ struct DonBrief: Codable, Equatable {
     }
 }
 
+/// The team's script sheet in Google Sheets (2026-11-05): one tab of ad versions, a row per scene with its voice-over,
+/// effect, cut and source footage. Read with the Claude CLI's Google Sheets connector (`SheetsConnector`), only read;
+/// kept per project in `don/sheet-<project>.json`, never in projects.json. A line with no source needs AI video.
+struct DonSheet: Codable, Equatable {
+    struct Line: Codable, Equatable {
+        var scene = "", text = "", effect = "", cut = "", source = "", notes = ""
+    }
+    struct Version: Codable, Equatable, Identifiable {
+        var name: String
+        var lines: [Line]
+        var id: String { name }
+        /// Its words, as a brief's `from`.
+        var words: String { lines.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n") }
+        var unfilmed: Int { lines.filter { $0.source.isEmpty }.count }
+    }
+    var link: String
+    var title = ""
+    var tab = ""
+    var versions: [Version] = []
+    var read: Date?
+    /// The version each of the project's scripts is read from, by script id; "" for the script pasted in the project.
+    var picks: [String: String] = [:]
+
+    static func file(_ project: UUID) -> URL { Studio.folder.appendingPathComponent("don/sheet-\(project.uuidString).json") }
+    static func load(_ project: UUID) -> DonSheet? {
+        (try? Data(contentsOf: file(project))).flatMap { try? JSONDecoder().decode(DonSheet.self, from: $0) }
+    }
+    func save(_ project: UUID) {
+        try? FileManager.default.createDirectory(at: Self.file(project).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(self).write(to: Self.file(project), options: .atomic)
+    }
+
+    /// The version a script is read from: the one you picked; else the one named as the script's tab is ("v1.1");
+    /// else, with nothing pasted in the project, the first.
+    func version(for script: ScriptTab) -> Version? {
+        if let pick = picks[script.id.uuidString] { return versions.first { $0.name == pick } }
+        let name = Self.fold(script.name)
+        if let named = versions.first(where: { Self.fold($0.name).split(separator: " ").first.map(String.init) == name }) { return named }
+        return DonBrief.lines(script.script).isEmpty ? versions.first : nil
+    }
+
+    /// The spreadsheet's id and the tab (gid) in a Google Sheets link; a bare id works too.
+    static func address(_ link: String) -> (id: String, tab: Int?)? {
+        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = link.firstMatch(of: #/spreadsheets/d/([A-Za-z0-9_-]{20,})/#) else {
+            return link.wholeMatch(of: #/[A-Za-z0-9_-]{30,}/#) != nil ? (link, nil) : nil
+        }
+        return (String(match.1), link.firstMatch(of: #/[#&?]gid=(\d+)/#).flatMap { Int($0.1) })
+    }
+
+    /// Lowercase, without accents (Cảnh → canh), single-spaced: for reading headers and names.
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).replacingOccurrences(of: "đ", with: "d")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    enum Column { case version, scene, cut, effect, text, source, notes }
+    /// What a header names, in English or Vietnamese. Cut comes before source: "Khoảng cut từ source" is the cut.
+    static func column(_ header: String) -> Column? {
+        let h = fold(header)
+        let has = { (words: [String]) in words.contains { h.contains($0) } }
+        if h.isEmpty { return nil }
+        if has(["version", "phien ban"]) || h == "ver" { return .version }
+        if has(["canh", "scene", "shot"]) || ["#", "stt", "no", "no."].contains(h) { return .scene }
+        if has(["cut", "khoang", "timecode", "thoi gian", "duration"]) || h == "time" { return .cut }
+        if has(["hieu ung", "effect", "fx"]) { return .effect }
+        if has(["voiceover", "voice over", "text", "script", "kich ban", "loi thoai"]) || h == "vo" { return .text }
+        if has(["source", "nguon", "footage", "media", "clip"]) { return .source }
+        if has(["comment", "note", "ghi chu"]) { return .notes }
+        return nil
+    }
+
+    /// The versions in a tab's cells: the header row is the first of five naming a words column (Text, Voiceover,
+    /// Script); a filled Version cell starts the next version; rows with neither words nor source are skipped.
+    static func versions(_ rows: [[String]], tab: String) -> [Version] {
+        guard let header = rows.prefix(5).firstIndex(where: { $0.contains { column($0) == .text } }) else { return [] }
+        var columns: [Column: Int] = [:], notes: [Int] = []
+        for (index, cell) in rows[header].enumerated() {
+            guard let kind = column(cell) else { continue }
+            if kind == .notes { notes.append(index) } else if columns[kind] == nil { columns[kind] = index }
+        }
+        let value = { (row: [String], index: Int?) -> String in
+            index.flatMap { $0 < row.count ? row[$0] : nil }?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        var versions: [Version] = []
+        for row in rows.dropFirst(header + 1) {
+            var name = value(row, columns[.version]).split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")
+            if !name.isEmpty {
+                let base = name
+                var number = 2
+                while versions.contains(where: { $0.name == name }) { name = "\(base) (\(number))"; number += 1 }
+                versions.append(Version(name: name, lines: []))
+            }
+            let line = Line(scene: value(row, columns[.scene]), text: value(row, columns[.text]), effect: value(row, columns[.effect]),
+                            cut: value(row, columns[.cut]), source: value(row, columns[.source]),
+                            notes: notes.map { value(row, $0) }.filter { !$0.isEmpty }.joined(separator: " · "))
+            guard !line.text.isEmpty || !line.source.isEmpty else { continue }
+            if versions.isEmpty { versions.append(Version(name: tab, lines: [])) }
+            versions[versions.count - 1].lines.append(line)
+        }
+        return versions.filter { !$0.words.isEmpty }
+    }
+
+    /// A sheet line as Don is told it: its words, then what the sheet gives it.
+    static func described(_ line: Line) -> String {
+        let flat = { (text: String) in text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " / ") }
+        var said = line.text.isEmpty ? "(no words)" : flat(line.text)
+        said += line.source.isEmpty ? " [no media]" : " [media: \(flat(line.source))]"
+        if !line.effect.isEmpty { said += " [effect: \(flat(line.effect))]" }
+        if !line.notes.isEmpty { said += " [editor notes: \(flat(line.notes))]" }
+        return said
+    }
+}
+
+/// Reads one tab of a Google Sheet with the Claude CLI's Google Sheets connector (the one connected to your Claude
+/// account): get_spreadsheet and get_values, both read only, and nothing else is allowed. The cells are taken from the
+/// connector's own answer in the CLI's output, never retyped by the model. Codex has no Google connector, so a sheet is
+/// always read with Claude, whichever brain Don thinks with.
+enum SheetsConnector {
+    static let reads = ["mcp__claude_ai_Google_Sheets__get_spreadsheet", "mcp__claude_ai_Google_Sheets__get_values"]
+    static let writes = ["append_values", "batch_clear_values", "copy_sheet_to_another_spreadsheet", "insert_dimension",
+                         "update_formulas", "update_spreadsheet", "update_values"].map { "mcp__claude_ai_Google_Sheets__" + $0 }
+
+    static func read(id: String, tab: Int?) async throws -> (title: String, tab: String, rows: [[String]]) {
+        guard let executable = CLIProvider.claude.executable else {
+            throw AssistError.message(L("Reading a sheet needs the Claude CLI, signed in to the Claude account that has Google Sheets connected."))
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("edit-assist-sheet-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let prompt = """
+        Spreadsheet \(id). Call get_spreadsheet once with fields ["properties.title","sheets.properties.sheetId","sheets.properties.title"]. \
+        Then call get_values once, with range set to the title of \(tab.map { "the tab whose sheetId is \($0)" } ?? "the first tab") in single quotes. \
+        Call nothing else and change nothing. Then answer only: done.
+        """
+        // The CLI waits for its connectors only when told to; without it the Sheets tools may not be there yet.
+        let request = CLIRequest(executable: executable, arguments: ["--print", "--model", "haiku", "--tools", "", "--allowedTools", reads.joined(separator: ","),
+                                                                     "--disallowedTools", writes.joined(separator: ","), "--no-session-persistence",
+                                                                     "--output-format", "stream-json", "--verbose"],
+                                 input: Data(prompt.utf8), environment: ["MCP_CONNECTION_NONBLOCKING": "false", "ENABLE_CLAUDEAI_MCP_SERVERS": "true"])
+        return try cells(in: try await CLIProcess.run(request, directory: directory, timeout: 120))
+    }
+
+    /// The tab's title and cells in the CLI's stream: from get_values' own result, with the file's title from get_spreadsheet.
+    static func cells(in stream: Data) throws -> (title: String, tab: String, rows: [[String]]) {
+        var tools: [String: String] = [:], title = "", values: [String: Any]?, refused: String?, connected: Bool?
+        for line in stream.split(separator: 10) {
+            guard let event = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else { continue }
+            if event["type"] as? String == "system", event["subtype"] as? String == "init", let servers = event["mcp_servers"] as? [[String: Any]] {
+                connected = servers.contains { $0["name"] as? String == "claude.ai Google Sheets" && $0["status"] as? String == "connected" }
+            }
+            for part in ((event["message"] as? [String: Any])?["content"] as? [[String: Any]]) ?? [] {
+                if part["type"] as? String == "tool_use", let id = part["id"] as? String { tools[id] = part["name"] as? String }
+                guard part["type"] as? String == "tool_result", let tool = (part["tool_use_id"] as? String).flatMap({ tools[$0] }) else { continue }
+                let text = part["content"] as? String ?? (part["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
+                if part["is_error"] as? Bool == true { refused = text; continue }
+                let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+                if tool.hasSuffix("get_spreadsheet") { title = (object?["properties"] as? [String: Any])?["title"] as? String ?? title }
+                if tool.hasSuffix("get_values"), let object { values = object }
+            }
+        }
+        guard let values else {
+            if connected == false {
+                throw AssistError.message(L("Google Sheets isn't connected to your Claude account. Connect it in claude.ai → Settings → Connectors, then read again."))
+            }
+            throw AssistError.message(refused.map { L("Google Sheets: %@", $0) } ?? L("Claude didn't read the sheet. Read again."))
+        }
+        let range = values["range"] as? String ?? ""
+        var tab = range.range(of: "!", options: .backwards).map { String(range[..<$0.lowerBound]) } ?? range
+        if tab.count >= 2, tab.hasPrefix("'"), tab.hasSuffix("'") { tab = String(tab.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'") }
+        return (title, tab, (values["values"] as? [[Any]] ?? []).map { $0.map { "\($0)" } })
+    }
+}
+
 /// Don reading the open script into a brief, with the helper brain (Claude by default). Only when you ask: a read is
-/// one CLI call of a minute or two.
+/// one CLI call of a minute or two. The script is the one pasted in the project, or the version of the project's script
+/// sheet it is read from.
 @MainActor
 final class DonReader: ObservableObject {
     @Published private(set) var brief: DonBrief?
     /// The script being read.
     @Published private(set) var reading: UUID?
     @Published private(set) var failure: String?
+    /// The open project's script sheet, its reading and why one failed.
+    @Published private(set) var sheet: DonSheet?
+    @Published private(set) var sheetReading = false
+    @Published private(set) var sheetFailure: String?
     private var script: UUID?
+    private var project: UUID?
     var onBrief: ((UUID, DonBrief) -> Void)?
 
     func load(script id: UUID) {
@@ -89,15 +272,69 @@ final class DonReader: ObservableObject {
         brief = DonBrief.load(id)
     }
 
-    func read(script id: UUID, text: String, project: String, name: String) {
-        let lines = DonBrief.lines(text)
-        guard reading == nil, !lines.isEmpty else { return }
+    func load(project id: UUID) {
+        guard project != id else { return }
+        project = id; sheetFailure = nil
+        sheet = DonSheet.load(id)
+    }
+
+    /// What Don reads for the project's open script: the sheet's version it is read from, or the pasted script.
+    func source(_ project: Project) -> (lines: [String], words: String, version: String?) {
+        if self.project == project.id, let version = sheet?.version(for: project.openScript) {
+            return (version.lines.map(DonSheet.described), version.words, version.name)
+        }
+        let lines = DonBrief.lines(project.script)
+        return (lines, lines.joined(separator: "\n"), nil)
+    }
+
+    func outdated(_ project: Project) -> Bool { brief.map { $0.from != source(project).words } ?? false }
+
+    /// Reads the sheet's tab (the one in the link) with Claude's Google Sheets connector; your picks stay for the same sheet.
+    func readSheet(_ link: String, project id: UUID) {
+        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sheetReading else { return }
+        guard let address = DonSheet.address(link) else {
+            sheetFailure = L("That isn't a Google Sheets link. Copy it from the address bar with the script's tab open.")
+            return
+        }
+        sheetReading = true; sheetFailure = nil
+        Task {
+            do {
+                let read = try await SheetsConnector.read(id: address.id, tab: address.tab)
+                let versions = DonSheet.versions(read.rows, tab: read.tab)
+                guard !versions.isEmpty else {
+                    throw AssistError.message(L("Don found no script in “%@”: it needs a column named Text, Voiceover or Script.", read.tab))
+                }
+                var sheet = DonSheet.load(id).flatMap { DonSheet.address($0.link)?.id == address.id ? $0 : nil } ?? DonSheet(link: link)
+                sheet.link = link; sheet.title = read.title; sheet.tab = read.tab; sheet.versions = versions; sheet.read = Date()
+                sheet.save(id)
+                if project == id { self.sheet = sheet }
+            } catch {
+                if project == id { sheetFailure = error.localizedDescription }
+            }
+            sheetReading = false
+        }
+    }
+
+    /// Reads a script from the sheet's version named, or from the pasted script when nil.
+    func pick(_ version: String?, script id: UUID) {
+        guard var sheet, let project else { return }
+        sheet.picks[id.uuidString] = version ?? ""
+        sheet.save(project)
+        self.sheet = sheet
+    }
+
+    func read(_ project: Project) {
+        load(project: project.id)
+        let id = project.openScript.id, name = project.openScript.name, source = source(project)
+        guard reading == nil, !source.lines.isEmpty else { return }
         reading = id
         if script == id { failure = nil }
         Task {
             do {
-                let answer = try await HelperBrain.ask(Self.prompt(lines, project: project), schema: Self.schema, timeout: 240)
-                let brief = try DonBrief(answer: answer, from: lines.joined(separator: "\n"), project: project, script: name)
+                let answer = try await HelperBrain.ask(Self.prompt(source.lines, project: project.name, sheet: source.version != nil), schema: Self.schema, timeout: 240)
+                var brief = try DonBrief(answer: answer, from: source.words, project: project.name, script: name)
+                brief.sheet = source.version
                 try? FileManager.default.createDirectory(at: DonBrief.file(id).deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(brief).write(to: DonBrief.file(id), options: .atomic)
                 if script == id { self.brief = brief }
@@ -115,7 +352,7 @@ final class DonReader: ObservableObject {
                                    "videoShots": ["type": "array", "items": HelperBrain.object(["line": s, "idea": s])]])
     }
 
-    static func prompt(_ lines: [String], project: String) -> String {
+    static func prompt(_ lines: [String], project: String, sheet: Bool = false) -> String {
         """
         You are Don, an ads expert for short direct-response video ads that sell e-commerce products (TikTok, Reels, Shorts). \
         Read this ad script and brief the other helpers: Tala (voice-over and music), Pix (the CTA end card and pictures) and Kino (AI video clips).
@@ -128,7 +365,12 @@ final class DonReader: ObservableObject {
         - ctaLook: what the CTA end card must say (offer, urgency, button words) and how it should look. Never invent an offer, price or percentage the script does not make.
         - videoShots: the lines whose picture the script does not give (it names no footage, UGC clip, screen recording, product shot or other media for them) \
         and that would need an AI-generated video clip; for each, the line as written and a short idea for the clip. Empty when the script gives media for every line.
-        Write in English, plainly and briefly. Project: \(project).
+        Write in English, plainly and briefly. Project: \(project).\(sheet ? """
+
+        This script comes from the team's script sheet. After each line, in brackets: the footage the sheet gives it ([media: …]) \
+        or [no media], and its effect and the editor's notes when there are any. videoShots are exactly the [no media] lines that \
+        have words, each written as the line alone, without the brackets.
+        """ : "")
         The script, one line each:
         \(lines.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
         """
