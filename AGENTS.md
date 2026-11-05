@@ -135,7 +135,7 @@ fallback for a caption that cannot be placed, and then only for phrases near the
 tabs wait in `otherScripts` with their own progress (`Project.scriptTabs`, `openScript`, `addScript`, `removeScript`).
 Tabs cannot change during a run (a paused run still counts). Removing a script with text backs up projects.json first.
 
-**Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
+**Helpers** (sidebar, under Functions; never part of a highlight run; their pages show the run bar only while a function runs): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
 you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) connects
 to ElevenLabs with your API key (`TalaVoice`, `ElevenLabs` in `Sources/ElevenLabs.swift`; the key lives in the Keychain,
