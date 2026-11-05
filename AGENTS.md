@@ -195,8 +195,19 @@ The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgs
 shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
 projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.
 How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`.
-**Penny** (the numbers of the products you run, from the company's Grafana) has his page only; he will only ever
-read from Grafana, never change it. Each helper has a colour, their body's, for their sidebar button and page.
+**Penny** (the numbers of the products you run, from the company's Grafana) signs in to grafana.selless.com (Grafana
+11.2; Google sign-in only, its login form is off) in a private web view and keeps only the `grafana_session` cookie, in
+the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401
+asks `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once) before
+counting you signed out. He reads the dashboards you can see and saves the three you use (and your starred ones) as
+Grafana sent them in penny/ beside projects.json, never in git. His page draws the one you pick as Grafana draws it
+(`PennyBoard`, the `Grafana` dashboard model in `Sources/GrafanaBoard.swift`; views in `Sources/PennyPanels.swift`): its
+filters, its rows and panels on the 24-column grid, each panel's own queries run through `/api/ds/query` with the
+filters written in as Grafana writes them for SQL (quoted, All as every value or the all-value; `$__timeFilter` and the
+other macros left to Grafana), then the panel's transformations (calculateField, organize, concatenate) and its units,
+decimals, thresholds and cell colours. A closed row reads its panels when opened. Your filters and time are kept per
+dashboard; what each panel last answered (columns, rows, a stat's values or the error) is written to penny/answers/.
+He only reads, never changes anything in Grafana, and runs no query of his own beyond the dashboards'. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 

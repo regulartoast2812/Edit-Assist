@@ -1189,6 +1189,91 @@ struct Checks {
             var full = small; full.free = 5_000_000_000
             check(BoWatcher.advice(full, restartsToday: 0).map(\.id) == ["cache-1", "space"], "Bo: a Mac short of room: clear a cache over 500 MB")
         }
+        // Penny reads Grafana's answers as Grafana 11 gives them (2026-11-05).
+        do {
+            check(Grafana.user(from: Data(#"{"id":7,"login":"duc","email":"d@x.com","name":"Duc"}"#.utf8)) == Grafana.User(name: "Duc", email: "d@x.com", login: "duc")
+                  && Grafana.user(from: Data(#"{"message":"Unauthorized"}"#.utf8)) == nil, "Penny reads who is signed in")
+            let found = Grafana.found(from: Data(#"[{"uid":"a","title":"PMKT","type":"dash-db","folderTitle":"Ops","url":"/d/a/pmkt","isStarred":true},{"uid":"f","title":"Ops","type":"dash-folder"}]"#.utf8))
+            check(found.map(\.uid) == ["a"] && found[0].starred && found[0].folder == "Ops", "Penny lists dashboards, not folders")
+            let dashboard = Grafana.dashboard(from: Data(#"{"meta":{"folderTitle":"Ops"},"dashboard":{"uid":"b","title":"Ops","version":4,"time":{"from":"now/d","to":"now/d"},"templating":{"list":[{"name":"team","type":"query","multi":true,"includeAll":true,"current":{"value":["$__all"]},"query":"select team from publisher","datasource":{"type":"grafana-postgresql-datasource","uid":"pg"}},{"name":"Provider","type":"custom","multi":true,"includeAll":true,"current":{"value":"$__all"},"query":"Facebook, Tiktok,A\\,B, Shown : google"}]},"panels":[{"id":9,"type":"row","title":"Later","collapsed":true,"gridPos":{"x":0,"y":20,"w":24,"h":1},"panels":[{"id":3,"type":"table","gridPos":{"x":0,"y":21,"w":24,"h":8}}]},{"id":6,"type":"stat","title":"  PO","gridPos":{"x":3,"y":0,"w":3,"h":3}},{"id":5,"type":"stat","title":"RE","gridPos":{"x":0,"y":0,"w":3,"h":3}},{"id":8,"type":"row","title":"Dashboards","collapsed":false,"gridPos":{"x":0,"y":3,"w":24,"h":1}},{"id":7,"type":"table","gridPos":{"x":0,"y":4,"w":30,"h":9}}]}}"#.utf8))
+            check(dashboard?.sections.map(\.title) == ["", "Dashboards", "Later"] && dashboard?.sections.map { $0.tiles.map(\.id) } == [[5, 6], [7], [3]]
+                  && dashboard?.sections[2].collapsed == true && dashboard?.sections[0].tiles[1].title == "PO" && dashboard?.sections[1].tiles[0].w == 24
+                  && dashboard?.version == 4 && dashboard?.span == Grafana.Span(from: "now/d", to: "now/d"),
+                  "Penny lays a dashboard out in its rows, panels in grid order, a closed row's panels kept inside it")
+            check(dashboard?.variables.map(\.name) == ["team", "Provider"] && dashboard?.variables[1].options == ["Facebook", "Tiktok", "A,B", "google"]
+                  && dashboard?.variables[0].source == Grafana.Source(uid: "pg", type: "grafana-postgresql-datasource") && dashboard?.variables[1].isAll == true,
+                  "Penny reads a dashboard's filters: a custom list split on commas, \"text : value\" keeping the value")
+            var team = Grafana.Variable(name: "team"); team.multi = true; team.includeAll = true; team.current = ["Ann's", "Bo"]
+            var provider = Grafana.Variable(name: "Provider"); provider.multi = true; provider.includeAll = true; provider.current = [Grafana.Variable.all]; provider.options = ["Facebook", "Tiktok"]
+            var everyone = Grafana.Variable(name: "who"); everyone.includeAll = true; everyone.current = [Grafana.Variable.all]; everyone.allValue = "ALL"
+            let sql = Grafana.interpolate("team in ($team) and p in (SELECT detect(ARRAY[${Provider}])) and $__timeFilter(time) and w = '$who' and ${Provider:csv} [[team]] $teams", with: [team, provider, everyone])
+            check(sql == "team in ('Ann''s','Bo') and p in (SELECT detect(ARRAY['Facebook','Tiktok'])) and $__timeFilter(time) and w = 'ALL' and Facebook,Tiktok 'Ann''s','Bo' $teams",
+                  "Penny writes filters into SQL as Grafana does: quoted, All as every value or the all-value, macros left to Grafana (\(sql))")
+            check(Grafana.interpolate("By $team", with: [team], display: true) == "By Ann's + Bo" && Grafana.mentions("where x in ($team)", "team")
+                  && !Grafana.mentions("where x in ($teams)", "team") && Grafana.mentions("${team:csv}", "team"), "Penny titles with filters and knows which filter a query uses")
+            team.settle(["Bo", "Cy"]); check(team.current == ["Bo"], "A chosen value Grafana no longer has is let go")
+            team.settle(["Cy"]); check(team.current == [Grafana.Variable.all], "With none left the filter goes back to All")
+            var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+            let now = Date(timeIntervalSince1970: 1_793_874_600)  // 2026-11-05 10:30 UTC
+            func at(_ text: String, _ end: Bool) -> String { Grafana.moment(text, end: end, now: now, calendar: utc).map { ISO8601DateFormatter().string(from: $0) } ?? "nil" }
+            check(at("now/d", false) == "2026-11-05T00:00:00Z" && at("now/d", true) == "2026-11-05T23:59:59Z" && at("now-1d/d", false) == "2026-11-04T00:00:00Z"
+                  && at("now-7d", false) == "2026-10-29T10:30:00Z" && at("now-1M/M", true) == "2026-10-31T23:59:59Z" && at("now", true) == "2026-11-05T10:30:00Z",
+                  "Penny reads Grafana's times: now/d is the day, now-1M/M last month")
+            let replies = Grafana.replies(from: Data(#"{"results":{"A":{"status":200,"frames":[{"schema":{"fields":[{"name":"time","type":"time"},{"name":"po_today","type":"number"},{"name":"who","type":"string"}]},"data":{"values":[[1000,2000],[5,null],["a","b"]],"entities":[null,{"NaN":[1]},null]}}]},"B":{"status":400,"error":"pq: column \"x\" does not exist","frames":[]}}}"#.utf8))
+            let answer = replies["A"]?.frames.first
+            check(answer?.columns.map(\.kind) == ["time", "number", "string"] && answer?.columns[1].cells[0] == .number(5) && answer?.columns[1].cells[1].number?.isNaN == true
+                  && replies["B"]?.error == #"pq: column "x" does not exist"#, "Penny reads Grafana's frames, NaN included, and a query's error")
+            check(Grafana.message(in: Data(#"{"results":{"A":{"error":"db query error"}}}"#.utf8)) == "db query error", "A refused query says why")
+            func numbers(_ name: String, _ values: [Double?], kind: String = "number") -> Grafana.Column {
+                Grafana.Column(name: name, kind: kind, cells: values.map { $0.map(Grafana.Cell.number) ?? .none })
+            }
+            let today = Grafana.Frame(columns: [numbers("po_today", [110])]), yesterday = Grafana.Frame(columns: [numbers("po_yesterday", [100])])
+            let change = Grafana.transform([today, yesterday], [
+                ["id": "concatenate", "options": [:]],
+                ["id": "calculateField", "options": ["alias": "a", "mode": "binary", "binary": ["left": "po_today", "operator": "-", "right": "po_yesterday"]]],
+                ["id": "calculateField", "options": ["alias": "b", "mode": "binary", "binary": ["left": "a", "operator": "/", "right": "po_yesterday"]]],
+                ["id": "calculateField", "options": ["mode": "binary", "binary": ["left": "b", "operator": "*", "right": "100"], "replaceFields": true]]])
+            check(change.count == 1 && change[0].columns.map(\.name) == ["b * 100"] && change[0].columns[0].cells == [.number(10)], "Penny works out %PO against yesterday the way the panel does")
+            let joined = Grafana.transform([Grafana.Frame(columns: [numbers("time", [1, 2], kind: "time"), numbers("total_re", [200, 400])]),
+                                            Grafana.Frame(columns: [numbers("time", [2], kind: "time"), numbers("loss", [8])])],
+                                           [["id": "calculateField", "options": ["alias": "RAL", "mode": "binary", "binary": ["left": "loss", "operator": "/", "right": "total_re"]]]])
+            check(joined.count == 1 && joined[0].columns.map(\.name) == ["time", "total_re", "loss", "RAL"] && joined[0].columns[3].cells == [.number(0), .number(0.02)],
+                  "Two queries' series are joined by time before a field is worked out from both, a missing value counting as 0")
+            let organized = Grafana.organize(Grafana.Frame(columns: [numbers("total_po", [1]), numbers("publisher", [2]), numbers("tax", [3]), numbers("cbh", [4])]),
+                                             ["excludeByName": ["tax": true], "indexByName": ["publisher": 0, "total_po": 1], "renameByName": ["total_po": "PO", "cbh": ""]])
+            check(organized.columns.map(\.name) == ["publisher", "PO", "cbh"], "Penny hides, orders and renames columns as the panel's organize step says")
+            check(Grafana.show(702_920, unit: "currencyUSD", decimals: 2).full == "$702.92K" && Grafana.show(-1234.5, unit: "currencyUSD", decimals: 2).full == "-$1.23K"
+                  && Grafana.show(3_100_000, unit: "currencyUSD", decimals: 2) == Grafana.Shown(prefix: "$", text: "3.10", suffix: "M")
+                  && Grafana.show(0.0869, unit: "percentunit", decimals: 2).full == "8.69%" && Grafana.show(-12.334, unit: "percent", decimals: 2).full == "-12.33%"
+                  && Grafana.show(13251, unit: nil, decimals: nil).full == "13251" && Grafana.show(49.32, unit: nil, decimals: nil).full == "49.3"
+                  && Grafana.show(13251, unit: "locale", decimals: nil).full == "13,251" && Grafana.show(.nan, unit: "percent", decimals: 2).full == "–"
+                  && Grafana.show(.infinity, unit: "percentunit", decimals: 2).full == "∞%" && Grafana.show(-0.001, unit: nil, decimals: 2).full == "0.00",
+                  "Penny writes values the way Grafana does: $702.92K, 8.69%, 13251")
+            let fieldConfig: [String: Any] = ["defaults": ["unit": "currencyUSD", "thresholds": ["mode": "absolute", "steps": [["color": "light-green", "value": NSNull()], ["color": "red", "value": -20000], ["color": "light-green", "value": 0]]], "custom": ["cellOptions": ["type": "color-background"]]],
+                                              "overrides": [["matcher": ["id": "byRegexp", "options": "(RE|ME|PC)"], "properties": [["id": "decimals", "value": 2]]],
+                                                            ["matcher": ["id": "byRegexp", "options": ".*/.*"], "properties": [["id": "unit", "value": "percentunit"]]],
+                                                            ["matcher": ["id": "byName", "options": "Product"], "properties": [["id": "color", "value": ["mode": "fixed", "fixedColor": "dark-blue"]], ["id": "custom.width", "value": 113]]]]]
+            let ratio = Grafana.look(for: numbers("ME/RE", []), in: fieldConfig), product = Grafana.look(for: Grafana.Column(name: "Product", kind: "string", cells: []), in: fieldConfig)
+            check(ratio.unit == "percentunit" && ratio.decimals == 2 && ratio.cell == "color-background" && product.color(for: nil) == "dark-blue" && product.width == 113,
+                  "Penny takes a field's look from the defaults and every override that matches it, later ones winning")
+            check(ratio.color(for: 5) == "light-green" && ratio.color(for: -500) == "red" && ratio.color(for: -30000) == "light-green" && ratio.color(for: nil) == "light-green",
+                  "Penny colours a value by the threshold step it reaches")
+            let stat = Grafana.Tile(["id": 1, "type": "stat", "options": ["reduceOptions": ["calcs": ["sum"], "fields": "/^PO$/"]], "fieldConfig": [:]])
+            let figures = Grafana.figures(of: stat, [Grafana.Frame(columns: [numbers("time", [1, 2], kind: "time"), numbers("PO", [3, 4]), numbers("POS", [9])])])
+            check(figures.map(\.name) == ["PO"] && figures.first?.number == 7, "A stat sums the field its pattern picks")
+            let gauge = Grafana.Tile(["id": 2, "type": "bargauge", "options": ["reduceOptions": ["calcs": ["mean"], "values": true]]])
+            check(Grafana.figures(of: gauge, [Grafana.Frame(columns: [Grafana.Column(name: "Age", kind: "string", cells: [.text("18-24"), .text("25-34")]), numbers("CPM", [2, 3])])]).map(\.name) == ["18-24", "25-34"],
+                  "A bar gauge with every value shows a bar per row, named by its text")
+            check(Grafana.values(from: [Grafana.Frame(columns: [Grafana.Column(name: "email", kind: "string", cells: [.text("b@x"), .text("a@x"), .text("b@x"), .none])])], regex: "", sort: 1) == ["a@x", "b@x"]
+                  && Grafana.values(from: [Grafana.Frame(columns: [Grafana.Column(name: "x", kind: "string", cells: [.text("p_1"), .text("q")])])], regex: "/p_(\\d)/", sort: 0) == ["1"],
+                  "A filter's values: sorted, no repeats, its regex keeping the first group")
+            check(Grafana.plainText(fromHTML: "<ul>\nFor ads:\n<li>Data from 17/03 &amp; on</li>\n<li>PO = Ads + Organic</li></ul>") == "For ads:\n• Data from 17/03 & on\n• PO = Ads + Organic",
+                  "A text panel's HTML reads as plain lines")
+            check(Grafana.dateFormat("HH:mm MMM-DD") == "HH:mm MMM-dd" && Grafana.interval(span: 86_400_000, points: 1000) == 300_000, "Grafana's clock format and step read right")
+            let rotated = HTTPURLResponse(url: Grafana.base, statusCode: 200, httpVersion: nil,
+                                          headerFields: ["Set-Cookie": "grafana_session=abc123; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax"])!
+            check(Grafana.sessionCookie(in: rotated) == "abc123", "Penny takes the renewed session Grafana sends")
+        }
         // Don's brief and Pix's jobs (2026-11-04).
         do {
             let brief = try DonBrief(answer: ["product": " Jeans ", "vibe": "Warm", "voice": "", "music": "", "graphicStyle": "Denim blue", "cta": "GET YOURS NOW!",
