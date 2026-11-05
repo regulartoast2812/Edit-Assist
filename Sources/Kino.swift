@@ -562,15 +562,11 @@ struct KinoShotDesk: View {
         VStack(alignment: .leading, spacing: 26) {
             title(plan, files, model)
             if !KinoSummary.issues(plan).isEmpty { problems(KinoSummary.issues(plan)) }
-            KinoSection(title: L("IN THIS SHOT"), note: files.isEmpty ? "" : L("Press a tag to put it in the prompt")) {
-                FlowLayout(spacing: 14) {
-                    ForEach(files) { file in
-                        KinoFileTile(file: file, role: desk.role(of: file, in: code), seconds: desk.durations[file.id],
-                                     sentAs: plan.inputs.first { $0.handle == file.handle }?.tag,
-                                     choose: { desk.setRole($0, of: file, in: code) }, tag: { insert = "@" + file.handle },
-                                     takeOut: { desk.takeOut(file, of: code) })
-                    }
-                    KinoDropTile(code: code, empty: files.isEmpty, drop: { desk.add($0, into: code) }, choose: { desk.choose(into: code) })
+            KinoSection(title: L("IN THIS SHOT"), note: L("Drop a file on a box, or press the box to choose one")) {
+                // Pictures, videos and sounds side by side when they fit, one under another when not.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 30) { ForEach(groups(plan, files, model), id: \.title) { group($0, plan, wraps: false) } }
+                    VStack(alignment: .leading, spacing: 20) { ForEach(groups(plan, files, model), id: \.title) { group($0, plan, wraps: true) } }
                 }
             }
             KinoSection(title: L("PROMPT"), trailing: { count(plan, model) }) { prompt(plan, files) }
@@ -586,6 +582,56 @@ struct KinoShotDesk: View {
                                 lengthFrom: plan.seconds == nil ? files.first { desk.role(of: $0, in: code) == .edit }?.handle : nil)
             }
             sent(plan)
+        }
+    }
+
+    struct Slots { let title: String; let room: String; let slots: [KinoSlot] }
+
+    /// The shot's places by what goes in them, each with how many the model takes; files left out last.
+    func groups(_ plan: KinoPlan, _ files: [KinoFile], _ model: KinoModel) -> [Slots] {
+        let roles = desk.shot(code).roles
+        let slots = KinoSlot.all(model: model.id, files: files, roles: roles)
+        let most = KinoSlot.most(model: model.id, files: files, roles: roles)
+        func used(_ slot: KinoSlot) -> Bool { if case .file(let file) = slot { desk.role(of: file, in: code) != .unused } else { true } }
+        var groups: [Slots] = []
+        for (kind, title) in [(KinoKind.image, L("PICTURES")), (.video, L("VIDEO")), (.audio, L("SOUNDS"))] {
+            let these = slots.filter { $0.kind == kind && used($0) }
+            guard !these.isEmpty else { continue }
+            let filled = these.filter { if case .file = $0 { true } else { false } }.count
+            groups.append(Slots(title: title, room: most[kind].map { L("%@ of %@", filled, $0) } ?? "", slots: these))
+        }
+        let out = slots.filter { !used($0) }
+        if !out.isEmpty { groups.append(Slots(title: L("LEFT OUT"), room: "", slots: out)) }
+        return groups
+    }
+
+    @ViewBuilder
+    func group(_ group: Slots, _ plan: KinoPlan, wraps: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(group.title).font(.system(size: 9, weight: .bold)).tracking(1.2).foregroundStyle(.secondary)
+                Text(group.room).font(.system(size: 9.5, weight: .medium).monospacedDigit()).foregroundStyle(.tertiary)
+            }
+            if wraps {
+                FlowLayout(spacing: 14) { ForEach(Array(group.slots.enumerated()), id: \.offset) { slot($0.element, plan) } }
+            } else {
+                HStack(alignment: .top, spacing: 14) { ForEach(Array(group.slots.enumerated()), id: \.offset) { slot($0.element, plan) } }
+            }
+        }
+    }
+
+    @ViewBuilder
+    func slot(_ slot: KinoSlot, _ plan: KinoPlan) -> some View {
+        let model = KinoModel.named(desk.settings(code).model)
+        switch slot {
+        case .file(let file):
+            KinoFileTile(file: file, role: desk.role(of: file, in: code), seconds: desk.durations[file.id],
+                         sentAs: plan.inputs.first { $0.handle == file.handle }?.tag,
+                         choose: { desk.setRole($0, of: file, in: code) }, tag: { insert = "@" + file.handle },
+                         takeOut: { desk.takeOut(file, of: code) })
+        case .empty(let role):
+            KinoEmptySlot(role: role, motionControl: model.id == "kling-motion",
+                          drop: { desk.add($0, into: code, as: role) }, choose: { desk.choose(into: code, as: role) })
         }
     }
 
@@ -777,29 +823,34 @@ struct KinoFileTile: View {
     }
 }
 
-/// The last place in a shot's files: drop files here (from the media or Finder), or press it to choose some.
-struct KinoDropTile: View {
-    let code: String
-    let empty: Bool
+/// An empty place in a shot: a dashed box with a + in its role's colour, saying what goes there. A file dropped on it
+/// joins the shot in that role; pressing it opens the file chooser.
+struct KinoEmptySlot: View {
+    let role: KinoRole
+    let motionControl: Bool
     let drop: ([URL]) -> Void
     let choose: () -> Void
     @State private var targeted = false
-    private let accent = PixelKino.theme
+    @State private var hovering = false
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "plus").font(.system(size: 18, weight: .light))
-            Text(empty ? L("Drag files here from the media") : L("Drop more here")).font(.system(size: 10.5, weight: .medium))
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+        let title = motionControl ? (role == .look ? L("The person") : L("The performance")) : L(role.title)
+        let kind = switch role { case .look, .start, .end: L("A picture"); case .motion, .edit: L("A video"); default: L("A sound") }
+        VStack(spacing: 7) {
+            Image(systemName: "plus").font(.system(size: 22, weight: .light))
+            Text(title).font(.system(size: 11.5, weight: .semibold)).multilineTextAlignment(.center)
+            Text(kind).font(.system(size: 10)).opacity(0.7)
         }
-        .foregroundStyle(targeted ? accent : .secondary)
+        .foregroundStyle(role.color.opacity(targeted || hovering ? 1 : 0.75))
         .padding(10)
         .frame(width: KinoFileTile.width, height: 146)
-        .background(RoundedRectangle(cornerRadius: 9).fill(targeted ? accent.opacity(0.1) : .clear))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(targeted ? accent : .white.opacity(0.16), style: StrokeStyle(lineWidth: targeted ? 2 : 1.2, dash: [5, 4])))
+        .background(RoundedRectangle(cornerRadius: 9).fill(role.color.opacity(targeted ? 0.16 : hovering ? 0.08 : 0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(role.color.opacity(targeted ? 1 : 0.5),
+                                                               style: StrokeStyle(lineWidth: targeted ? 2 : 1.5, dash: targeted ? [] : [6, 4])))
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
         .onTapGesture(perform: choose)
         .dropDestination(for: URL.self) { urls, _ in drop(urls); return !urls.isEmpty } isTargeted: { targeted = $0 }
-        .help(L("Drop pictures, videos or sounds into %@, or press to choose them", code))
+        .help(L(role.detail))
     }
 }
 

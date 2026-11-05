@@ -89,15 +89,22 @@ final class KinoDesk: ObservableObject {
 
     /// Files you drop or add (a folder brings the media in it, three folders deep). Into `shot` when dropped on one;
     /// otherwise a file whose name has a shot code goes into that shot, made if new (K1.1 into K1). A bare number ("7")
-    /// is not taken as a code here: too many files are named like that.
-    func add(_ urls: [URL], into shot: String? = nil) {
+    /// is not taken as a code here: too many files are named like that. Dropped on a shot's empty place, `role` is that
+    /// place's role, for the files that can have it.
+    func add(_ urls: [URL], into shot: String? = nil, as role: KinoRole? = nil) {
         var codes: [String] = []
         for url in urls.flatMap(Self.expand) {
             let path = url.standardizedFileURL.path
             if !batch.media.contains(path) { batch.media.append(path) }
             let name = url.deletingPathExtension().lastPathComponent
             let code = shot ?? KinoCode.parse(name).flatMap { $0.code.first?.isLetter == true || $0.code.contains(".") ? $0.shot : nil }
-            if let code { put(path, into: code); codes.append(code) }
+            if let code {
+                let tag = put(path, into: code)
+                if let role, let kind = KinoKind(url), KinoRole.choices(kind).contains(role) {
+                    edit(code) { $0.roles[tag] = role == .usual(kind) ? nil : role }
+                }
+                codes.append(code)
+            }
         }
         if let first = codes.first, shot == nil || selected == nil { selected = first }
         save()
@@ -105,13 +112,13 @@ final class KinoDesk: ObservableObject {
     }
 
     /// Opens the file chooser and adds what you pick.
-    func choose(into shot: String? = nil) {
+    func choose(into shot: String? = nil, as role: KinoRole? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
         panel.prompt = L("Add")
         panel.message = L("Pictures, videos and sounds for this batch. Files named K1, K1.1… go into their shot.")
         guard panel.runModal() == .OK else { return }
-        add(panel.urls, into: shot)
+        add(panel.urls, into: shot, as: role)
     }
 
     /// A new shot after the last one with the same letters (K7 after K6; K1 when there is none), with these files.
@@ -155,13 +162,15 @@ final class KinoDesk: ObservableObject {
 
     /// The file into the shot under a tag of its own there: the code in its name when that is this shot's and free
     /// (K1.1), the code and its words when the code is taken (K9-ref), else the shot's next number (K2.3).
-    private func put(_ path: String, into code: String) {
+    @discardableResult
+    private func put(_ path: String, into code: String) -> String {
         if !batch.order.contains(code) {
             batch.order.append(code)
             batch.order.sort(by: KinoCode.before)
         }
+        if let had = shot(code).inputs.first(where: { $0.path == path }) { return had.tag }
+        var made = code
         edit(code) { shot in
-            guard !shot.inputs.contains(where: { $0.path == path }) else { return }
             let taken = Set(shot.inputs.map { $0.tag.lowercased() })
             let parsed = KinoCode.parse(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
             var tag: String?
@@ -177,8 +186,10 @@ final class KinoDesk: ObservableObject {
                 while taken.contains("\(code).\(number)".lowercased()) { number += 1 }
                 tag = "\(code).\(number)"
             }
-            shot.inputs.append(KinoInput(path: path, tag: tag!))
+            made = tag!
+            shot.inputs.append(KinoInput(path: path, tag: made))
         }
+        return made
     }
 
     func setPrompt(_ text: String, for code: String) { edit(code) { $0.prompt = text } }
@@ -235,6 +246,63 @@ final class KinoDesk: ObservableObject {
             }
         }
         return found.sorted { KinoCode.before($0.lastPathComponent, $1.lastPathComponent) }
+    }
+}
+
+/// The places in a shot for its model, in order: start frame, end frame, looks, videos, sounds. Each file sits where its
+/// role puts it; a role the model still has room for gets one empty place (a box with a + on the page, where a dropped
+/// file takes that role). Files in a role the model has no place for come next (their problem is said in the plan), left-out
+/// files last. Room as each model takes it (docs/kino/README.md): Kling O3 4 pictures with its one video, 7 without;
+/// Seedance 30 pictures, 10 videos, 10 sounds; Kling 4.0 10 pictures, 5 videos; Motion Control one person, one performance.
+enum KinoSlot: Equatable {
+    case file(KinoFile)
+    case empty(KinoRole)
+
+    static func all(model: String, files: [KinoFile], roles: [String: KinoRole]) -> [KinoSlot] {
+        func of(_ role: KinoRole) -> [KinoFile] { files.filter { KinoRole.of($0, roles) == role } }
+        let starts = of(.start), ends = of(.end), looks = of(.look), motions = of(.motion), edits = of(.edit), sounds = of(.sound)
+        let pictures = starts.count + ends.count + looks.count, videos = motions.count + edits.count
+        var room: [KinoRole: Bool]
+        switch model {
+        case "kling-motion":
+            room = [.look: looks.isEmpty, .motion: motions.isEmpty]
+        case "seedance-2.5":
+            room = [.start: starts.isEmpty, .end: ends.isEmpty, .look: pictures < 30, .motion: videos < 10, .edit: edits.isEmpty && videos < 10,
+                    .sound: sounds.count < 10]
+        case "kling-4.0":
+            room = [.start: starts.isEmpty, .end: ends.isEmpty, .look: looks.count < 10, .motion: videos < 5, .edit: edits.isEmpty && videos < 5]
+        default:
+            let most = videos == 0 ? 7 : 4
+            room = [.start: starts.isEmpty && pictures < most, .end: ends.isEmpty && pictures < most, .look: pictures < most,
+                    .motion: videos == 0, .edit: videos == 0]
+        }
+        var slots: [KinoSlot] = []
+        let order: [KinoRole] = [.start, .end, .look, .motion, .edit, .sound]
+        for role in order where room[role] != nil {
+            slots += of(role).map { .file($0) }
+            if room[role] == true { slots.append(.empty(role)) }
+        }
+        slots += order.filter { room[$0] == nil }.flatMap(of).map { .file($0) }
+        return slots + of(.unused).map { .file($0) }
+    }
+
+    /// How many pictures, videos and sounds the model takes in a shot; a kind it does not take is left out.
+    static func most(model: String, files: [KinoFile], roles: [String: KinoRole]) -> [KinoKind: Int] {
+        let videos = files.filter { [.motion, .edit].contains(KinoRole.of($0, roles)) }.count
+        switch model {
+        case "kling-motion": return [.image: 1, .video: 1]
+        case "seedance-2.5": return [.image: 30, .video: 10, .audio: 10]
+        case "kling-4.0": return [.image: 12, .video: 5]
+        default: return [.image: videos == 0 ? 7 : 4, .video: 1]
+        }
+    }
+
+    /// The kind of file that goes in this place.
+    var kind: KinoKind {
+        switch self {
+        case .file(let file): file.kind
+        case .empty(let role): [.motion, .edit].contains(role) ? .video : role == .sound ? .audio : .image
+        }
     }
 }
 

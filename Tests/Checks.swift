@@ -1348,7 +1348,22 @@ struct Checks {
                 desk.remove(at("K1.png").path)
                 check(desk.files(in: "K9").map(\.handle) == ["K9"] && desk.files(in: "K1").map(\.handle) == ["K1.1"] && desk.media.count == 4,
                       "Taking a file out of a shot keeps it in the media; removing it takes it out of every shot")
+                desk.add([at("clip.mp4")], into: "K1", as: .edit)
+                desk.add([at("hero.png")], into: "K1", as: .start)
+                check(desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "clip.mp4" }!, in: "K1") == .edit
+                      && desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "hero.png" }!, in: "K1") == .start,
+                      "A file dropped on a shot's empty place takes that place's role")
             }
+            func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
+                KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
+                    switch slot { case .file(let file): file.handle; case .empty(let role): "+" + role.rawValue }
+                }
+            }
+            check(slots("kling-o3", []) == ["+start", "+end", "+look", "+motion", "+edit"]
+                  && slots("kling-o3", ["K1.png", "K1.1.png", "K1.2.png", "K1.3.png", "K1.4.mp4"]) == ["K1", "K1.1", "K1.2", "K1.3", "K1.4"],
+                  "An empty Kling O3 shot shows a place for each role; with its video and 4 pictures it has no room left")
+            check(slots("kling-motion", ["K2.png"]) == ["K2", "+motion"] && slots("seedance-2.5", ["K3.mp3"]) .suffix(2) == ["K3", "+sound"],
+                  "Motion Control has a place for the person and the performance; Seedance has places for sounds")
         }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {
