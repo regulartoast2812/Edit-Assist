@@ -1219,6 +1219,12 @@ struct Checks {
             check(at("now/d", false) == "2026-11-05T00:00:00Z" && at("now/d", true) == "2026-11-05T23:59:59Z" && at("now-1d/d", false) == "2026-11-04T00:00:00Z"
                   && at("now-7d", false) == "2026-10-29T10:30:00Z" && at("now-1M/M", true) == "2026-10-31T23:59:59Z" && at("now", true) == "2026-11-05T10:30:00Z",
                   "Penny reads Grafana's times: now/d is the day, now-1M/M last month")
+            let alaska = Grafana.zone([nil, "", "America/Anchorage", "utc"])
+            var anchorage = utc; anchorage.timeZone = alaska
+            check(alaska.identifier == "America/Anchorage" && Grafana.zone(["browser", "utc"]) == .current && Grafana.zone([nil]) == .current
+                  && Grafana.moment("now/d", end: false, now: now, calendar: anchorage).map { ISO8601DateFormatter().string(from: $0) } == "2026-11-05T09:00:00Z"
+                  && Grafana.preferredZone(from: Data(#"{"theme":"","timezone":"America/Anchorage","weekStart":""}"#.utf8)) == "America/Anchorage",
+                  "Penny counts the day in Grafana's timezone (the dashboard's, yours, your team's, the company's), not this Mac's")
             let replies = Grafana.replies(from: Data(#"{"results":{"A":{"status":200,"frames":[{"schema":{"fields":[{"name":"time","type":"time"},{"name":"po_today","type":"number"},{"name":"who","type":"string"}]},"data":{"values":[[1000,2000],[5,null],["a","b"]],"entities":[null,{"NaN":[1]},null]}}]},"B":{"status":400,"error":"pq: column \"x\" does not exist","frames":[]}}}"#.utf8))
             let answer = replies["A"]?.frames.first
             check(answer?.columns.map(\.kind) == ["time", "number", "string"] && answer?.columns[1].cells[0] == .number(5) && answer?.columns[1].cells[1].number?.isNaN == true

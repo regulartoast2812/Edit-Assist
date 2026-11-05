@@ -143,14 +143,23 @@ final class PennyDesk: ObservableObject {
     @Published private(set) var reading = false
     @Published private(set) var failure: String?
     private var sources: [Grafana.Source]
+    /// Your, your team's and the company's timezone in Grafana, in that order (nil when not set).
+    private var zones: [String?]
     private var opened = false
 
     static var folder: URL { Studio.folder.appendingPathComponent("penny", isDirectory: true) }
 
     init() {
         sources = (try? Data(contentsOf: Self.folder.appendingPathComponent("datasources.json"))).map(Grafana.sources(from:)) ?? []
+        zones = Self.zones(in: Self.folder)
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.folder.appendingPathComponent("dashboards"), includingPropertiesForKeys: nil)) ?? []
         boards = Self.ordered(files.filter { $0.pathExtension == "json" }.compactMap { (try? Data(contentsOf: $0)).flatMap(Grafana.dashboard(from:)) })
+    }
+
+    static func zones(in folder: URL) -> [String?] {
+        ["preferences-user.json", "preferences-team.json", "preferences-org.json"].map {
+            (try? Data(contentsOf: folder.appendingPathComponent($0))).flatMap(Grafana.preferredZone(from:))
+        }
     }
 
     /// The three you use first, in their order, then the ones you starred by name.
@@ -207,6 +216,7 @@ final class PennyDesk: ObservableObject {
     /// Draws a dashboard on the page and reads its numbers.
     func show(_ uid: String) {
         guard let dashboard = boards.first(where: { $0.uid == uid }) ?? boards.first else { board = nil; return }
+        Grafana.zone = Grafana.zone([dashboard.timezone] + zones)
         let board = PennyBoard(dashboard: dashboard, sources: sources)
         board.onBusy = { [weak self] in self?.reading = $0 }
         board.onSignedOut = { [weak self] in self?.signOut() }
@@ -228,6 +238,15 @@ final class PennyDesk: ObservableObject {
                     try? data.write(to: folder.appendingPathComponent(file))
                     if file == "datasources.json" { sources = Grafana.sources(from: data) }
                 }
+                // The timezone Grafana counts your days in: yours, your team's, the company's.
+                let teams = (try? Data(contentsOf: folder.appendingPathComponent("teams.json"))).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [[String: Any]] } ?? []
+                var preferences = [("api/user/preferences", "preferences-user.json"), ("api/org/preferences", "preferences-org.json")]
+                if let team = (teams.first?["id"] as? NSNumber)?.intValue { preferences.append(("api/teams/\(team)/preferences", "preferences-team.json")) }
+                for (path, file) in preferences {
+                    if let data = try? await Grafana.request(path) { try? data.write(to: folder.appendingPathComponent(file)) }
+                }
+                let zonesChanged = Self.zones(in: folder) != zones
+                zones = Self.zones(in: folder)
                 let search = try await Grafana.request("api/search?type=dash-db&limit=5000")
                 try search.write(to: folder.appendingPathComponent("search.json"))
                 dashboards = Grafana.found(from: search)
@@ -243,6 +262,7 @@ final class PennyDesk: ObservableObject {
                 if board?.dashboard.uid != chosen, boards.contains(where: { $0.uid == chosen }) { show(chosen) }
                 else if let board, let fresh = boards.first(where: { $0.uid == board.dashboard.uid }), fresh.version != board.dashboard.version { show(fresh.uid) }
                 else if board == nil { show(chosen) }
+                else if zonesChanged, let board { show(board.dashboard.uid) }
             } catch Grafana.Failure.signedOut {
                 state = .signedOut
             } catch {
