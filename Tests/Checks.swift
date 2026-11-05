@@ -1332,6 +1332,23 @@ struct Checks {
             var fit = KinoSettings(); fit.model = "seedance-2.5"; fit.quality = "1080p"; fit.seconds = 30; fit.aspect = "21:9"
             let fitted = fit.fitted(to: KinoModel.named("kling-o3"))
             check(fitted.quality == "pro" && fitted.seconds == 15 && fitted.aspect == "9:16", "Switching model keeps the picture size and fits the length and shape")
+            // The media you put in (2026-11-05): nothing read unless dropped; coded names file themselves, any file goes anywhere.
+            await MainActor.run {
+                let desk = KinoDesk()
+                func at(_ name: String) -> URL { folder.appendingPathComponent(name) }
+                desk.add([at("K1.png"), at("K1.1.png"), at("K9 ref.mp4"), at("7.png"), at("IMG_1234.jpg"), at("notes.txt")])
+                check(desk.media.count == 5 && desk.shots == ["K1", "K9"] && desk.files(in: "K1").map(\.handle) == ["K1", "K1.1"]
+                      && desk.files(in: "K9").map(\.handle) == ["K9"], "Dropped files with a shot code go into their shot; a bare number and other names stay in the media")
+                desk.add([at("IMG_1234.jpg"), at("K1.png")], into: "K9")
+                check(desk.files(in: "K9").map(\.handle) == ["K9", "K9.1", "K9.2"] && desk.files(in: "K1").count == 2
+                      && desk.shots(using: at("K1.png").path) == ["K1", "K9"], "A file dragged onto a shot gets that shot's next tag, and can be in many shots")
+                let made = desk.newShot(with: [at("7.png")])
+                check(made == "K10" && desk.shots.last == "K10" && desk.files(in: "K10").map(\.handle) == ["K10"], "New shot comes after the last, with what was dropped on it")
+                desk.takeOut(desk.files(in: "K9")[1], of: "K9")
+                desk.remove(at("K1.png").path)
+                check(desk.files(in: "K9").map(\.handle) == ["K9"] && desk.files(in: "K1").map(\.handle) == ["K1.1"] && desk.media.count == 4,
+                      "Taking a file out of a shot keeps it in the media; removing it takes it out of every shot")
+            }
         }
         // Script tabs: each script keeps its own text and progress; the open one is the project's script, as runs read it.
         do {

@@ -3,40 +3,51 @@ import AVFoundation
 import Foundation
 import Security
 
-/// Kino's desk (2026-11-04). A batch is a folder of your media named by shot code: K1, K1.1 and K1.2 all go into shot
-/// K1's one prompt, each under its own tag (@K1.1). Every file has a role in its shot (look, start frame, camera and
-/// motion, video to edit…), and the roles, not a mode tab, decide which of the model's endpoints the shot goes to, so an
-/// edit is never sent as a reference by chance (docs/kino/forge.md). Kept beside projects.json, one file per project
-/// (`kino/<project>.json`), never in it; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet.
+/// Kino's desk (2026-11-04, the media you put in since 2026-11-05). A batch starts empty: Kino reads only the files you
+/// drop or add, never a folder by himself. A file named by shot code goes into its shot as it comes in (K1.1 and K1.2
+/// into K1's one prompt, each under its own tag); any file can be dragged into any shot, and one picture can be in many
+/// shots, under a tag of each (K2.3). Every file has a role in its shot (look, start frame, camera and motion, video to
+/// edit…), and the roles, not a mode tab, decide which of the model's endpoints the shot goes to, so an edit is never sent
+/// as a reference by chance (docs/kino/forge.md). Kept beside projects.json, one file per project (`kino/<project>.json`),
+/// never in it; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet.
 @MainActor
 final class KinoDesk: ObservableObject {
     @Published private(set) var batch = KinoBatch()
-    @Published private(set) var files: [KinoFile] = []
-    /// Video and sound lengths in seconds, by path, read after the folder.
+    /// Video and sound lengths in seconds, by path.
     @Published private(set) var durations: [String: Double] = [:]
-    /// Takes already made, in the batch folder's Kino folder.
-    @Published private(set) var outputs: [URL] = []
+    /// Files of the batch no longer where they were put in (moved, renamed or deleted in Finder).
+    @Published private(set) var missing: Set<String> = []
     @Published var selected: String?
     @Published private(set) var hasKling = KinoKeys.kling != nil
     @Published private(set) var hasHiggsfield = KinoKeys.higgsfield != nil
     private var project: UUID?
 
-    var folder: URL? { batch.folder.map { URL(fileURLWithPath: $0, isDirectory: true) } }
-    var outputFolder: URL? { folder?.appendingPathComponent("Kino", isDirectory: true) }
-    var shots: [String] {
-        var seen = Set<String>()
-        return files.compactMap(\.shot).filter { seen.insert($0).inserted }.sorted(by: KinoCode.before)
+    /// The media you put in, in the order it came.
+    var media: [KinoFile] {
+        batch.media.compactMap { path in
+            let url = URL(fileURLWithPath: path)
+            return KinoKind(url).map { KinoFile(url: url, kind: $0, shot: nil, handle: url.deletingPathExtension().lastPathComponent) }
+        }
     }
-    /// Files whose names start with no shot code.
-    var loose: [KinoFile] { files.filter { $0.shot == nil } }
-    func files(in shot: String) -> [KinoFile] { files.filter { $0.shot == shot } }
+    var shots: [String] { batch.order }
+    /// A shot's files, each under its tag in that shot.
+    func files(in code: String) -> [KinoFile] {
+        shot(code).inputs.compactMap { input in
+            let url = URL(fileURLWithPath: input.path)
+            return KinoKind(url).map { KinoFile(url: url, kind: $0, shot: code, handle: input.tag) }
+        }
+    }
+    /// The shots a file is in.
+    func shots(using path: String) -> [String] { batch.order.filter { shot($0).inputs.contains { $0.path == path } } }
     func shot(_ code: String) -> KinoShot { batch.shots[code] ?? KinoShot() }
     /// The shot's own settings, or the batch's when it has none.
     func settings(_ code: String) -> KinoSettings { shot(code).settings ?? batch.settings }
     func role(of file: KinoFile, in code: String) -> KinoRole { KinoRole.of(file, shot(code).roles) }
     func plan(_ code: String) -> KinoPlan {
-        KinoRequest.plan(files: files(in: code), roles: shot(code).roles, prompt: shot(code).prompt, shared: batch.shared,
-                         settings: settings(code), durations: durations)
+        var plan = KinoRequest.plan(files: files(in: code), roles: shot(code).roles, prompt: shot(code).prompt, shared: batch.shared,
+                                    settings: settings(code), durations: durations)
+        for file in files(in: code) where missing.contains(file.id) { plan.problems.insert(L("@%@ is no longer on this Mac", file.handle), at: 0) }
+        return plan
     }
 
     /// Why shots cannot run yet, said once: a missing key, something to fix, or sending, which is not built yet.
@@ -55,43 +66,118 @@ final class KinoDesk: ObservableObject {
     }
     func missingKey(_ codes: [String]) -> Bool { !missingKeys(codes).isEmpty }
 
-    /// The project's batch, when the page opens or the project changes; the folder is read every time.
+    /// The project's batch, when the page opens or the project changes.
     func open(project id: UUID) {
         if id != project {
             project = id
             batch = (try? JSONDecoder().decode(KinoBatch.self, from: Data(contentsOf: Self.file(id)))) ?? KinoBatch()
-            files = []; outputs = []; selected = nil
+            selected = batch.order.first
         }
         refresh()
     }
 
-    @discardableResult
-    func chooseFolder() -> Bool {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        panel.directoryURL = folder; panel.prompt = L("Use this batch")
-        panel.message = L("The folder with this batch's pictures and videos, named by shot: K1, K1.1, K2…")
-        guard panel.runModal() == .OK, let url = panel.url else { return false }
-        batch.folder = url.path
-        selected = nil
-        save()
-        refresh()
-        return true
-    }
-
-    /// Reads the folder off the main thread (macOS may ask before an app reads a folder like Downloads), then the
-    /// lengths of the videos and sounds it has not read yet.
+    /// Which files are still there, then the lengths of the videos and sounds not read yet.
     func refresh() {
-        guard let folder else { files = []; outputs = []; return }
+        missing = Set(batch.media.filter { !FileManager.default.fileExists(atPath: $0) })
+        if selected.map(batch.order.contains) != true { selected = batch.order.first }
         Task {
-            let found = await Task.detached(priority: .utility) { KinoDesk.scan(folder) }.value
-            guard self.folder == folder else { return }
-            files = KinoCode.files(found.inputs)
-            outputs = found.outputs
-            if selected.map(shots.contains) != true { selected = shots.first }
-            for file in files where file.kind != .image && durations[file.id] == nil {
+            for file in media where file.kind != .image && durations[file.id] == nil && !missing.contains(file.id) {
                 if let time = try? await AVURLAsset(url: file.url).load(.duration), time.isNumeric { durations[file.id] = time.seconds }
             }
+        }
+    }
+
+    /// Files you drop or add (a folder brings the media in it, three folders deep). Into `shot` when dropped on one;
+    /// otherwise a file whose name has a shot code goes into that shot, made if new (K1.1 into K1). A bare number ("7")
+    /// is not taken as a code here: too many files are named like that.
+    func add(_ urls: [URL], into shot: String? = nil) {
+        var codes: [String] = []
+        for url in urls.flatMap(Self.expand) {
+            let path = url.standardizedFileURL.path
+            if !batch.media.contains(path) { batch.media.append(path) }
+            let name = url.deletingPathExtension().lastPathComponent
+            let code = shot ?? KinoCode.parse(name).flatMap { $0.code.first?.isLetter == true || $0.code.contains(".") ? $0.shot : nil }
+            if let code { put(path, into: code); codes.append(code) }
+        }
+        if let first = codes.first, shot == nil || selected == nil { selected = first }
+        save()
+        refresh()
+    }
+
+    /// Opens the file chooser and adds what you pick.
+    func choose(into shot: String? = nil) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
+        panel.prompt = L("Add")
+        panel.message = L("Pictures, videos and sounds for this batch. Files named K1, K1.1… go into their shot.")
+        guard panel.runModal() == .OK else { return }
+        add(panel.urls, into: shot)
+    }
+
+    /// A new shot after the last one with the same letters (K7 after K6; K1 when there is none), with these files.
+    @discardableResult
+    func newShot(with urls: [URL] = []) -> String {
+        let letters = batch.order.last.map { String($0.prefix { $0.isLetter }) } ?? "K"
+        let used = batch.order.compactMap { KinoCode.parse($0) }.filter { $0.shot.hasPrefix(letters) && $0.shot.dropFirst(letters.count).allSatisfy(\.isNumber) }
+            .compactMap { Int($0.shot.dropFirst(letters.count)) }
+        let code = letters + String((used.max() ?? 0) + 1)
+        batch.order.append(code)
+        selected = code
+        if urls.isEmpty { save() } else { add(urls, into: code) }
+        return code
+    }
+
+    func removeShot(_ code: String) {
+        batch.order.removeAll { $0 == code }
+        batch.shots[code] = nil
+        if selected == code { selected = batch.order.first }
+        save()
+    }
+
+    /// Takes a file out of one shot; it stays in the media.
+    func takeOut(_ file: KinoFile, of code: String) {
+        edit(code) { shot in
+            shot.inputs.removeAll { $0.tag == file.handle }
+            shot.roles[file.handle] = nil
+        }
+    }
+
+    /// Takes a file out of the batch and every shot; the file itself is not touched.
+    func remove(_ path: String) {
+        batch.media.removeAll { $0 == path }
+        for code in batch.order { edit(code) { shot in
+            for input in shot.inputs where input.path == path { shot.roles[input.tag] = nil }
+            shot.inputs.removeAll { $0.path == path }
+        } }
+        save()
+        refresh()
+    }
+
+    /// The file into the shot under a tag of its own there: the code in its name when that is this shot's and free
+    /// (K1.1), the code and its words when the code is taken (K9-ref), else the shot's next number (K2.3).
+    private func put(_ path: String, into code: String) {
+        if !batch.order.contains(code) {
+            batch.order.append(code)
+            batch.order.sort(by: KinoCode.before)
+        }
+        edit(code) { shot in
+            guard !shot.inputs.contains(where: { $0.path == path }) else { return }
+            let taken = Set(shot.inputs.map { $0.tag.lowercased() })
+            let parsed = KinoCode.parse(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+            var tag: String?
+            if let parsed, parsed.shot == code {
+                if !taken.contains(parsed.code.lowercased()) { tag = parsed.code }
+                else if !parsed.label.isEmpty, !taken.contains((parsed.code + "-" + KinoCode.slug(parsed.label)).lowercased()) {
+                    tag = parsed.code + "-" + KinoCode.slug(parsed.label)
+                }
+            }
+            if tag == nil, !taken.contains(code.lowercased()) { tag = code }
+            if tag == nil {
+                var number = 1
+                while taken.contains("\(code).\(number)".lowercased()) { number += 1 }
+                tag = "\(code).\(number)"
+            }
+            shot.inputs.append(KinoInput(path: path, tag: tag!))
         }
     }
 
@@ -135,42 +221,67 @@ final class KinoDesk: ObservableObject {
 
     nonisolated static func file(_ project: UUID) -> URL { Studio.folder.appendingPathComponent("kino/\(project.uuidString).json") }
 
-    /// The batch's media (three folders deep at most, without hidden files and packages), and the takes in its Kino folder.
-    nonisolated static func scan(_ folder: URL) -> (inputs: [URL], outputs: [URL]) {
-        let manager = FileManager.default
-        let output = folder.appendingPathComponent("Kino", isDirectory: true).standardizedFileURL.path
-        var inputs: [URL] = []
-        if let walk = manager.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
-            for case let url as URL in walk {
-                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    if url.standardizedFileURL.path == output || walk.level >= 3 { walk.skipDescendants() }
-                } else if KinoKind(url) != nil {
-                    inputs.append(url)
+    /// A dropped file as itself; a dropped folder as the media in it, three folders deep, without hidden files, in name order.
+    nonisolated static func expand(_ url: URL) -> [URL] {
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return KinoKind(url) == nil ? [] : [url] }
+        var found: [URL] = []
+        if let walk = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
+            for case let item as URL in walk {
+                if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    if walk.level >= 3 { walk.skipDescendants() }
+                } else if KinoKind(item) != nil {
+                    found.append(item)
                 }
             }
         }
-        let outputs = ((try? manager.contentsOfDirectory(at: URL(fileURLWithPath: output, isDirectory: true), includingPropertiesForKeys: nil,
-                                                          options: .skipsHiddenFiles)) ?? [])
-            .filter { KinoKind($0) == .video }.sorted { KinoCode.before($0.lastPathComponent, $1.lastPathComponent) }
-        return (inputs, outputs)
+        return found.sorted { KinoCode.before($0.lastPathComponent, $1.lastPathComponent) }
     }
 }
 
-/// One project's batch: its folder, the words said in every shot (the product's facts, the look), the settings every
-/// shot starts from, and what you changed per shot.
+/// One project's batch: the media you put in, the shots in order, the words said in every shot (the product's facts, the
+/// look), the settings every shot starts from, and each shot's files, prompt and changes. Batches saved before
+/// 2026-11-05 had a folder instead of media; they open empty.
 struct KinoBatch: Codable, Equatable {
-    var folder: String?
+    var media: [String] = []
+    var order: [String] = []
     var shared = ""
     var settings = KinoSettings()
     var shots: [String: KinoShot] = [:]
+    init() {}
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        media = try values.decodeIfPresent([String].self, forKey: .media) ?? []
+        order = try values.decodeIfPresent([String].self, forKey: .order) ?? []
+        shared = try values.decodeIfPresent(String.self, forKey: .shared) ?? ""
+        settings = try values.decodeIfPresent(KinoSettings.self, forKey: .settings) ?? KinoSettings()
+        shots = try values.decodeIfPresent([String: KinoShot].self, forKey: .shots) ?? [:]
+    }
 }
 
 struct KinoShot: Codable, Equatable {
+    /// Its files in the order they came, each under its tag in this shot.
+    var inputs: [KinoInput] = []
     var prompt = ""
     /// Roles you changed, by tag; the others have the usual role for their kind.
     var roles: [String: KinoRole] = [:]
     /// nil: the batch's settings.
     var settings: KinoSettings?
+    init(inputs: [KinoInput] = [], prompt: String = "", roles: [String: KinoRole] = [:], settings: KinoSettings? = nil) {
+        self.inputs = inputs; self.prompt = prompt; self.roles = roles; self.settings = settings
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        inputs = try values.decodeIfPresent([KinoInput].self, forKey: .inputs) ?? []
+        prompt = try values.decodeIfPresent(String.self, forKey: .prompt) ?? ""
+        roles = try values.decodeIfPresent([String: KinoRole].self, forKey: .roles) ?? [:]
+        settings = try values.decodeIfPresent(KinoSettings.self, forKey: .settings)
+    }
+}
+
+/// A file in a shot: where it is, and its tag there.
+struct KinoInput: Codable, Equatable {
+    var path: String
+    var tag: String
 }
 
 struct KinoSettings: Codable, Equatable {
