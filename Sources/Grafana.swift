@@ -8,8 +8,10 @@ import Security
 enum Grafana {
     static let base = URL(string: "https://grafana.selless.com/")!
     private static let service = "Edit Assist Grafana"
-    /// The dashboards your course notes link to: operations, the daily report and the campaign breakdown.
-    static let known = ["H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
+    /// The dashboards Penny reads besides your starred ones. Retail Operations V3.5 first, the one you read: it gathers
+    /// every team's sales and ads (Facebook, Google, Pinterest…). Then PMKT's operations and daily report and the Facebook
+    /// campaign breakdown.
+    static let known = ["NCvK5_rVz", "H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
 
     /// The grafana_session cookie's value in the login Keychain; nil removes it.
     static var session: String? {
@@ -37,7 +39,9 @@ enum Grafana {
     /// A read (GET), or a query (POST to /api/ds/query), with the session; a session past its rotation is renewed once.
     static func request(_ path: String, body: Data? = nil, renewed: Bool = false) async throws -> Data {
         guard let session else { throw Failure.signedOut }
-        var request = URLRequest(url: URL(string: path, relativeTo: base)!, timeoutInterval: 60)
+        // "" is Grafana's own page, which URL(string:) can't make.
+        guard let url = path.isEmpty ? base : URL(string: path, relativeTo: base) else { throw Failure.refused(0, L("Penny asked Grafana for a page that can't exist: %@", path)) }
+        var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpShouldHandleCookies = false
         request.setValue("grafana_session=\(session)", forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -101,6 +105,31 @@ enum Grafana {
 
     // MARK: What Penny reads
 
+    /// The timezone in the data Grafana's page starts with (window.grafanaBootData): the user's, worked out by Grafana
+    /// from your preferences, your team's, the company's and the server's default.
+    static func pageZone(from data: Data) -> String? {
+        guard let page = String(data: data, encoding: .utf8), let start = page.range(of: "grafanaBootData"),
+              let open = page[start.upperBound...].firstIndex(of: "{") else { return nil }
+        // The object runs to its matching brace; braces inside strings don't count.
+        var depth = 0, inString = false, escaped = false, end: String.Index?
+        for index in page[open...].indices {
+            let character = page[index]
+            if inString {
+                if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { inString = false }
+            } else if character == "\"" { inString = true }
+            else if character == "{" { depth += 1 }
+            else if character == "}" { depth -= 1; if depth == 0 { end = index; break } }
+        }
+        guard let end, let boot = (try? JSONSerialization.jsonObject(with: Data(page[open ... end].utf8))) as? [String: Any] else { return nil }
+        return ((boot["user"] as? [String: Any])?["timezone"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The server's default timezone, from Grafana's frontend settings.
+    static func serverZone(from data: Data) -> String? {
+        let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return ((settings?["dateFormats"] as? [String: Any])?["defaultTimezone"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     struct User: Equatable { var name: String; var email: String; var login: String }
 
     static func user(from data: Data) -> User? {
@@ -141,14 +170,25 @@ final class PennyDesk: ObservableObject {
     @Published private(set) var reading = false
     @Published private(set) var failure: String?
     private var sources: [Grafana.Source]
+    /// Your, your team's and the company's timezone in Grafana, in that order (nil when not set).
+    private var zones: [String?]
     private var opened = false
 
     static var folder: URL { Studio.folder.appendingPathComponent("penny", isDirectory: true) }
 
     init() {
         sources = (try? Data(contentsOf: Self.folder.appendingPathComponent("datasources.json"))).map(Grafana.sources(from:)) ?? []
+        zones = Self.zones(in: Self.folder)
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.folder.appendingPathComponent("dashboards"), includingPropertiesForKeys: nil)) ?? []
         boards = Self.ordered(files.filter { $0.pathExtension == "json" }.compactMap { (try? Data(contentsOf: $0)).flatMap(Grafana.dashboard(from:)) })
+    }
+
+    /// The timezone Grafana settled on for you first (what its own page starts with), then yours, your team's, the
+    /// company's and the server's default, each as a {"timezone": …} file.
+    static func zones(in folder: URL) -> [String?] {
+        ["timezone-page.json", "preferences-user.json", "preferences-team.json", "preferences-org.json", "timezone-server.json"].map {
+            (try? Data(contentsOf: folder.appendingPathComponent($0))).flatMap(Grafana.preferredZone(from:))
+        }
     }
 
     /// The three you use first, in their order, then the ones you starred by name.
@@ -172,7 +212,7 @@ final class PennyDesk: ObservableObject {
             do {
                 guard let user = Grafana.user(from: try await Grafana.request("api/user")) else { throw Grafana.Failure.refused(0, L("Grafana did not say who you are.")) }
                 state = .signedIn(user)
-                if let board { board.load() } else { show(UserDefaults.standard.string(forKey: "pennyBoard") ?? Grafana.known[0]) }
+                if let board { board.load() } else { show(chosen) }
                 explore()
             } catch Grafana.Failure.signedOut {
                 state = .signedOut
@@ -193,10 +233,19 @@ final class PennyDesk: ObservableObject {
         state = .signedOut; dashboards = []; board = nil
     }
 
-    /// Draws a dashboard on the page and reads its numbers; the one you pick is the one shown next time.
+    /// The dashboard you last picked from Penny's menu, or Retail Operations.
+    private var chosen: String { UserDefaults.standard.string(forKey: "pennyDashboard") ?? Grafana.known[0] }
+
+    /// A dashboard picked from Penny's menu: shown now and next time.
+    func pick(_ uid: String) {
+        UserDefaults.standard.set(uid, forKey: "pennyDashboard")
+        show(uid)
+    }
+
+    /// Draws a dashboard on the page and reads its numbers.
     func show(_ uid: String) {
-        UserDefaults.standard.set(uid, forKey: "pennyBoard")
         guard let dashboard = boards.first(where: { $0.uid == uid }) ?? boards.first else { board = nil; return }
+        Grafana.zone = Grafana.zone([dashboard.timezone] + zones, fallback: dashboard.clock.flatMap(TimeZone.init(identifier:)) ?? .current)
         let board = PennyBoard(dashboard: dashboard, sources: sources)
         board.onBusy = { [weak self] in self?.reading = $0 }
         board.onSignedOut = { [weak self] in self?.signOut() }
@@ -218,6 +267,22 @@ final class PennyDesk: ObservableObject {
                     try? data.write(to: folder.appendingPathComponent(file))
                     if file == "datasources.json" { sources = Grafana.sources(from: data) }
                 }
+                // The timezone Grafana counts your days in: yours, your team's, the company's.
+                let teams = (try? Data(contentsOf: folder.appendingPathComponent("teams.json"))).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [[String: Any]] } ?? []
+                var preferences = [("api/user/preferences", "preferences-user.json"), ("api/org/preferences", "preferences-org.json")]
+                if let team = (teams.first?["id"] as? NSNumber)?.intValue { preferences.append(("api/teams/\(team)/preferences", "preferences-team.json")) }
+                for (path, file) in preferences {
+                    if let data = try? await Grafana.request(path) { try? data.write(to: folder.appendingPathComponent(file)) }
+                }
+                // The company's setting may not be yours to read (it was refused, 2026-11-05); Grafana's own page carries
+                // the timezone it worked out for you, and its settings the server's default.
+                for (path, file, zone) in [("", "timezone-page.json", Grafana.pageZone(from:)), ("api/frontend/settings", "timezone-server.json", Grafana.serverZone(from:))] {
+                    guard let data = try? await Grafana.request(path), let found = zone(data),
+                          let written = try? JSONSerialization.data(withJSONObject: ["timezone": found]) else { continue }
+                    try? written.write(to: folder.appendingPathComponent(file))
+                }
+                let zonesChanged = Self.zones(in: folder) != zones
+                zones = Self.zones(in: folder)
                 let search = try await Grafana.request("api/search?type=dash-db&limit=5000")
                 try search.write(to: folder.appendingPathComponent("search.json"))
                 dashboards = Grafana.found(from: search)
@@ -229,8 +294,11 @@ final class PennyDesk: ObservableObject {
                     if let dashboard = Grafana.dashboard(from: data) { read.append(dashboard) }
                 }
                 if !read.isEmpty { boards = Self.ordered(read) }
-                if let board, let fresh = boards.first(where: { $0.uid == board.dashboard.uid }), fresh.version != board.dashboard.version { show(fresh.uid) }
-                else if board == nil { show(UserDefaults.standard.string(forKey: "pennyBoard") ?? Grafana.known[0]) }
+                // The one you want may only now be here (read for the first time), or changed in Grafana since.
+                if board?.dashboard.uid != chosen, boards.contains(where: { $0.uid == chosen }) { show(chosen) }
+                else if let board, let fresh = boards.first(where: { $0.uid == board.dashboard.uid }), fresh.version != board.dashboard.version { show(fresh.uid) }
+                else if board == nil { show(chosen) }
+                else if zonesChanged, let board { show(board.dashboard.uid) }
             } catch Grafana.Failure.signedOut {
                 state = .signedOut
             } catch {

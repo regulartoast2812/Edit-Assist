@@ -42,7 +42,7 @@ struct BoardView: View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(desk.boards) { dashboard in
-                    Button(dashboard.title) { desk.show(dashboard.uid) }
+                    Button(dashboard.title) { desk.pick(dashboard.uid) }
                 }
             } label: {
                 Label(board.dashboard.title, systemImage: "square.grid.2x2")
@@ -522,7 +522,8 @@ struct ColumnTile: View {
         if number < 100_000_000 { return Grafana.plain(number / 1000) }
         let date = Date(timeIntervalSince1970: number / 1000)
         let formatter = DateFormatter()
-        formatter.dateFormat = Calendar.current.startOfDay(for: date) == date ? "MM-dd" : "MM-dd HH:mm"
+        formatter.timeZone = Grafana.zone
+        formatter.dateFormat = Grafana.calendar.startOfDay(for: date) == date ? "MM-dd" : "MM-dd HH:mm"
         return formatter.string(from: date)
     }
 
@@ -584,6 +585,7 @@ struct LineTile: View {
             }
             .chartForegroundStyleScale(domain: names, range: names.indices.map { GrafanaPaint.palette[$0 % GrafanaPaint.palette.count].color })
             .chartLegend(position: .bottom)
+            .environment(\.timeZone, Grafana.zone)
         }
     }
 

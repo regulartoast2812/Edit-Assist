@@ -233,6 +233,10 @@ extension Grafana {
         let title: String
         let folder: String
         let version: Int
+        /// The dashboard's own timezone; "" leaves it to your preferences.
+        let timezone: String
+        /// The timezone of the dashboard's clock panel: the company's business day (Alaska time, GMT-8/-9).
+        let clock: String?
         let span: Span
         let variables: [Variable]
         let sections: [Section]
@@ -257,8 +261,10 @@ extension Grafana {
                 sections[sections.count - 1].tiles.append(Tile(panel))
             }
         }
+        let clock = sections.flatMap(\.tiles).first { $0.type == "grafana-clock-panel" }.flatMap { $0.options["timezone"] as? String }
         return Dashboard(uid: uid, title: dashboard["title"] as? String ?? uid, folder: (object["meta"] as? [String: Any])?["folderTitle"] as? String ?? "",
-                         version: (dashboard["version"] as? NSNumber)?.intValue ?? 0,
+                         version: (dashboard["version"] as? NSNumber)?.intValue ?? 0, timezone: dashboard["timezone"] as? String ?? "",
+                         clock: clock.flatMap { $0.isEmpty ? nil : $0 },
                          span: Span(from: time?["from"] as? String ?? "now-6h", to: time?["to"] as? String ?? "now"),
                          variables: variables, sections: sections.filter { $0.id != -1 || !$0.tiles.isEmpty })
     }
@@ -340,11 +346,43 @@ extension Grafana {
 
     // MARK: Time
 
+    /// The timezone Grafana counts "today" in and writes times in: the dashboard's own, else yours, your team's, then the
+    /// company's (Grafana's preferences), else this Mac's. The company works in Alaska time (GMT-8/-9), so a day on this
+    /// Mac's Vietnam clock would start 15 or 16 hours late (2026-11-05). Set when a dashboard is drawn.
+    nonisolated(unsafe) static var zone = TimeZone.current
+
+    static var calendar: Calendar {
+        var calendar = Calendar.current
+        calendar.timeZone = zone
+        return calendar
+    }
+
+    /// The first timezone set among the choices, as Grafana names them: an IANA name or "utc". "browser", or none set,
+    /// gives the fallback: the company's Grafana has none set anywhere you can read (the server says "browser"), yet
+    /// counts the company's Alaska-time day, as the dashboard's clock and every query do, never this Mac's Vietnam one:
+    /// on Nov 5 in Vietnam it still showed Nov 4's month-to-date target (2026-11-05).
+    static func zone(_ choices: [String?], fallback: TimeZone = .current) -> TimeZone {
+        for choice in choices {
+            guard let name = choice?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }
+            switch name.lowercased() {
+            case "browser": return fallback
+            case "utc": return TimeZone(identifier: "UTC") ?? fallback
+            default: return TimeZone(identifier: name) ?? fallback
+            }
+        }
+        return fallback
+    }
+
+    /// The timezone a preferences answer (yours, a team's, the company's) sets, or nil.
+    static func preferredZone(from data: Data) -> String? {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["timezone"] as? String
+    }
+
     /// A time range written the way Grafana writes it: now, now-7d, now/d (the day's start, or its end for `to`), now-1M/M.
     struct Span: Equatable {
         var from: String
         var to: String
-        func dates(now: Date = Date(), calendar: Calendar = .current) -> (from: Date, to: Date) {
+        func dates(now: Date = Date(), calendar: Calendar = Grafana.calendar) -> (from: Date, to: Date) {
             (Grafana.moment(from, end: false, now: now, calendar: calendar) ?? now.addingTimeInterval(-86_400),
              Grafana.moment(to, end: true, now: now, calendar: calendar) ?? now)
         }
@@ -731,12 +769,13 @@ extension Grafana {
     static func time(_ milliseconds: Double, unit: String?) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = zone
         let date = Date(timeIntervalSince1970: milliseconds / 1000)
         switch unit {
         case let unit? where unit.hasPrefix("time:"): formatter.dateFormat = dateFormat(String(unit.dropFirst(5)))
         case "dateTimeAsUS"?: formatter.dateFormat = "MM/dd/yyyy h:mm:ss a"
         default:
-            let midnight = Calendar.current.startOfDay(for: date) == date
+            let midnight = calendar.startOfDay(for: date) == date
             formatter.dateFormat = midnight ? "yyyy-MM-dd" : "yyyy-MM-dd HH:mm:ss"
         }
         return formatter.string(from: date)
