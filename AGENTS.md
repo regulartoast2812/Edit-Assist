@@ -200,7 +200,7 @@ How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-1
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401
 asks `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once) before
 counting you signed out. He reads the dashboards you can see and saves the ones you use (Retail Operations V3.5 first, the one you read: it
-gathers every team's sales and ads; then PMKT's and the Facebook breakdown; and your starred ones) as
+gathers every team's sales and ads; then Facebook Ads Manager Campaign V1.0, PMKT's and the Facebook breakdown; and your starred ones) as
 Grafana sent them in penny/ beside projects.json, never in git. His page draws the one you pick as Grafana draws it
 (`PennyBoard`, the `Grafana` dashboard model in `Sources/GrafanaBoard.swift`; views in `Sources/PennyPanels.swift`): its
 filters, its rows and panels on the 24-column grid, each panel's own queries run through `/api/ds/query` with the
@@ -208,7 +208,7 @@ filters written in as Grafana writes them for SQL (quoted, All as every value or
 other macros left to Grafana), then the panel's transformations (calculateField, organize, concatenate) and its units,
 decimals, thresholds and cell colours. A closed row reads its panels when opened. Your filters and time are kept per
 dashboard; what each panel last answered (columns, rows, a stat's values or the error) is written to penny/answers/.
-He only reads, never changes anything in Grafana, and runs no query of his own beyond the dashboards'. Each helper has a colour, their body's, for their sidebar button and page.
+His page has two tabs: **Products**, his own dashboard, and **Grafana**, the dashboard drawn as above. Products reads his own copy of the Facebook ads' numbers (`PennyLedger`, `Ledger` in `Sources/PennyLedger.swift`; views in `Sources/PennyProducts.swift`). While you are signed in, from launch and every half hour, he copies each ad's numbers hour by hour from ad_stats_ad on cms-replica2, the table Facebook Ads Manager Campaign V1.0 sums up. These are his only queries of his own: two read-only SELECTs a day. The copy is kept by product (pbase_code) in penny/history/<product>/<day>.json.gz (gzipped: a tenth of the size), with each day's totals in summary.json. Days are Alaska time, the company's. He covers the last 30 days, newest first, and copies a day again until it has been over for 12 hours. An empty answer for a day he already has never replaces it, because Grafana keeps little history. From the copy he shows each product's totals, his written read (against the days before, the creatives that sell and the ones that only spend, the best and weakest hours), the product by day and by hour, each creative's orders hour by hour, and its creatives and campaigns. A creative is the ad's name, so the same creative in several campaigns is one line. He only reads, never changes anything in Grafana. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 
