@@ -1328,6 +1328,9 @@ struct Checks {
                   "The same creative in two campaigns is one line, with the hours it sold in")
             check(Ledger.hours([chapter!])[19].spent == 15 && Ledger.campaigns([chapter!]).map { $0.name } == ["1_X_ComfyJeans", "a3"],
                   "Penny adds a product's numbers up by hour and by campaign")
+            check(Ledger.days(from: "2026-11-04", to: "2026-11-02") == ["2026-11-04", "2026-11-03", "2026-11-02"] && Ledger.days(from: "2026-11-02", to: "2026-11-02") == ["2026-11-02"]
+                  && Ledger.days(from: "2026-10-31", to: "2026-11-01") == ["2026-11-01", "2026-10-31"] && Ledger.days(from: "x", to: "2026-11-01").isEmpty,
+                  "Picked dates are every day from one to the other, either way round")
             check(Ledger.hourName(23) == "11 PM-12 AM" && Ledger.hourName(11) == "11 AM-12 PM" && Ledger.hourName(0) == "12 AM-1 AM",
                   "Hours are written as the dashboards write them")
             check(Ledger.folder(of: "Activa Bra 2.0") == "Activa Bra 2.0" && Ledger.folder(of: "A/B") == "A-B" && Ledger.folder(of: " ") == "NA",

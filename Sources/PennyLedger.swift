@@ -105,6 +105,13 @@ enum Ledger {
         return (0 ..< max(0, count)).compactMap { calendar.date(byAdding: .day, value: -$0, to: today).map(name(of:)) }
     }
 
+    /// The days from one to another, both included, newest first (either order; at most a year).
+    static func days(from first: String, to last: String) -> [String] {
+        guard let a = start(of: first), let b = start(of: last) else { return [] }
+        let count = (calendar.dateComponents([.day], from: min(a, b), to: max(a, b)).day ?? 0) + 1
+        return days(back: min(count, 366), from: max(a, b))
+    }
+
     /// The days still to copy, newest first: never copied, or copied before they had settled.
     static func wanted(now: Date, summary: Summary, kept: Int = kept) -> [String] {
         days(back: kept, from: now).filter { day in
@@ -374,6 +381,8 @@ final class PennyLedger: ObservableObject {
     /// The day being copied now.
     @Published private(set) var copying: String?
     @Published private(set) var failure: String?
+    /// Days you picked that are older than the copy keeps: copied once, and kept.
+    private var asked: Set<String> = []
     var onSignedOut: (() -> Void)?
     private var loop: Task<Void, Never>?
 
@@ -403,12 +412,24 @@ final class PennyLedger: ObservableObject {
 
     func stop() { loop?.cancel(); loop = nil; copying = nil }
 
-    /// Copies what is still wanted, now.
+    /// Days you picked: the ones not yet copied are copied now, newest first.
+    func ask(for days: [String]) {
+        let missing = days.filter { summary.copied[$0] == nil }
+        guard !missing.isEmpty else { return }
+        asked.formUnion(missing)
+        Task { await sync() }
+    }
+
+    /// Copies what is still wanted, now: the days the copy keeps, then the ones you picked.
     func sync() async {
         guard copying == nil else { return }
         failure = nil
-        for day in Ledger.wanted(now: Date(), summary: summary) {
-            guard loop != nil, !Task.isCancelled else { break }
+        var tried: Set<String> = []
+        func next() -> String? {
+            (Ledger.wanted(now: Date(), summary: summary) + asked.filter { summary.copied[$0] == nil }.sorted(by: >)).first { !tried.contains($0) }
+        }
+        while loop != nil, !Task.isCancelled, let day = next() {
+            tried.insert(day)
             copying = day
             do {
                 try await copy(day)

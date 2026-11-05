@@ -7,8 +7,11 @@ import AppKit
 /// sell in which hours, and its campaigns (2026-11-05). Hours are Alaska time, the company's day.
 struct ProductsView: View {
     @ObservedObject var ledger: PennyLedger
-    /// 0 today, -1 yesterday, else the last that many days.
+    /// 0 today, -1 yesterday, -2 the dates you picked, else the last that many days.
     @AppStorage("pennyProductsRange") private var range = 7
+    @AppStorage("pennyProductsFrom") private var from = ""
+    @AppStorage("pennyProductsTo") private var to = ""
+    @State private var picking = false
     @AppStorage("pennyProduct") private var chosen = ""
     @State private var search = ""
     @State private var loaded: [Ledger.Day] = []
@@ -18,6 +21,10 @@ struct ProductsView: View {
 
     /// The days in the range, and as many before them to compare with.
     var days: (now: [String], before: [String]) {
+        if range == -2, case let picked = Ledger.days(from: from, to: to), let first = picked.last, let start = Ledger.start(of: first) {
+            let before = Ledger.days(back: picked.count + 1, from: start).dropFirst()
+            return (picked, Array(before))
+        }
         let count = range <= 0 ? 1 : range
         let all = Ledger.days(back: (range < 0 ? 1 : 0) + count * 2, from: Date())
         let shift = range < 0 ? 1 : 0
@@ -52,9 +59,17 @@ struct ProductsView: View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(Self.ranges, id: \.days) { item in Button(L(item.name)) { range = item.days } }
+                Divider()
+                Button(L("Pick dates…")) { picking = true }
             } label: {
-                Label(L(Self.ranges.first(where: { $0.days == range })?.name ?? "Last 7 days"), systemImage: "clock")
+                Label(rangeName, systemImage: "clock")
             }.fixedSize()
+            .popover(isPresented: $picking, arrowEdge: .bottom) {
+                DatesPicker(from: Ledger.start(of: from) ?? Date(), to: Ledger.start(of: to) ?? Date()) { first, last in
+                    from = Ledger.name(of: first); to = Ledger.name(of: last); range = -2; picking = false
+                    ledger.ask(for: Ledger.days(from: from, to: to))
+                }
+            }
             if let day = ledger.copying {
                 ProgressView().controlSize(.small)
                 Text(L("Copying %@…", day)).font(.system(size: 10)).foregroundStyle(.secondary)
@@ -68,6 +83,14 @@ struct ProductsView: View {
             Spacer()
             Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
         }.controlSize(.small)
+    }
+
+    var rangeName: String {
+        guard range == -2, case let picked = Ledger.days(from: from, to: to), let first = picked.last, let last = picked.first else {
+            return L(Self.ranges.first(where: { $0.days == range })?.name ?? "Last 7 days")
+        }
+        let written = { (day: String) in Ledger.start(of: day)?.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: Ledger.zone)) ?? day }
+        return first == last ? written(first) : "\(written(first)) – \(written(last))"
     }
 
     func list(_ products: [(name: String, numbers: Ledger.Numbers)], selected: String?) -> some View {
@@ -285,5 +308,36 @@ struct LedgerTable: View {
                 Button(L("Show %@ more", min(25, sorted.count - shown))) { shown += 25 }.buttonStyle(.link).font(.system(size: 11)).padding(.top, 6)
             }
         }
+    }
+}
+
+/// From and To on two calendars, as Grafana's absolute time range, in the company's (Alaska) days. Dates older than
+/// the copy are copied from Grafana when applied, if Grafana still has them.
+struct DatesPicker: View {
+    @State var from: Date
+    @State var to: Date
+    let apply: (Date, Date) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L("From")).font(.system(size: 11, weight: .semibold))
+                    DatePicker("", selection: $from, in: ...Date(), displayedComponents: .date).datePickerStyle(.graphical).labelsHidden()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L("To")).font(.system(size: 11, weight: .semibold))
+                    DatePicker("", selection: $to, in: ...Date(), displayedComponents: .date).datePickerStyle(.graphical).labelsHidden()
+                }
+            }
+            HStack {
+                Text(L("Alaska time, as the dashboards count days")).font(.system(size: 10)).foregroundStyle(.secondary)
+                Spacer()
+                Button(L("Apply dates")) { apply(min(from, to), max(from, to)) }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .environment(\.timeZone, Ledger.zone)
+        .environment(\.calendar, Ledger.calendar)
+        .padding(14)
     }
 }
