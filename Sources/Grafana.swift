@@ -103,6 +103,31 @@ enum Grafana {
 
     // MARK: What Penny reads
 
+    /// The timezone in the data Grafana's page starts with (window.grafanaBootData): the user's, worked out by Grafana
+    /// from your preferences, your team's, the company's and the server's default.
+    static func pageZone(from data: Data) -> String? {
+        guard let page = String(data: data, encoding: .utf8), let start = page.range(of: "grafanaBootData"),
+              let open = page[start.upperBound...].firstIndex(of: "{") else { return nil }
+        // The object runs to its matching brace; braces inside strings don't count.
+        var depth = 0, inString = false, escaped = false, end: String.Index?
+        for index in page[open...].indices {
+            let character = page[index]
+            if inString {
+                if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { inString = false }
+            } else if character == "\"" { inString = true }
+            else if character == "{" { depth += 1 }
+            else if character == "}" { depth -= 1; if depth == 0 { end = index; break } }
+        }
+        guard let end, let boot = (try? JSONSerialization.jsonObject(with: Data(page[open ... end].utf8))) as? [String: Any] else { return nil }
+        return ((boot["user"] as? [String: Any])?["timezone"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The server's default timezone, from Grafana's frontend settings.
+    static func serverZone(from data: Data) -> String? {
+        let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return ((settings?["dateFormats"] as? [String: Any])?["defaultTimezone"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     struct User: Equatable { var name: String; var email: String; var login: String }
 
     static func user(from data: Data) -> User? {
@@ -156,8 +181,10 @@ final class PennyDesk: ObservableObject {
         boards = Self.ordered(files.filter { $0.pathExtension == "json" }.compactMap { (try? Data(contentsOf: $0)).flatMap(Grafana.dashboard(from:)) })
     }
 
+    /// The timezone Grafana settled on for you first (what its own page starts with), then yours, your team's, the
+    /// company's and the server's default, each as a {"timezone": …} file.
     static func zones(in folder: URL) -> [String?] {
-        ["preferences-user.json", "preferences-team.json", "preferences-org.json"].map {
+        ["timezone-page.json", "preferences-user.json", "preferences-team.json", "preferences-org.json", "timezone-server.json"].map {
             (try? Data(contentsOf: folder.appendingPathComponent($0))).flatMap(Grafana.preferredZone(from:))
         }
     }
@@ -244,6 +271,13 @@ final class PennyDesk: ObservableObject {
                 if let team = (teams.first?["id"] as? NSNumber)?.intValue { preferences.append(("api/teams/\(team)/preferences", "preferences-team.json")) }
                 for (path, file) in preferences {
                     if let data = try? await Grafana.request(path) { try? data.write(to: folder.appendingPathComponent(file)) }
+                }
+                // The company's setting may not be yours to read (it was refused, 2026-11-05); Grafana's own page carries
+                // the timezone it worked out for you, and its settings the server's default.
+                for (path, file, zone) in [("", "timezone-page.json", Grafana.pageZone(from:)), ("api/frontend/settings", "timezone-server.json", Grafana.serverZone(from:))] {
+                    guard let data = try? await Grafana.request(path), let found = zone(data),
+                          let written = try? JSONSerialization.data(withJSONObject: ["timezone": found]) else { continue }
+                    try? written.write(to: folder.appendingPathComponent(file))
                 }
                 let zonesChanged = Self.zones(in: folder) != zones
                 zones = Self.zones(in: folder)

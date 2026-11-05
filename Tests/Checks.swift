@@ -1225,6 +1225,10 @@ struct Checks {
                   && Grafana.moment("now/d", end: false, now: now, calendar: anchorage).map { ISO8601DateFormatter().string(from: $0) } == "2026-11-05T09:00:00Z"
                   && Grafana.preferredZone(from: Data(#"{"theme":"","timezone":"America/Anchorage","weekStart":""}"#.utf8)) == "America/Anchorage",
                   "Penny counts the day in Grafana's timezone (the dashboard's, yours, your team's, the company's), not this Mac's")
+            check(Grafana.pageZone(from: Data(#"<script nonce="">window.grafanaBootData = {"settings":{"note":"a } in {text","dateFormats":{"defaultTimezone":"utc"}},"user":{"isSignedIn":true,"timezone":"America/Anchorage"}};</script>"#.utf8)) == "America/Anchorage"
+                  && Grafana.pageZone(from: Data("<html>no boot data</html>".utf8)) == nil
+                  && Grafana.serverZone(from: Data(#"{"dateFormats":{"defaultTimezone":"America/Anchorage"}}"#.utf8)) == "America/Anchorage",
+                  "Penny takes the timezone Grafana's own page settled on for you, and the server's default")
             let replies = Grafana.replies(from: Data(#"{"results":{"A":{"status":200,"frames":[{"schema":{"fields":[{"name":"time","type":"time"},{"name":"po_today","type":"number"},{"name":"who","type":"string"}]},"data":{"values":[[1000,2000],[5,null],["a","b"]],"entities":[null,{"NaN":[1]},null]}}]},"B":{"status":400,"error":"pq: column \"x\" does not exist","frames":[]}}}"#.utf8))
             let answer = replies["A"]?.frames.first
             check(answer?.columns.map(\.kind) == ["time", "number", "string"] && answer?.columns[1].cells[0] == .number(5) && answer?.columns[1].cells[1].number?.isNaN == true
