@@ -190,7 +190,9 @@ works on a batch per project that starts empty: he reads only the files you drop
 named by shot code go into their shot as they come in (K1, K1.1 and K1.2 into shot K1's one prompt, each under its own tag,
 @K1.1); any file can be dragged into any shot, and one picture can be in many shots under a tag of each (K2.3). Each file
 has a role (look, start or end frame, camera and motion, video to edit, sound, left out), and the roles decide the model's
-endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out.
+endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out;
+a shot's first picture is its start frame unless you give a role or the shot has a video. The shots are cards in one list,
+as the Forge shows its jobs, every place the model has room for shown as a + box; the media sorts by name, shot or newest.
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
 shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
 projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.

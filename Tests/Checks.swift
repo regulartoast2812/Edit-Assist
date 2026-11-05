@@ -1438,6 +1438,28 @@ struct Checks {
                 check(desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "clip.mp4" }!, in: "K1") == .edit
                       && desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "hero.png" }!, in: "K1") == .start,
                       "A file dropped on a shot's empty place takes that place's role")
+                desk.add([at("K12.png"), at("K12.1.png")])
+                let twelve = desk.files(in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .start && desk.role(of: twelve[1], in: "K12") == .look,
+                      "A shot's first picture opens it (its start frame); the others are looks")
+                desk.setRole(.start, of: twelve[1], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .look && desk.role(of: twelve[1], in: "K12") == .start,
+                      "A picture made the start frame takes the place of the one before")
+                desk.add([at("K12 Size.png")], into: "K12", as: .end)
+                desk.add([at("K12.2.png")], into: "K12", as: .end)
+                check(desk.files(in: "K12").filter { desk.role(of: $0, in: "K12") == .end }.map(\.name) == ["K12.2"], "A shot keeps one end frame")
+                desk.setRole(.look, of: twelve[1], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .start, "With no start frame given, the first picture opens the shot again")
+                desk.setRole(.look, of: twelve[0], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .look && !desk.roles("K12").values.contains(.start),
+                      "A first picture made a look stays a look")
+                desk.add([at("K4.png"), at("K4.1.mp4")])
+                check(desk.role(of: desk.files(in: "K4")[0], in: "K4") == .look, "With a video in the shot, its picture is a look, not a start frame")
+                check(desk.media(sorted: .name).map(\.name).prefix(4) == ["7", "clip", "hero", "IMG_1234"]
+                      && desk.media(sorted: .name).map(\.name).suffix(5) == ["K9 ref", "K12", "K12 Size", "K12.1", "K12.2"]
+                      && desk.media(sorted: .added).first?.name == "K4.1"
+                      && desk.media(sorted: .shot).map(\.name).prefix(3) == ["clip", "hero", "K1.1"],
+                      "The media sorts by name as a person reads it (K2 before K10, K12 before K12 Size and K12.1), by shot, or newest first")
             }
             func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
                 KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
@@ -1445,8 +1467,9 @@ struct Checks {
                 }
             }
             check(slots("kling-o3", []) == ["+start", "+end", "+look", "+motion", "+edit"]
-                  && slots("kling-o3", ["K1.png", "K1.1.png", "K1.2.png", "K1.3.png", "K1.4.mp4"]) == ["K1", "K1.1", "K1.2", "K1.3", "K1.4"],
-                  "An empty Kling O3 shot shows a place for each role; with its video and 4 pictures it has no room left")
+                  && slots("kling-o3", ["K1.png", "K1.1.png", "K1.2.png", "K1.3.png", "K1.4.mp4"]) == ["K1", "K1.1", "K1.2", "K1.3", "K1.4"]
+                  && slots("kling-o3", ["K1.png", "K1.1.mp4"]) == ["K1", "+look", "K1.1"],
+                  "An empty Kling O3 shot shows a place for each role; with its video it has no place for frames, and with 4 pictures no room left")
             check(slots("kling-motion", ["K2.png"]) == ["K2", "+motion"] && slots("seedance-2.5", ["K3.mp3"]) .suffix(2) == ["K3", "+sound"],
                   "Motion Control has a place for the person and the performance; Seedance has places for sounds")
         }
