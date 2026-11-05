@@ -235,6 +235,8 @@ extension Grafana {
         let version: Int
         /// The dashboard's own timezone; "" leaves it to your preferences.
         let timezone: String
+        /// The timezone of the dashboard's clock panel: the company's business day (Alaska time, GMT-8/-9).
+        let clock: String?
         let span: Span
         let variables: [Variable]
         let sections: [Section]
@@ -259,8 +261,10 @@ extension Grafana {
                 sections[sections.count - 1].tiles.append(Tile(panel))
             }
         }
+        let clock = sections.flatMap(\.tiles).first { $0.type == "grafana-clock-panel" }.flatMap { $0.options["timezone"] as? String }
         return Dashboard(uid: uid, title: dashboard["title"] as? String ?? uid, folder: (object["meta"] as? [String: Any])?["folderTitle"] as? String ?? "",
                          version: (dashboard["version"] as? NSNumber)?.intValue ?? 0, timezone: dashboard["timezone"] as? String ?? "",
+                         clock: clock.flatMap { $0.isEmpty ? nil : $0 },
                          span: Span(from: time?["from"] as? String ?? "now-6h", to: time?["to"] as? String ?? "now"),
                          variables: variables, sections: sections.filter { $0.id != -1 || !$0.tiles.isEmpty })
     }
@@ -353,17 +357,20 @@ extension Grafana {
         return calendar
     }
 
-    /// The first timezone set among the choices, as Grafana names them: an IANA name, "utc", or "browser" for this Mac's.
-    static func zone(_ choices: [String?]) -> TimeZone {
+    /// The first timezone set among the choices, as Grafana names them: an IANA name or "utc". "browser", or none set,
+    /// gives the fallback: the company's Grafana has none set anywhere you can read (the server says "browser"), yet
+    /// counts the company's Alaska-time day, as the dashboard's clock and every query do, never this Mac's Vietnam one:
+    /// on Nov 5 in Vietnam it still showed Nov 4's month-to-date target (2026-11-05).
+    static func zone(_ choices: [String?], fallback: TimeZone = .current) -> TimeZone {
         for choice in choices {
             guard let name = choice?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }
             switch name.lowercased() {
-            case "browser": return .current
-            case "utc": return TimeZone(identifier: "UTC") ?? .current
-            default: return TimeZone(identifier: name) ?? .current
+            case "browser": return fallback
+            case "utc": return TimeZone(identifier: "UTC") ?? fallback
+            default: return TimeZone(identifier: name) ?? fallback
             }
         }
-        return .current
+        return fallback
     }
 
     /// The timezone a preferences answer (yours, a team's, the company's) sets, or nil.

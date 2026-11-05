@@ -245,7 +245,7 @@ final class PennyDesk: ObservableObject {
     /// Draws a dashboard on the page and reads its numbers.
     func show(_ uid: String) {
         guard let dashboard = boards.first(where: { $0.uid == uid }) ?? boards.first else { board = nil; return }
-        Grafana.zone = Grafana.zone([dashboard.timezone] + zones)
+        Grafana.zone = Grafana.zone([dashboard.timezone] + zones, fallback: dashboard.clock.flatMap(TimeZone.init(identifier:)) ?? .current)
         let board = PennyBoard(dashboard: dashboard, sources: sources)
         board.onBusy = { [weak self] in self?.reading = $0 }
         board.onSignedOut = { [weak self] in self?.signOut() }
