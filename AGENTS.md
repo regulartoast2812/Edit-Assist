@@ -199,7 +199,8 @@ How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-1
 11.2; Google sign-in only, its login form is off) in a private web view and keeps only the `grafana_session` cookie, in
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401
 asks `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once) before
-counting you signed out. He reads the dashboards you can see and saves the three you use (and your starred ones) as
+counting you signed out. He reads the dashboards you can see and saves the ones you use (Retail Operations V3.5 first, the one you read: it
+gathers every team's sales and ads; then PMKT's and the Facebook breakdown; and your starred ones) as
 Grafana sent them in penny/ beside projects.json, never in git. His page draws the one you pick as Grafana draws it
 (`PennyBoard`, the `Grafana` dashboard model in `Sources/GrafanaBoard.swift`; views in `Sources/PennyPanels.swift`): its
 filters, its rows and panels on the 24-column grid, each panel's own queries run through `/api/ds/query` with the

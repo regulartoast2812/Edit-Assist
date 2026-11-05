@@ -42,7 +42,7 @@ struct BoardView: View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(desk.boards) { dashboard in
-                    Button(dashboard.title) { desk.show(dashboard.uid) }
+                    Button(dashboard.title) { desk.pick(dashboard.uid) }
                 }
             } label: {
                 Label(board.dashboard.title, systemImage: "square.grid.2x2")

@@ -8,8 +8,10 @@ import Security
 enum Grafana {
     static let base = URL(string: "https://grafana.selless.com/")!
     private static let service = "Edit Assist Grafana"
-    /// The dashboards your course notes link to: operations, the daily report and the campaign breakdown.
-    static let known = ["H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
+    /// The dashboards Penny reads besides your starred ones. Retail Operations V3.5 first, the one you read: it gathers
+    /// every team's sales and ads (Facebook, Google, Pinterest…). Then PMKT's operations and daily report and the Facebook
+    /// campaign breakdown.
+    static let known = ["NCvK5_rVz", "H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
 
     /// The grafana_session cookie's value in the login Keychain; nil removes it.
     static var session: String? {
@@ -172,7 +174,7 @@ final class PennyDesk: ObservableObject {
             do {
                 guard let user = Grafana.user(from: try await Grafana.request("api/user")) else { throw Grafana.Failure.refused(0, L("Grafana did not say who you are.")) }
                 state = .signedIn(user)
-                if let board { board.load() } else { show(UserDefaults.standard.string(forKey: "pennyBoard") ?? Grafana.known[0]) }
+                if let board { board.load() } else { show(chosen) }
                 explore()
             } catch Grafana.Failure.signedOut {
                 state = .signedOut
@@ -193,9 +195,17 @@ final class PennyDesk: ObservableObject {
         state = .signedOut; dashboards = []; board = nil
     }
 
-    /// Draws a dashboard on the page and reads its numbers; the one you pick is the one shown next time.
+    /// The dashboard you last picked from Penny's menu, or Retail Operations.
+    private var chosen: String { UserDefaults.standard.string(forKey: "pennyDashboard") ?? Grafana.known[0] }
+
+    /// A dashboard picked from Penny's menu: shown now and next time.
+    func pick(_ uid: String) {
+        UserDefaults.standard.set(uid, forKey: "pennyDashboard")
+        show(uid)
+    }
+
+    /// Draws a dashboard on the page and reads its numbers.
     func show(_ uid: String) {
-        UserDefaults.standard.set(uid, forKey: "pennyBoard")
         guard let dashboard = boards.first(where: { $0.uid == uid }) ?? boards.first else { board = nil; return }
         let board = PennyBoard(dashboard: dashboard, sources: sources)
         board.onBusy = { [weak self] in self?.reading = $0 }
@@ -229,8 +239,10 @@ final class PennyDesk: ObservableObject {
                     if let dashboard = Grafana.dashboard(from: data) { read.append(dashboard) }
                 }
                 if !read.isEmpty { boards = Self.ordered(read) }
-                if let board, let fresh = boards.first(where: { $0.uid == board.dashboard.uid }), fresh.version != board.dashboard.version { show(fresh.uid) }
-                else if board == nil { show(UserDefaults.standard.string(forKey: "pennyBoard") ?? Grafana.known[0]) }
+                // The one you want may only now be here (read for the first time), or changed in Grafana since.
+                if board?.dashboard.uid != chosen, boards.contains(where: { $0.uid == chosen }) { show(chosen) }
+                else if let board, let fresh = boards.first(where: { $0.uid == board.dashboard.uid }), fresh.version != board.dashboard.version { show(fresh.uid) }
+                else if board == nil { show(chosen) }
             } catch Grafana.Failure.signedOut {
                 state = .signedOut
             } catch {
