@@ -198,7 +198,8 @@ over it). Files dropped on a shot's files (only the files and their boxes, outli
 between two shots, a + opens and they make a variant of the shot above (K2.1 after K2, with its settings); anywhere
 else in the list, the prompt included, they make a new shot. The prompt names a file by typing @ (a list of the shot's files);
 it shows each as a pill with the file's name in its role's colour and keeps it as its @tag. Typing / gives a role: /start then a file
-makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same), shown as one pill ("Start · K2") and kept
+makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same; /mid 2s @K3, a Kling 4.0 keyframe at
+2 s, its time written into the prompt sent), shown as one pill ("Start · K2") and kept
 as "/start @K2"; a role lives only there (2026-11-06): one picked on the file or by dropping on a role's box is written as its command,
 No role or deleting the pill takes it away, roles kept beside the prompt before are not read, and commands are never sent. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
 place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
