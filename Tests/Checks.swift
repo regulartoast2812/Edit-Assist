@@ -1382,6 +1382,16 @@ struct Checks {
             priced.margins = ["P": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 10, 40, 50])], "Q": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 0, 50, 50])]]
             check(priced.margin(of: "P", on: ["2026-11-04", "2026-11-03"]).days == 1 && (try? JSONDecoder().decode(Ledger.Summary.self, from: JSONEncoder().encode(priced))) == priced,
                   "Each product's CBH is kept by day in the summary")
+            let dayReads = Ledger.dayReads(week, profit: profit)
+            check(dayReads.map(\.day) == ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"] && dayReads[0].weekend && !dayReads[1].weekend
+                  && abs(dayReads[0].dead - 60.0 / 190) < 1e-9 && dayReads[0].hours[19].revenue == 90,
+                  "Each day keeps its hours, its weekend and its dead spend (hours under 1× that day)")
+            let weekReads = Ledger.weekReads(dayReads)
+            check(weekReads.map(\.start) == ["2026-10-26", "2026-11-02"] && weekReads[1].days == 3 && weekReads[1].night.spent == 180 && weekReads[1].peak.spent == 370,
+                  "Weeks start on Monday, with the night (12 AM–6 AM) and the peak (9 AM–9 PM) apart")
+            let bands = Ledger.bands(week, profit: profit)
+            check(bands.map(\.cells) == [0, 5, 4, 0, 0, 9] && bands[2].high == profit.breakeven && bands[5].numbers.spent == 230,
+                  "Every hour of every day falls in a band by the ROAS it brought back")
         }
         // Basil, the recipe helper: YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {

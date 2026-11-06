@@ -499,6 +499,90 @@ enum Ledger {
         return result
     }
 
+    /// A day as the dashboard's trend drew it (2026-11-06): its numbers hour by hour, its CBH, and its dead spend, the
+    /// share spent in hours that brought back under 1× that day.
+    struct DayRead: Identifiable, Equatable {
+        var day: String
+        var id: String { day }
+        var hours = [Numbers](repeating: Numbers(), count: 24)
+        var numbers = Numbers()
+        var dead = 0.0
+        var cbh = 0.0
+        var weekend = false
+    }
+
+    /// The days, oldest first.
+    static func dayReads(_ days: [Day], profit: Profit) -> [DayRead] {
+        days.map { day in
+            var read = DayRead(day: day.day)
+            for hour in day.hours where read.hours.indices.contains(hour.hour) { read.hours[hour.hour] += hour.numbers }
+            read.numbers = read.hours.reduce(Numbers()) { $0 + $1 }
+            let dead = read.hours.filter { $0.spent > 0 && ($0.roas ?? 0) < 1 }.reduce(0) { $0 + $1.spent }
+            read.dead = read.numbers.spent > 0 ? dead / read.numbers.spent : 0
+            read.cbh = profit.cbh(read.numbers)
+            read.weekend = start(of: day.day).map { [1, 7].contains(calendar.component(.weekday, from: $0)) } ?? false
+            return read
+        }.sorted { $0.day < $1.day }
+    }
+
+    /// A week from Monday, as the dashboard's weekly overview had it: its numbers, CPM, dead spend, and the night
+    /// (12 AM–6 AM) against the peak (9 AM–9 PM).
+    struct WeekRead: Identifiable, Equatable {
+        var start: String
+        var id: String { start }
+        var days = 0
+        var numbers = Numbers(), night = Numbers(), peak = Numbers()
+        var deadSpent = 0.0
+        var cbh = 0.0
+        var dead: Double { numbers.spent > 0 ? deadSpent / numbers.spent : 0 }
+    }
+
+    static func weekReads(_ days: [DayRead]) -> [WeekRead] {
+        var weeks: [String: WeekRead] = [:]
+        for day in days {
+            guard let date = start(of: day.day) else { continue }
+            let back = (calendar.component(.weekday, from: date) + 5) % 7
+            let monday = calendar.date(byAdding: .day, value: -back, to: date).map(name(of:)) ?? day.day
+            var week = weeks[monday] ?? WeekRead(start: monday)
+            week.days += 1
+            week.numbers += day.numbers
+            week.deadSpent += day.dead * day.numbers.spent
+            week.cbh += day.cbh
+            for hour in 0 ..< 6 { week.night += day.hours[hour] }
+            for hour in 9 ..< 21 { week.peak += day.hours[hour] }
+            weeks[monday] = week
+        }
+        return weeks.values.sorted { $0.start < $1.start }
+    }
+
+    /// Spend by the ROAS each hour of each day brought back, as the dashboard's budget efficiency bands, with breakeven
+    /// and the profitable line from CBH.
+    struct Band: Identifiable, Equatable {
+        enum Kind: String, CaseIterable { case nothing, under1, belowBreakeven, thin, good, great }
+        var kind: Kind
+        var id: String { kind.rawValue }
+        var low: Double, high: Double
+        var numbers = Numbers()
+        var cells = 0
+    }
+
+    static func bands(_ days: [Day], profit: Profit) -> [Band] {
+        let top = max(3, profit.profitable)
+        var bands = [Band(kind: .nothing, low: 0, high: 0), Band(kind: .under1, low: 0, high: 1), Band(kind: .belowBreakeven, low: 1, high: profit.breakeven),
+                     Band(kind: .thin, low: profit.breakeven, high: profit.profitable), Band(kind: .good, low: profit.profitable, high: top),
+                     Band(kind: .great, low: top, high: .infinity)]
+        for day in dayReads(days, profit: profit) {
+            for numbers in day.hours where numbers.spent > 0 {
+                let roas = numbers.roas ?? 0
+                let index = numbers.revenue <= 0 ? 0 : roas < 1 ? 1 : roas < profit.breakeven ? 2 : roas < profit.profitable ? 3 : roas < top ? 4 : 5
+                bands[index].numbers += numbers
+                bands[index].cells += 1
+            }
+        }
+        return bands
+    }
+
+    // MARK: Report
     // MARK: Report
 
     /// Penny's read of a product over the days: how it did against the days before, which creatives sell and which
