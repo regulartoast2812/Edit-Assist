@@ -30,6 +30,56 @@ enum Kitchen {
         url("search", [("part", "snippet"), ("type", "video"), ("maxResults", "\(count)"), ("q", words), ("safeSearch", "none")], key: key)
     }
 
+    /// A video saved in the app to review: dropped on the save area or picked by Basil. Its recipe is written into the vault
+    /// only when you ask (`written` is then the note's path).
+    struct Saved: Codable, Equatable, Identifiable {
+        var video: Video
+        /// Why Basil picked it; empty for one you saved.
+        var why = ""
+        var added = Date()
+        var written = ""
+        var id: String { video.id }
+    }
+
+    /// Your words as a recipe search: "chicken" finds songs and farm videos, "chicken recipe" finds cooking.
+    static func recipeSearch(_ words: String) -> String {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = words.lowercased()
+        return ["recipe", "how to", "cook", "bake", "make"].contains(where: lowered.contains) ? words : words + " recipe"
+    }
+
+    // MARK: Basil's picks (one brain call: which results are real recipe videos worth saving)
+
+    struct Pick: Equatable { var id: String, why: String }
+
+    static var pickSchema: [String: Any] {
+        let text: [String: Any] = ["type": "string"]
+        let pick: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["id", "why"], "properties": ["id": text, "why": text]]
+        return ["type": "object", "additionalProperties": false, "required": ["picks"], "properties": ["picks": ["type": "array", "items": pick]]]
+    }
+
+    static func pickPrompt(_ words: String, videos: [Video], count: Int) -> String {
+        """
+        I searched YouTube for recipes: "\(words)". Pick the videos that actually teach a recipe I could cook from, best first, at most \(count). \
+        Leave out songs, animals, Shorts with no method, compilations, reactions, mukbangs and anything that is not a recipe. Prefer a clear \
+        method with amounts (in the video or its description, or a linked recipe page), a trusted cook, and different dishes rather than \
+        the same one twice. For each pick give its id and in `why` one short line on what it is and why it's worth saving. If none is a \
+        recipe, return no picks.
+
+        The results (id | title | channel | length | views | description):
+        """ + "\n" + videos.map { video($0, description: 300) }.joined(separator: "\n")
+    }
+
+    /// The picks that are among the results, once each, at most `count`.
+    static func picks(from answer: [String: Any], among videos: [Video], count: Int) -> [Pick] {
+        let ids = Set(videos.map(\.id))
+        var seen: Set<String> = []
+        return (answer["picks"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespaces), ids.contains(id), seen.insert(id).inserted else { return nil }
+            return Pick(id: id, why: (item["why"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        }.prefix(count).map { $0 }
+    }
+
     /// Each video's title, channel, description, length and views.
     static func videosURL(_ ids: [String], key: String) -> URL {
         url("videos", [("part", "snippet,contentDetails,statistics"), ("id", ids.joined(separator: ",")), ("maxResults", "50")], key: key)
@@ -310,6 +360,41 @@ enum Kitchen {
         var date = Date()
     }
 
+    /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
+    struct Conversation: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var messages: [Message] = []
+        var created = Date()
+        var updated = Date()
+
+        var title: String {
+            let first = messages.first { !$0.fromBasil }?.text ?? ""
+            let line = first.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !line.isEmpty else { return "" }
+            return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line
+        }
+    }
+
+    /// The conversations with your words in their title or any message, newest first.
+    static func find(_ words: String, in conversations: [Conversation]) -> [Conversation] {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        return conversations.filter { words.isEmpty || $0.title.localizedCaseInsensitiveContains(words) || $0.messages.contains { $0.text.localizedCaseInsensitiveContains(words) } }
+            .sorted { $0.updated > $1.updated }
+    }
+
+    /// How long ago, as the list shows it: now, 8m, 1h, 3d, 2w, then the date.
+    static func ago(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60: return "now"
+        case ..<3600: return "\(Int(seconds / 60))m"
+        case ..<86_400: return "\(Int(seconds / 3600))h"
+        case ..<(7 * 86_400): return "\(Int(seconds / 86_400))d"
+        case ..<(35 * 86_400): return "\(Int(seconds / (7 * 86_400)))w"
+        default: return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+
     struct Reply: Equatable {
         var text = "", youtube = ""
         var notes: [String] = [], show: [String] = []
@@ -372,7 +457,7 @@ enum Kitchen {
         return text
     }
 
-    private static func video(_ video: Video, description: Int) -> String {
+    static func video(_ video: Video, description: Int) -> String {
         let views = video.views.map { " | \($0) views" } ?? ""
         let about = video.description.prefix(description).replacingOccurrences(of: "\n", with: " ")
         return "- id \(video.id) | \(video.title) | \(video.channel) | \(video.duration)\(views) | \(about)"

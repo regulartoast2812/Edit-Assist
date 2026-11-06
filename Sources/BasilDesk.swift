@@ -16,20 +16,43 @@ import Security
     @Published var failure: String?
     /// The last note written, to open.
     @Published private(set) var written: URL?
-    /// The chat with him, kept in basil/chat.json beside projects.json.
-    @Published private(set) var chat: [Kitchen.Message] = []
-    @Published private(set) var thinking = false
+    /// Every conversation with him, kept in basil/chats.json beside projects.json.
+    @Published private(set) var conversations: [Kitchen.Conversation] = []
+    /// The one open; nil is a new chat, made when you send its first message.
+    @Published var current: UUID?
+    /// The conversation he is answering in.
+    @Published private(set) var thinkingIn: UUID?
+    var thinking: Bool { thinkingIn != nil }
+    /// The open conversation's messages.
+    var chat: [Kitchen.Message] { conversations.first { $0.id == current }?.messages ?? [] }
+    /// The videos you saved to review (dropped on the save area, or Basil's picks), newest first; kept in basil/saved.json.
+    @Published private(set) var saved: [Kitchen.Saved] = []
+    /// Why writing a saved video's recipe failed, by video.
+    @Published private(set) var refused: [String: String] = [:]
+    /// Basil choosing recipe videos for you.
+    @Published private(set) var picking = false
 
-    var busy: Bool { searching || thinking || !writing.isEmpty }
+    var busy: Bool { searching || thinking || picking || !writing.isEmpty }
     /// The videos already in the vault, by their link.
     var sources: Set<String> { Set(recipes.map(\.source).filter { !$0.isEmpty }) }
 
     init() {
         folder = UserDefaults.standard.string(forKey: "basilFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
-        chat = (try? Data(contentsOf: Self.chatFile)).flatMap { try? JSONDecoder().decode([Kitchen.Message].self, from: $0) } ?? []
+        conversations = (try? Data(contentsOf: Self.chatsFile)).flatMap { try? JSONDecoder().decode([Kitchen.Conversation].self, from: $0) } ?? []
+        // The single chat kept before there was a history becomes its first conversation.
+        if conversations.isEmpty, let old = (try? Data(contentsOf: Self.oldChatFile)).flatMap({ try? JSONDecoder().decode([Kitchen.Message].self, from: $0) }), !old.isEmpty {
+            conversations = [Kitchen.Conversation(messages: old, created: old.first?.date ?? Date(), updated: old.last?.date ?? Date())]
+            saveChats()
+            try? FileManager.default.removeItem(at: Self.oldChatFile)
+        }
+        current = conversations.max { $0.updated < $1.updated }?.id
+        saved = (try? Data(contentsOf: Self.savedFile)).flatMap { try? JSONDecoder().decode([Kitchen.Saved].self, from: $0) } ?? []
     }
 
-    nonisolated static var chatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
+    nonisolated static var savedFile: URL { Studio.folder.appendingPathComponent("basil/saved.json") }
+
+    nonisolated static var chatsFile: URL { Studio.folder.appendingPathComponent("basil/chats.json") }
+    nonisolated static var oldChatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
 
     // MARK: Key and folder
 
@@ -96,10 +119,14 @@ import Security
     func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !thinking else { return }
-        chat.append(Kitchen.Message(fromBasil: false, text: text)); saveChat()
-        thinking = true; failure = nil
+        let id = current ?? UUID()
+        if current == nil { conversations.append(Kitchen.Conversation(id: id)); current = id }
+        append(Kitchen.Message(fromBasil: false, text: text), to: id)
+        thinkingIn = id; failure = nil
         Task {
-            defer { thinking = false; saveChat() }
+            defer { thinkingIn = nil }
+            // The conversation asked in, even if you open another meanwhile.
+            var chat: [Kitchen.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Kitchen.Video]?, searched = "", read: [Kitchen.Entry] = [], texts: [(title: String, text: String)] = []
             do {
                 for round in 0 ..< 3 {
@@ -120,20 +147,35 @@ import Security
                     }
                     if looked { continue }
                     let shown = reply.show.compactMap { id in found?.first { $0.id == id } ?? chat.last { $0.fromBasil && !$0.videos.isEmpty }?.videos.first { $0.id == id } }
-                    chat.append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
-                                                videos: Array(shown.prefix(6)), notes: read.map(\.file.path)))
+                    append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
+                                           videos: Array(shown.prefix(6)), notes: read.map(\.file.path)), to: id)
                     return
                 }
             } catch { failure = describe(error) }
         }
     }
 
-    func clearChat() { chat = []; saveChat() }
+    /// A new, empty chat; the one you were in stays in the history.
+    func newChat() { current = nil }
 
-    private func saveChat() {
-        let file = Self.chatFile
+    func delete(_ id: UUID) {
+        guard thinkingIn != id else { return }
+        conversations.removeAll { $0.id == id }
+        if current == id { current = conversations.max { $0.updated < $1.updated }?.id }
+        saveChats()
+    }
+
+    private func append(_ message: Kitchen.Message, to id: UUID) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].messages.append(message)
+        conversations[index].updated = message.date
+        saveChats()
+    }
+
+    private func saveChats() {
+        let file = Self.chatsFile
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(chat).write(to: file, options: .atomic)
+        try? JSONEncoder().encode(conversations).write(to: file, options: .atomic)
     }
 
     // MARK: YouTube
@@ -153,27 +195,90 @@ import Security
         Task {
             defer { searching = false }
             do {
-                results = try await videos(for: words, key: key)
+                results = try await videos(for: Kitchen.recipeSearch(words), key: key)
             } catch { failure = describe(error) }
         }
     }
 
     /// The video's recipe as a note: from the recipe page it links to when there is one, else from its description.
+    // MARK: Saved videos
+
+    /// Kept in the app to review; nothing is written yet, so no vault is needed.
+    func save(_ video: Kitchen.Video, why: String = "") {
+        guard !saved.contains(where: { $0.id == video.id }) else { return }
+        saved.insert(Kitchen.Saved(video: video, why: why), at: 0)
+        saveSaved()
+    }
+
+    /// A video dragged onto the save area, by its id: from the results or the chat.
+    func save(id: String) {
+        guard let video = results.first(where: { $0.id == id }) ?? conversations.lazy.flatMap(\.messages).flatMap(\.videos).first(where: { $0.id == id }) else { return }
+        save(video)
+    }
+
+    func remove(_ item: Kitchen.Saved) { saved.removeAll { $0.id == item.id }; refused[item.id] = nil; saveSaved() }
+
+    /// The saved videos whose recipe isn't written yet.
+    var unwritten: [Kitchen.Saved] { saved.filter { $0.written.isEmpty } }
+
+    /// Writes the video's recipe into the vault (asking for the folder the first time).
     func write(_ video: Kitchen.Video) {
-        guard !writing.contains(video.id), folder != nil || chooseFolder(), let folder else { return }
-        writing.insert(video.id); failure = nil
+        guard !writing.contains(video.id), folder != nil || chooseFolder() else { return }
+        Task { await writeRecipe(video) }
+    }
+
+    /// Writes every saved video not written yet, one after another.
+    func writeAll() {
+        let waiting = unwritten.filter { !writing.contains($0.id) }
+        guard !waiting.isEmpty, folder != nil || chooseFolder() else { return }
+        Task { for item in waiting { await writeRecipe(item.video) } }
+    }
+
+    private func writeRecipe(_ video: Kitchen.Video) async {
+        guard let folder, !writing.contains(video.id) else { return }
+        writing.insert(video.id); refused[video.id] = nil; failure = nil
+        defer { writing.remove(video.id) }
+        do {
+            var page: (url: URL, data: [String: Any])?
+            for link in Kitchen.links(in: video.description) {
+                if let data = await recipePage(link) { page = (link, data); break }
+            }
+            let answer = try await HelperBrain.ask(Kitchen.prompt(for: video, page: page?.data), schema: Kitchen.schema)
+            var recipe = Kitchen.recipe(from: answer)
+            if recipe.title.isEmpty { recipe.title = video.title }
+            recipe.source = video.url.absoluteString; recipe.channel = video.channel; recipe.page = page?.url.absoluteString ?? ""
+            let file = try save(recipe, in: folder)
+            if let index = saved.firstIndex(where: { $0.id == video.id }) { saved[index].written = file.path; saveSaved() }
+        } catch {
+            if saved.contains(where: { $0.id == video.id }) { refused[video.id] = describe(error) } else { failure = describe(error) }
+        }
+    }
+
+    private func saveSaved() {
+        let file = Self.savedFile
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(saved).write(to: file, options: .atomic)
+    }
+
+    /// Basil searches recipes for your words, picks the real recipe videos worth saving (at most five), and saves them here to review.
+    func pick(_ words: String) {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, let key = Self.key, !picking, !searching else { return }
+        picking = true; failure = nil
         Task {
-            defer { writing.remove(video.id) }
+            defer { picking = false }
             do {
-                var page: (url: URL, data: [String: Any])?
-                for link in Kitchen.links(in: video.description) {
-                    if let data = await recipePage(link) { page = (link, data); break }
+                let query = Kitchen.recipeSearch(words)
+                results = try await videos(for: query, key: key)
+                let kept = Set(saved.map(\.id))
+                let fresh = results.filter { !sources.contains($0.url.absoluteString) && !kept.contains($0.id) }
+                guard !fresh.isEmpty else { return }
+                let answer = try await HelperBrain.ask(Kitchen.pickPrompt(query, videos: fresh, count: 5), schema: Kitchen.pickSchema)
+                let picks = Kitchen.picks(from: answer, among: fresh, count: 5)
+                if picks.isEmpty { failure = L("Basil found no real recipe among these videos. Try other words."); return }
+                for pick in picks.reversed() {
+                    if let video = fresh.first(where: { $0.id == pick.id }) { save(video, why: pick.why) }
                 }
-                let answer = try await HelperBrain.ask(Kitchen.prompt(for: video, page: page?.data), schema: Kitchen.schema)
-                var recipe = Kitchen.recipe(from: answer)
-                if recipe.title.isEmpty { recipe.title = video.title }
-                recipe.source = video.url.absoluteString; recipe.channel = video.channel; recipe.page = page?.url.absoluteString ?? ""
-                try save(recipe, in: folder)
             } catch { failure = describe(error) }
         }
     }
@@ -193,13 +298,14 @@ import Security
     }
 
     /// Written as a new note, never over one already there.
-    private func save(_ recipe: Kitchen.Recipe, in folder: URL) throws {
+    @discardableResult private func save(_ recipe: Kitchen.Recipe, in folder: URL) throws -> URL {
         let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
         let file = folder.appendingPathComponent(Kitchen.fileName(for: recipe.title, taken: taken))
         let added = Date().formatted(.iso8601.year().month().day())
         try Data(Kitchen.note(recipe, added: added).utf8).write(to: file, options: .withoutOverwriting)
         written = file
         reload()
+        return file
     }
 
     /// Where a recipe stands, written into its note's header.

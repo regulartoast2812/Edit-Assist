@@ -50,6 +50,8 @@ struct BasilPage: View {
     @ObservedObject var desk: BasilDesk
     @AppStorage("basilTab") private var tab = "chat"
     @State private var draft = ""
+    @State private var dropping = false
+    @State private var findChat = ""
     @State private var words = ""
     @State private var search = ""
     @State private var filter = ""
@@ -96,19 +98,63 @@ struct BasilPage: View {
 
     // MARK: Chat
 
-    @ViewBuilder var chat: some View {
-        HStack(spacing: 6) {
-            Text(md: L("Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to."))
-                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            if !desk.chat.isEmpty { Button(L("Clear the chat")) { desk.clearChat() }.buttonStyle(.link).font(.system(size: 10)).disabled(desk.thinking) }
+    var chat: some View {
+        HStack(alignment: .top, spacing: 14) {
+            history.frame(width: 230)
+            VStack(alignment: .leading, spacing: 10) { conversation }.frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Past conversations, newest first, as Claude Code lists its sessions: titled by your first message, with how long ago.
+    var history: some View {
+        let shown = Kitchen.find(findChat, in: desk.conversations)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button { desk.newChat() } label: { Label(L("New chat"), systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading) }
+                .controlSize(.small).disabled(desk.current == nil)
+            TextField(L("Search chats"), text: $findChat).textFieldStyle(.roundedBorder).controlSize(.small)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(shown) { conversation in
+                        let open = conversation.id == desk.current
+                        Button { desk.current = conversation.id } label: {
+                            HStack(spacing: 6) {
+                                Text(conversation.title.isEmpty ? L("New chat") : conversation.title)
+                                    .font(.system(size: 11, weight: open ? .semibold : .regular)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                if desk.thinkingIn == conversation.id { ProgressView().controlSize(.mini) }
+                                Text(L(Kitchen.ago(conversation.updated))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(open ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(L("Delete chat"), role: .destructive) { desk.delete(conversation.id) }.disabled(desk.thinkingIn == conversation.id)
+                        }
+                    }
+                }
+            }.frame(maxHeight: 560)
+            if desk.conversations.isEmpty {
+                Text(L("Your chats with Basil are kept here.")).font(.system(size: 10)).foregroundStyle(.secondary)
+            } else if shown.isEmpty {
+                Text(L("No chat has these words.")).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    @ViewBuilder var conversation: some View {
+        Text(md: L("Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to."))
+            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         if HelperBrain.provider.executable == nil { status(false, L("%@ CLI is not installed on this Mac.", HelperBrain.provider.rawValue)) }
+        let answering = desk.thinkingIn != nil && desk.thinkingIn == desk.current
         ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(desk.chat) { message($0) }
-                    if desk.thinking {
+                    if answering {
                         HStack(spacing: 8) {
                             PixelBasil(pixel: 1.25, busyUntil: .distantFuture).frame(width: 22)
                             Text(L("Basil is thinking…")).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -118,8 +164,9 @@ struct BasilPage: View {
             }
             .frame(minHeight: desk.chat.isEmpty ? 0 : 220, maxHeight: 560)
             .onAppear { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
+            .onChange(of: desk.current) { _, _ in reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
-            .onChange(of: desk.thinking) { _, thinking in if thinking { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
+            .onChange(of: answering) { _, answering in if answering { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
         }
         HStack(alignment: .bottom, spacing: 8) {
             TextField(L("Message Basil"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)
@@ -237,15 +284,81 @@ struct BasilPage: View {
                 HStack(spacing: 8) {
                     TextField(L("A dish or an ingredient, e.g. chicken adobo"), text: $words).textFieldStyle(.roundedBorder).frame(maxWidth: 420)
                         .onSubmit { desk.search(words) }
-                    Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching)
-                    if desk.searching { ProgressView().controlSize(.small) }
+                    Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching || desk.picking)
+                    Button { desk.pick(words) } label: { Label(L("Pick for me"), systemImage: "sparkles") }
+                        .disabled(words.isEmpty || desk.searching || desk.picking)
+                        .help(L("Basil searches recipes for your words and saves the real recipe videos worth reviewing (up to 5)"))
+                    if desk.searching || desk.picking { ProgressView().controlSize(.small) }
+                    if desk.picking { Text(L("Basil is picking…")).font(.system(size: 11)).foregroundStyle(.secondary) }
                     Spacer()
                     Button(L("Forget key"), role: .destructive) { desk.forgetKey() }.controlSize(.small).buttonStyle(.link)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], spacing: 16) {
-                    ForEach(desk.results) { video in card(video) }
+                HStack(alignment: .top, spacing: 16) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 14)], spacing: 16) {
+                        ForEach(desk.results) { video in card(video) }
+                    }.frame(maxWidth: .infinity, alignment: .top)
+                    shelf.frame(width: 280)
                 }
             }
+        }
+    }
+
+    /// Videos saved in the app to review: drop one here (from the results or the chat), and Basil's picks land here too.
+    /// A recipe is written into the vault only when you press Write recipe (or Write all).
+    var shelf: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(L("SAVED")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Spacer()
+                let waiting = desk.unwritten.filter { !desk.writing.contains($0.id) }.count
+                if waiting > 1 {
+                    Button(L("Write all (%@)", waiting)) { desk.writeAll() }.controlSize(.small)
+                        .help(L("Write the recipe of every saved video not written yet into your vault"))
+                }
+            }
+            VStack(spacing: 6) {
+                Image(systemName: "tray.and.arrow.down").font(.system(size: 20)).foregroundStyle(dropping ? accent : .secondary)
+                Text(L("Drag videos here to save them")).font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 18)
+            .background(accent.opacity(dropping ? 0.14 : 0.03), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(dropping ? accent : .secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+            ForEach(desk.saved) { item in saved(item) }
+        }
+        .padding(12)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+        .dropDestination(for: String.self) { ids, _ in
+            ids.forEach(desk.save(id:))
+            return !ids.isEmpty
+        } isTargeted: { dropping = $0 }
+    }
+
+    func saved(_ item: Kitchen.Saved) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            AsyncImage(url: item.video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4))
+                .onTapGesture { NSWorkspace.shared.open(item.video.url) }.help(L("Watch the video"))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.video.title).font(.system(size: 11, weight: .medium)).lineLimit(2)
+                if !item.why.isEmpty {
+                    Label(item.why, systemImage: "sparkles").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
+                }
+                if desk.writing.contains(item.id) {
+                    HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(L("Writing…")).font(.system(size: 10)).foregroundStyle(.secondary) }
+                } else if !item.written.isEmpty {
+                    let file = URL(fileURLWithPath: item.written)
+                    Button { open(file) } label: { Label(L("Written: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
+                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Open in Obsidian"))
+                } else {
+                    if let reason = desk.refused[item.id] {
+                        Label(reason, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
+                    }
+                    Button(L("Write recipe")) { desk.write(item.video) }.controlSize(.mini)
+                }
+            }
+            Spacer(minLength: 0)
+            Button { desk.remove(item) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).font(.system(size: 9)).foregroundStyle(.secondary)
+                .help(L("Remove from saved")).disabled(desk.writing.contains(item.id))
         }
     }
 
@@ -269,12 +382,19 @@ struct BasilPage: View {
                     ProgressView().controlSize(.small); Text(L("Writing…")).font(.system(size: 11))
                 } else if kept {
                     Label(L("In your vault"), systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(accent)
+                } else if desk.saved.contains(where: { $0.id == video.id }) {
+                    Label(L("Saved"), systemImage: "bookmark.fill").font(.system(size: 11)).foregroundStyle(accent)
                 } else {
-                    Button(L("Write recipe")) { desk.write(video) }.controlSize(.small)
+                    Button { desk.save(video) } label: { Label(L("Save"), systemImage: "bookmark") }.controlSize(.small)
                 }
                 Spacer()
                 Button { NSWorkspace.shared.open(video.url) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))
             }
+        }
+        .contentShape(Rectangle())
+        // Dragged onto the save area by its id.
+        .draggable(video.id) {
+            Text(video.title).font(.system(size: 11)).lineLimit(1).padding(6).background(accent.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 
