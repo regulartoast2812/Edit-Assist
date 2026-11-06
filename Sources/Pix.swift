@@ -74,7 +74,7 @@ struct PixPage: View {
                              "Makes product **schematics** and pictures with **GPT Image** when you queue them"], size: 11)
                 }
             }
-            // The chat on the side, as Basil's is (you asked for it, 2026-11-06); narrow windows put it under the jobs.
+            // The chat on the side, as Sage's is (you asked for it, 2026-11-06); narrow windows put it under the jobs.
             if width >= 900 {
                 HStack(alignment: .top, spacing: 14) {
                     chatColumn.frame(width: width >= 1300 ? 380 : 330)
@@ -128,7 +128,7 @@ struct PixPage: View {
                             HStack(spacing: 6) {
                                 Text(chat.title.isEmpty ? L("Pictures only") : chat.title).font(.system(size: 11)).lineLimit(1)
                                 Spacer(minLength: 4)
-                                Text(L(Kitchen.ago(chat.updated))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                                Text(L(Study.ago(chat.updated))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
                             }
                             .padding(.horizontal, 8).padding(.vertical, 6).contentShape(Rectangle())
                         }

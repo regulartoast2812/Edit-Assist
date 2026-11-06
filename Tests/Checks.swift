@@ -1390,88 +1390,88 @@ struct Checks {
             check(PixChat(messages: before.chat).title == "Make the CTA red" && PixChat(messages: [PixMessage(fromPix: false, text: "", pictures: ["a.jpg"])]).title == "",
                   "An earlier chat with Pix is titled by your first message")
         }
-        // Basil, the recipe helper: YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
+        // Sage, the research helper (Basil, the recipe helper, before): YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {
-            check(Kitchen.duration("PT1M15S") == "1:15" && Kitchen.duration("PT1H2M3S") == "1:02:03" && Kitchen.duration("PT45S") == "0:45" && Kitchen.duration("P0D") == "",
-                  "Basil writes a video's length as a clock")
+            check(Study.duration("PT1M15S") == "1:15" && Study.duration("PT1H2M3S") == "1:02:03" && Study.duration("PT45S") == "0:45" && Study.duration("P0D") == "",
+                  "Sage writes a video's length as a clock")
             let search = Data(#"{"items":[{"id":{"kind":"youtube#video","videoId":"v1"}},{"id":{"videoId":"v2"}}]}"#.utf8)
             let details = Data(#"{"items":[{"id":"v2","snippet":{"title":"Mac &amp; Cheese","channelTitle":"Cook","publishedAt":"2026-01-02T03:04:05Z","description":"Recipe: https://example.com/mac https://youtu.be/x https://www.instagram.com/cook","thumbnails":{"medium":{"url":"https://i.ytimg.com/m.jpg"}}},"contentDetails":{"duration":"PT9M"},"statistics":{"viewCount":"1200"}}]}"#.utf8)
-            let video = Kitchen.videos(in: details).first
-            check(Kitchen.ids(inSearch: search) == ["v1", "v2"] && video?.title == "Mac & Cheese" && video?.duration == "9:00" && video?.views == 1200
+            let video = Study.videos(in: details).first
+            check(Study.ids(inSearch: search) == ["v1", "v2"] && video?.title == "Mac & Cheese" && video?.duration == "9:00" && video?.views == 1200
                   && video?.published == "2026-01-02" && video?.thumbnail?.lastPathComponent == "m.jpg",
-                  "Basil reads YouTube's search and video answers")
-            check(Kitchen.links(in: video?.description ?? "").map(\.absoluteString) == ["https://example.com/mac"], "Only links that could hold the recipe are read")
-            check(Kitchen.failure(in: Data(#"{"error":{"message":"quota","errors":[{"reason":"quotaExceeded"}]}}"#.utf8)) == "quotaExceeded",
-                  "Basil knows when the day's searches are used up")
+                  "Sage reads YouTube's search and video answers")
+            check(Study.links(in: video?.description ?? "").map(\.absoluteString) == ["https://example.com/mac"], "Only links that could hold the recipe are read")
+            check(Study.failure(in: Data(#"{"error":{"message":"quota","errors":[{"reason":"quotaExceeded"}]}}"#.utf8)) == "quotaExceeded",
+                  "Sage knows when the day's searches are used up")
             let html = #"<script type="application/ld+json">{"@type":"WebSite"}</script><script type='application/ld+json'>{"@context":"https://schema.org","@graph":[{"@type":"Person"},{"@type":["Recipe","NewsArticle"],"name":"Adobo","recipeIngredient":["1 kg chicken"]}]}</script>"#
-            check(Kitchen.recipeData(inHTML: html)?["name"] as? String == "Adobo" && Kitchen.recipeData(inHTML: "<p>no recipe</p>") == nil,
-                  "Basil finds the Recipe a page publishes, inside a graph or under several types")
-            var recipe = Kitchen.recipe(from: ["title": " Adobo ", "tags": ["#Filipino Food", "chicken"], "steps": ["1. Brown the chicken", "2) Simmer"], "ingredients": ["1 kg chicken", " "]])
+            check(Study.recipeData(inHTML: html)?["name"] as? String == "Adobo" && Study.recipeData(inHTML: "<p>no recipe</p>") == nil,
+                  "Sage finds the Recipe a page publishes, inside a graph or under several types")
+            var recipe = Study.recipe(from: ["title": " Adobo ", "tags": ["#Filipino Food", "chicken"], "steps": ["1. Brown the chicken", "2) Simmer"], "ingredients": ["1 kg chicken", " "]])
             check(recipe.title == "Adobo" && recipe.tags == ["filipino-food", "chicken"] && recipe.steps == ["Brown the chicken", "Simmer"] && recipe.ingredients == ["1 kg chicken"],
-                  "Basil's answer is tidied: tags Obsidian takes, steps without their numbers")
+                  "Sage's answer is tidied: tags Obsidian takes, steps without their numbers")
             recipe.source = "https://www.youtube.com/watch?v=v2"; recipe.channel = "Cook \"Pro\""
-            let note = Kitchen.note(recipe, added: "2026-11-06")
-            let header = Kitchen.header(of: note)
+            let note = Study.note(recipe, added: "2026-11-06")
+            let header = Study.header(of: note)
             check(header["title"] == ["Adobo"] && header["status"] == ["to try"] && header["channel"] == ["Cook \"Pro\""] && header["tags"] == ["recipe", "filipino-food", "chicken"]
                   && note.contains("![](https://www.youtube.com/watch?v=v2)") && note.contains("2. Simmer") && header["servings"] == nil,
                   "A recipe note has its header, the video, and numbered steps")
-            let made = Kitchen.setting("status", to: "made", in: note)
-            check(Kitchen.header(of: made)["status"] == ["made"] && made.components(separatedBy: "status:").count == 2 && made.contains("## Steps"),
+            let made = Study.setting("status", to: "made", in: note)
+            check(Study.header(of: made)["status"] == ["made"] && made.components(separatedBy: "status:").count == 2 && made.contains("## Steps"),
                   "Changing a recipe's status changes only that line")
-            check(Kitchen.header(of: Kitchen.setting("tags", to: "[a]", in: note))["tags"] == ["a"] && Kitchen.header(of: Kitchen.setting("status", to: "made", in: "Just text"))["status"] == ["made"],
+            check(Study.header(of: Study.setting("tags", to: "[a]", in: note))["tags"] == ["a"] && Study.header(of: Study.setting("status", to: "made", in: "Just text"))["status"] == ["made"],
                   "A list value is replaced whole; a note with no header gets one")
-            check(Kitchen.fileName(for: "Mac & Cheese: The Best?", taken: ["mac & cheese the best.md"]) == "Mac & Cheese The Best 2.md" && Kitchen.fileName(for: " .. ", taken: []) == "Recipe.md",
+            check(Study.fileName(for: "Mac & Cheese: The Best?", taken: ["mac & cheese the best.md"]) == "Mac & Cheese The Best 2.md" && Study.fileName(for: " .. ", taken: []) == "Recipe.md",
                   "A recipe's file name suits Windows too and never takes an existing note's")
-            let vault = FileManager.default.temporaryDirectory.appendingPathComponent("basil-check-" + UUID().uuidString)
+            let vault = FileManager.default.temporaryDirectory.appendingPathComponent("sage-check-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: vault.appendingPathComponent("Soups"), withIntermediateDirectories: true)
             try Data(note.utf8).write(to: vault.appendingPathComponent("Adobo.md"))
             try Data("---\ntags: [soup]\nstatus: Favourite\n---\nPho".utf8).write(to: vault.appendingPathComponent("Soups/Pho.md"))
             try Data("{}".utf8).write(to: vault.appendingPathComponent(".obsidian/app.md"))
-            let entries = Kitchen.entries(in: vault)
+            let entries = Study.entries(in: vault)
             check(Set(entries.map(\.title)) == ["Adobo", "Pho"] && entries.first { $0.title == "Pho" }?.status == "favourite" && entries.first { $0.title == "Pho" }?.tags == ["soup"],
-                  "Basil reads every note in the recipes folder and the folders in it, Obsidian's own left out")
-            let reply = Kitchen.reply(from: ["reply": " Looking ", "youtube": "pho recipe", "notes": ["pho", " "], "show": []])
-            check(reply.text == "Looking" && reply.notes == ["pho"] && reply.looksUp && !Kitchen.reply(from: ["reply": "Hi"]).looksUp, "Basil's chat answer says what he looks up")
-            check(Kitchen.named(["PHO", "adobo!", "Nothing"], in: entries).map(\.title) == ["Pho", "Adobo"], "Notes the chat names are found by title, case and marks aside")
-            let asked = [Kitchen.Message(fromBasil: false, text: "What's in my pho?")]
-            let withNotes = Kitchen.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",
+                  "Sage reads every note in the recipes folder and the folders in it, Obsidian's own left out")
+            let reply = Study.reply(from: ["reply": " Looking ", "youtube": "pho recipe", "notes": ["pho", " "], "show": []])
+            check(reply.text == "Looking" && reply.notes == ["pho"] && reply.looksUp && !Study.reply(from: ["reply": "Hi"]).looksUp, "Sage's chat answer says what he looks up")
+            check(Study.named(["PHO", "adobo!", "Nothing"], in: entries).map(\.title) == ["Pho", "Adobo"], "Notes the chat names are found by title, case and marks aside")
+            let asked = [Study.Message(fromSage: false, text: "What's in my pho?")]
+            let withNotes = Study.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",
                                                read: [("Pho", "Pho text")], last: true)
             check(withNotes.contains("- Pho | favourite | - | soup") && withNotes.contains("Me: What's in my pho?") && withNotes.contains("id v2 | Mac & Cheese")
                   && withNotes.contains("My note \"Pho\":\nPho text") && withNotes.contains("Answer now") && withNotes.contains("no API key"),
-                  "Basil's chat gets your notes list, the chat, what he looked up, and what he can't do")
-            check(Kitchen.chatPrompt(chat: asked, recipes: [], folder: false, canSearch: true, found: nil, searched: "", read: [], last: false).contains("not chosen yet"),
-                  "Without a recipes folder Basil still chats, and says where to choose one")
-            check(Kitchen.recipeSearch(" chicken ") == "chicken recipe" && Kitchen.recipeSearch("how to make pho") == "how to make pho" && Kitchen.recipeSearch("Adobo Recipe") == "Adobo Recipe",
-                  "Basil searches for recipes, not anything with the word in it")
-            let picked = Kitchen.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
-            check(picked == [Kitchen.Pick(id: "v2", why: "Clear method")] && Kitchen.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
-                  "Basil's picks are only videos he was shown, once each")
-            let kept = Kitchen.Saved(video: video!, why: "Clear method")
-            let back = try? JSONDecoder().decode([Kitchen.Saved].self, from: JSONEncoder().encode([kept]))
-            check(back?.first?.video.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
+                  "Sage's chat gets your notes list, the chat, what he looked up, and what he can't do")
+            check(Study.chatPrompt(chat: asked, recipes: [], folder: false, canSearch: true, found: nil, searched: "", read: [], last: false).contains("not chosen yet"),
+                  "Without a recipes folder Sage still chats, and says where to choose one")
+            check(Study.recipeSearch(" chicken ") == "chicken recipe" && Study.recipeSearch("how to make pho") == "how to make pho" && Study.recipeSearch("Adobo Recipe") == "Adobo Recipe",
+                  "Sage searches for recipes, not anything with the word in it")
+            let picked = Study.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
+            check(picked == [Study.Pick(id: "v2", why: "Clear method")] && Study.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
+                  "Sage's picks are only videos he was shown, once each")
+            let kept = Study.Saved(video: video!, why: "Clear method")
+            let back = try? JSONDecoder().decode([Study.Saved].self, from: JSONEncoder().encode([kept]))
+            check(back?.first?.video?.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
                   "A saved video is kept in the app, unwritten until you ask")
             let old = Date(timeIntervalSince1970: 1_000_000)
-            let first = Kitchen.Conversation(messages: [Kitchen.Message(fromBasil: true, text: "Hi"), Kitchen.Message(fromBasil: false, text: "Quick pho for two\nwith beef")], updated: old)
-            let second = Kitchen.Conversation(messages: [Kitchen.Message(fromBasil: false, text: String(repeating: "adobo ", count: 20))], updated: old.addingTimeInterval(60))
-            check(first.title == "Quick pho for two" && second.title.count == 58 && second.title.hasSuffix("…") && Kitchen.Conversation().title == "",
+            let first = Study.Conversation(messages: [Study.Message(fromSage: true, text: "Hi"), Study.Message(fromSage: false, text: "Quick pho for two\nwith beef")], updated: old)
+            let second = Study.Conversation(messages: [Study.Message(fromSage: false, text: String(repeating: "adobo ", count: 20))], updated: old.addingTimeInterval(60))
+            check(first.title == "Quick pho for two" && second.title.count == 58 && second.title.hasSuffix("…") && Study.Conversation().title == "",
                   "A chat is titled by your first message")
-            check(Kitchen.find("", in: [first, second]).map(\.id) == [second.id, first.id] && Kitchen.find("BEEF", in: [first, second]).map(\.id) == [first.id],
+            check(Study.find("", in: [first, second]).map(\.id) == [second.id, first.id] && Study.find("BEEF", in: [first, second]).map(\.id) == [first.id],
                   "Chats list newest first and are found by any message's words")
-            check(Kitchen.ago(old, now: old.addingTimeInterval(30)) == "now" && Kitchen.ago(old, now: old.addingTimeInterval(8 * 60)) == "8m"
-                  && Kitchen.ago(old, now: old.addingTimeInterval(3 * 3600)) == "3h" && Kitchen.ago(old, now: old.addingTimeInterval(2 * 86_400)) == "2d"
-                  && Kitchen.ago(old, now: old.addingTimeInterval(15 * 86_400)) == "2w",
+            check(Study.ago(old, now: old.addingTimeInterval(30)) == "now" && Study.ago(old, now: old.addingTimeInterval(8 * 60)) == "8m"
+                  && Study.ago(old, now: old.addingTimeInterval(3 * 3600)) == "3h" && Study.ago(old, now: old.addingTimeInterval(2 * 86_400)) == "2d"
+                  && Study.ago(old, now: old.addingTimeInterval(15 * 86_400)) == "2w",
                   "Each chat shows how long ago it was")
-            check(Kitchen.thumbnail(of: "https://www.youtube.com/watch?v=wwapBsT0oc8&t=3")?.absoluteString == "https://i.ytimg.com/vi/wwapBsT0oc8/mqdefault.jpg"
-                  && Kitchen.thumbnail(of: "https://youtu.be/abc_-1")?.lastPathComponent == "mqdefault.jpg" && Kitchen.thumbnail(of: "https://youtube.com/shorts/xyz") != nil
-                  && Kitchen.thumbnail(of: "https://example.com/watch?v=x") == nil && Kitchen.thumbnail(of: "") == nil,
+            check(Study.thumbnail(of: "https://www.youtube.com/watch?v=wwapBsT0oc8&t=3")?.absoluteString == "https://i.ytimg.com/vi/wwapBsT0oc8/mqdefault.jpg"
+                  && Study.thumbnail(of: "https://youtu.be/abc_-1")?.lastPathComponent == "mqdefault.jpg" && Study.thumbnail(of: "https://youtube.com/shorts/xyz") != nil
+                  && Study.thumbnail(of: "https://example.com/watch?v=x") == nil && Study.thumbnail(of: "") == nil,
                   "A recipe card shows its video's picture")
-            let md = Kitchen.markdown("## Steps\n\n1. Brown **chicken**\n2. Add `soy`\n   - nested *one*\n\n- [x] done\n- [ ] todo\n\n> [!tip] Swap\n> Use ==thighs==\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [[Pho|my pho]] and #soup <b>")
+            let md = Study.markdown("## Steps\n\n1. Brown **chicken**\n2. Add `soy`\n   - nested *one*\n\n- [x] done\n- [ ] todo\n\n> [!tip] Swap\n> Use ==thighs==\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [[Pho|my pho]] and #soup <b>")
             check(md.contains("<h2>Steps</h2>") && md.contains("<ol><li>Brown <strong>chicken</strong>") && md.contains("<code>soy</code>") && md.contains("<ul><li>nested <em>one</em>")
                   && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td>2</td>")
-                  && md.contains("href=\"basil-note:Pho\">my pho</a>") && md.contains("class=\"tag\" href=\"#soup\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
-                  "Basil draws a note's Markdown as Obsidian's reading view does")
-            let page = Kitchen.page(note: note, look: Kitchen.Look(dark: true, accent: "#ff8800", fontSize: 18, css: ".theme-dark{--x:1}"), dark: true)
+                  && md.contains("href=\"sage-note:Pho\">my pho</a>") && md.contains("class=\"tag\" href=\"#soup\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
+                  "Sage draws a note's Markdown as Obsidian's reading view does")
+            let page = Study.page(note: note, look: Study.Look(dark: true, accent: "#ff8800", fontSize: 18, css: ".theme-dark{--x:1}"), dark: true)
             check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("multi-select-pill\">#filipino-food") && page.contains("--accent: #ff8800")
                   && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("<h2>Steps</h2>"),
                   "A note's page has its properties, the video, your accent, size and theme")
@@ -1481,10 +1481,38 @@ struct Checks {
             try Data(##"{"theme":"moonstone","accentColor":"#3366ff","baseFontSize":17,"cssTheme":"Minimal","enabledCssSnippets":["wide"]}"##.utf8).write(to: obsidian.appendingPathComponent("appearance.json"))
             try Data("/* minimal */".utf8).write(to: obsidian.appendingPathComponent("themes/Minimal/theme.css"))
             try Data("/* wide */".utf8).write(to: obsidian.appendingPathComponent("snippets/wide.css"))
-            let look = Kitchen.look(vault: vault)
-            check(Kitchen.vault(of: vault.appendingPathComponent("Soups"))?.standardizedFileURL.path == vault.standardizedFileURL.path && look.dark == false && look.accent == "#3366ff"
+            let look = Study.look(vault: vault)
+            check(Study.vault(of: vault.appendingPathComponent("Soups"))?.standardizedFileURL.path == vault.standardizedFileURL.path && look.dark == false && look.accent == "#3366ff"
                   && look.fontSize == 17 && look.css.contains("minimal") && look.css.contains("wide"),
-                  "Basil reads your vault's Obsidian look: light or dark, accent, size, theme and snippets")
+                  "Sage reads your vault's Obsidian look: light or dark, accent, size, theme and snippets")
+            // Sage researches any topic (2026-11-06): topics, web pages, research notes.
+            let editing = Study.Topic(name: "Editing techniques"), cooking = Study.Topic(name: "Recipes", kind: .recipes)
+            check(editing.statuses == ["to read", "read", "key"] && cooking.statuses == ["to try", "made", "favourite"]
+                  && Study.search("speed ramp", in: editing) == "speed ramp" && Study.search("pho", in: cooking) == "pho recipe",
+                  "Each topic has its own statuses, and only recipe topics search for recipes")
+            check(Study.link("https://example.com/a?b=1")?.host == "example.com" && Study.link("www.example.com/x")?.scheme == "https"
+                  && Study.link("chicken adobo") == nil && Study.link("adobo.") == nil && Study.videoID(of: "https://youtu.be/abc_-1") == "abc_-1",
+                  "A link in Find is told apart from words to search")
+            let article = #"<html><head><title>Ignored</title><meta property="og:title" content="Speed ramps &amp; you"><meta name="description" content="How to ramp"><meta property="og:image" content="/pic.jpg"><script>var x = "<p>no</p>";</script></head><body><nav>Menu Home</nav><article><h1>Speed ramps</h1><p>First, set &#8220;time remapping&#8221;.</p><ul><li>Add keyframes</li><li>Ease them</li></ul>"# + String(repeating: "<p>More words here.</p>", count: 40) + "</article><footer>Footer</footer></body></html>"
+            let read = Study.page(fromHTML: article, url: URL(string: "https://www.cuts.example/guide")!)
+            check(read.title == "Speed ramps & you" && read.site == "cuts.example" && read.description == "How to ramp" && read.image?.absoluteString == "https://www.cuts.example/pic.jpg"
+                  && read.text.hasPrefix("Speed ramps\nFirst, set “time remapping”.") && read.text.contains("• Add keyframes") && !read.text.contains("Menu") && !read.text.contains("no</p>"),
+                  "Sage reads a web page: its title, site, picture and readable text, menus and scripts left out")
+            var brief = Study.brief(from: ["title": "Speed ramps", "summary": "How to ramp.", "points": ["Use keyframes"], "details": [], "quotes": ["“Ease in”"], "questions": ["Optical flow?"], "tags": ["Premiere Pro"]])
+            brief.source = "https://www.cuts.example/guide"; brief.channel = "cuts.example"; brief.image = "https://www.cuts.example/pic.jpg"
+            let research = Study.note(brief, topic: "Editing techniques", added: "2026-11-06")
+            let researchHeader = Study.header(of: research)
+            check(researchHeader["status"] == ["to read"] && researchHeader["topic"] == ["Editing techniques"] && researchHeader["tags"] == ["research", "premiere-pro"]
+                  && research.contains("![](https://www.cuts.example/pic.jpg)") && research.contains("## Key points\n\n- Use keyframes") && research.contains("> Ease in")
+                  && research.contains("## Open questions") && !research.contains("## Details") && research.contains("## Sources\n\n- https://www.cuts.example/guide")
+                  && Study.entry(URL(fileURLWithPath: "/x/Speed.md"), text: research, modified: Date()).picture?.lastPathComponent == "pic.jpg",
+                  "A research note has its header, the page's picture, and only the sections with something in them")
+            let older = try JSONDecoder().decode([Study.Saved].self, from: JSONEncoder().encode([Study.Saved(video: video!)]))
+            let pageSaved = Study.Saved(page: read, topic: editing.id)
+            check(older.first?.topic == nil && older.first?.id == "v2" && pageSaved.id == "https://www.cuts.example/guide" && pageSaved.title == "Speed ramps & you"
+                  && pageSaved.origin == "cuts.example" && pageSaved.thumbnail?.lastPathComponent == "pic.jpg"
+                  && Study.pickPrompt("speed ramp", videos: [video!], count: 5, topic: editing).contains("researching \"Editing techniques\""),
+                  "Saved holds videos and pages, each in its topic")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).
