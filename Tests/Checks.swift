@@ -1350,6 +1350,38 @@ struct Checks {
             let read = Ledger.report([chapter!, waste], before: Ledger.Numbers([40, 0, 0, 0, 0, 0, 0, 1, 80]))
             check(read.first?.contains("$145.00") == true && read.contains { $0.contains("down") } && read.contains { $0.contains("No orders: **Z_v1**") },
                   "Penny's read gives the totals, the change on the days before and the creatives that spend without selling")
+            // CBH and the hours as a media buyer reads them (2026-11-06).
+            let cbhFrame = Grafana.Frame(columns: [Grafana.Column(name: "product", kind: "string", cells: [.text("MeadowEase"), .text("")]),
+                                                   numbers("po", [20, 1]), numbers("re", [1000, 50]), numbers("pc", [300, 10]), numbers("tax", [40, 2]),
+                                                   numbers("me", [400, 0]), numbers("cbh", [180, 30]), numbers("cbh_before_ads", [580, 30])])
+            let margins = Ledger.margins(from: [cbhFrame])
+            check(margins["MeadowEase"] == Ledger.Margin([20, 1000, 300, 40, 400, 180, 580]) && margins["NA"]?.revenue == 50, "Penny reads each product's CBH, a blank product as NA")
+            let profit = Ledger.Profit(margins["MeadowEase"]!)!
+            check(abs(profit.kept - 0.58) < 1e-9 && abs(profit.cost - 1) < 1e-9 && abs(profit.breakeven - 1 / 0.58) < 1e-9 && abs(profit.profitable - 1 / 0.53) < 1e-9,
+                  "Breakeven comes from CBH: what the product keeps before ads, and what an ad dollar takes")
+            check(Ledger.Profit(Ledger.Margin([0, 0, 0, 0, 10, -10, 0])) == nil && abs(Ledger.Profit.usual.breakeven - 1.8) < 1e-9 && abs(Ledger.Profit.usual.profitable - 2) < 0.03,
+                  "Without CBH Penny uses the usual 1.8× line, and about 2.0× for profitable")
+            func spentDay(_ name: String, _ hours: [(Int, Double, Double)]) -> Ledger.Day {
+                Ledger.Day(product: "P", day: name, copied: nov5, ads: [], hours: hours.map { Ledger.Hour(ad: "a", hour: $0.0, numbers: Ledger.Numbers([$0.1, 0, 0, 0, 0, 0, 0, 1, $0.2])) })
+            }
+            let week = ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"].enumerated().map { index, name in
+                spentDay(name, [(19, 30, 90), (3, 60, 30), (9, 60, 90), (12, 30, index == 2 ? 15 : 90)] + (index < 2 ? [(14, 10, 50)] : []))
+            }
+            let reads = Ledger.hourReads(week, profit: profit)
+            check(reads[19].verdict == .reliable && reads[3].verdict == .dead && reads[9].verdict == .costly && reads[12].verdict == .volatile
+                  && reads[14].verdict == .few && reads[0].verdict == .idle, "Each hour gets the dashboard's verdict, with breakeven from CBH")
+            check(reads[12].floor == 0.5 && reads[12].ceiling == 3 && reads[19].spentPerDay == 30 && abs(reads[9].cbh - (0.58 * 360 - 240)) < 1e-9,
+                  "An hour's bad and good days are the 10th and 90th percentile of its days' ROAS; its CBH is what revenue keeps less spend")
+            let parts = Ledger.efficiency(reads, profit: profit)
+            check(parts.losing.hours == [3, 9] && parts.profitable.hours == [12, 14, 19] && parts.losing.numbers.spent == 480,
+                  "The budget splits into hours below breakeven and profitable hours")
+            let hoursRead = Ledger.report(week, profit: profit)
+            check(hoursRead.contains { $0.contains("Breakeven ROAS **1.72**") } && hoursRead.contains { $0.hasPrefix("Put more in: 7 PM-8 PM") }
+                  && hoursRead.contains { $0.hasPrefix("Cut back: 3 AM-4 AM") }, "Penny's read names breakeven, the hours to put more in and the ones to cut")
+            var priced = Ledger.Summary()
+            priced.margins = ["P": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 10, 40, 50])], "Q": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 0, 50, 50])]]
+            check(priced.margin(of: "P", on: ["2026-11-04", "2026-11-03"]).days == 1 && (try? JSONDecoder().decode(Ledger.Summary.self, from: JSONEncoder().encode(priced))) == priced,
+                  "Each product's CBH is kept by day in the summary")
         }
         // Basil, the recipe helper: YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {
