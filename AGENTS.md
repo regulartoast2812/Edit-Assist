@@ -194,8 +194,9 @@ endpoint, so an edit is never sent as a reference by chance; a video follows by 
 a file has no role until you give one (no start frame is made for you, 2026-11-06): with none it goes as a
 reference, and only a given role shows on its picture. The shots are cards in one list,
 as the Forge shows its jobs, with the shot's files and one + box (the boxes for other roles show while files are dragged
-over it). Files dropped on a shot's files go into it; dropped anywhere else in the list they make a new shot, and while
-files are dragged each shot's files are outlined to show it. The prompt names a file by typing @ (a list of the shot's files);
+over it). Files dropped on a shot's files (only the files and their boxes, outlined while files are dragged) go into it;
+between two shots, a + opens and they make a variant of the shot above (K2.1 after K2, with its settings); anywhere
+else in the list, the prompt included, they make a new shot. The prompt names a file by typing @ (a list of the shot's files);
 it shows each as a pill with the file's name in its role's colour and keeps it as its @tag. Typing / gives a role: /start then a file
 makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same), shown as one pill ("Start · K2") and kept
 as "/start @K2"; a role lives only there (2026-11-06): one picked on the file or by dropping on a role's box is written as its command,

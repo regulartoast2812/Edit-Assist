@@ -1760,6 +1760,12 @@ struct Checks {
                       && desk.media(sorted: .added).first?.name == "K4.1"
                       && desk.media(sorted: .shot).map(\.name).prefix(3) == ["clip", "hero", "K1.1"],
                       "The media sorts by name as a person reads it (K2 before K10, K12 before K12 Size and K12.1), by shot, or newest first")
+                var o3Shot = KinoSettings(); o3Shot.model = "kling-4.0"
+                desk.setSettings(o3Shot, for: "K4")
+                let v1 = desk.variant(of: "K4", with: [at("K4.png")]), v2 = desk.variant(of: "K4.1", with: [at("hero.png")])
+                check(v1 == "K4.1" && v2 == "K4.2" && desk.shots.firstIndex(of: "K4.2") == desk.shots.firstIndex(of: "K4")! + 2
+                      && desk.settings("K4.1").model == "kling-4.0" && desk.files(in: "K4.1").map(\.name) == ["K4"],
+                      "Files dropped between shots make a variant of the shot above (K4.1, then K4.2), after it, with its settings")
                 let inMedia = desk.media.count
                 desk.addTakes([at("K12.1 O1.mp4"), at("K12 O2.mp4"), at("K77 O1.mp4"), at("still.png")])
                 desk.addTakes([at("final.mp4")], to: "K4")

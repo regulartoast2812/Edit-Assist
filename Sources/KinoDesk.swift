@@ -226,6 +226,26 @@ final class KinoDesk: ObservableObject {
         return code
     }
 
+    /// The code a variant of a shot gets: the shot's next free number after a point (K2.1, then K2.2; of K2.1, K2.2 too).
+    func nextVariant(of code: String) -> String {
+        let root = KinoCode.parse(code)?.shot ?? code
+        var number = 1
+        while batch.order.contains(where: { $0.caseInsensitiveCompare("\(root).\(number)") == .orderedSame }) { number += 1 }
+        return "\(root).\(number)"
+    }
+    /// A variant of a shot, made of these files: it starts from the shot's own settings and comes right after it and its
+    /// other variants.
+    @discardableResult
+    func variant(of code: String, with urls: [URL]) -> String {
+        let made = nextVariant(of: code)
+        batch.order.append(made)
+        batch.order.sort(by: KinoCode.before)
+        batch.shots[made] = KinoShot(settings: shot(code).settings)
+        selected = made
+        add(urls, into: made)
+        return made
+    }
+
     func removeShot(_ code: String) {
         batch.order.removeAll { $0 == code }
         batch.shots[code] = nil

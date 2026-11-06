@@ -77,7 +77,7 @@ struct KinoPage: View {
                     GeometryReader { size in
                         ScrollViewReader { proxy in
                             ThinScrollView {
-                                LazyVStack(alignment: .leading, spacing: 12) {
+                                LazyVStack(alignment: .leading, spacing: 0) {
                                     if desk.shots.isEmpty { welcome.padding(.bottom, 8) }
                                     ForEach(shown, id: \.self) { code in
                                         KinoShotCard(desk: desk, code: code, width: size.size.width,
@@ -85,6 +85,7 @@ struct KinoPage: View {
                                                                      set: { if $0 { folded.insert(code) } else { folded.remove(code) } }),
                                                      openAccounts: { showingAccounts = true }, openEveryShot: { showingEveryShot = true })
                                             .id(code)
+                                        KinoVariantGap(desk: desk, after: code)
                                     }
                                     if shown.isEmpty && !desk.shots.isEmpty {
                                         Text(L("No shot or file has “%@”", search)).font(.system(size: 12)).foregroundStyle(.secondary).padding(.vertical, 20)
@@ -766,13 +767,13 @@ struct KinoShotCard: View {
             if !folded {
                 if width >= 780 {
                     HStack(alignment: .top, spacing: 20) {
-                        drops(inputs(plan, files).frame(width: inputsWidth, alignment: .leading).frame(maxHeight: .infinity, alignment: .top))
+                        inputs(plan, files, width: inputsWidth).frame(width: inputsWidth, alignment: .leading)
                         middle(plan, files).frame(maxWidth: .infinity, alignment: .leading)
                         if width >= 1080 { KinoTakeList(desk: desk, code: code).frame(width: 148) }
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    VStack(alignment: .leading, spacing: 16) { drops(inputs(plan, files).frame(maxWidth: .infinity, alignment: .leading)); middle(plan, files) }
+                    VStack(alignment: .leading, spacing: 16) { inputs(plan, files, width: width - 32).frame(maxWidth: .infinity, alignment: .leading); middle(plan, files) }
                 }
             }
         }
@@ -854,7 +855,7 @@ struct KinoShotCard: View {
 
     /// The shot's files in their places' order, files left out last; one + box while the model has room, and while files are
     /// dragged over the card, a box for each place it has room for.
-    func inputs(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
+    func inputs(_ plan: KinoPlan, _ files: [KinoFile], width: CGFloat) -> some View {
         let model = KinoModel.named(desk.settings(code).model)
         let roles = desk.roles(code)
         let given = desk.given(code)
@@ -877,9 +878,11 @@ struct KinoShotCard: View {
             }
             let empty = slots.filter { if case .empty = $0 { true } else { false } }
             let shown = slots.filter { if case .file = $0 { true } else { false } }
-            FlowLayout(spacing: 8) {
-                // The files, the + box (nil) while the model has room, then the places for each role while files are dragged in.
-                let items: [KinoSlot?] = shown + (empty.isEmpty ? [] : [nil]) + (places ? empty : [])
+            // The files, the + box (nil) while the model has room, then the places for each role while files are dragged in.
+            let items: [KinoSlot?] = shown + (empty.isEmpty ? [] : [nil]) + (places ? empty : [])
+            // Only the files and their boxes take a drop into this shot: the space around them makes a new shot.
+            let fit = min(width, CGFloat(max(items.count, 1)) * (KinoFileTile.width + 8) - 8)
+            drops(FlowLayout(spacing: 8) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, slot in
                     switch slot {
                     case nil:
@@ -900,6 +903,7 @@ struct KinoShotCard: View {
                     }
                 }
             }
+            .frame(width: fit, alignment: .leading))
         }
     }
 
@@ -1414,6 +1418,37 @@ struct KinoPlayer: NSViewRepresentable {
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) { view.player?.pause(); view.player = nil }
 }
 
+/// The space after a shot. While files are dragged it opens into a + : dropped there, they make a variant of the shot
+/// above (K2.1 after K2, with K2's settings), placed right after it.
+struct KinoVariantGap: View {
+    @ObservedObject var desk: KinoDesk
+    let after: String
+    @State private var targeted = false
+    private let accent = PixelKino.theme
+    var body: some View {
+        let open = desk.dragging || targeted
+        ZStack {
+            if open {
+                Rectangle().fill(accent.opacity(targeted ? 0.9 : 0.35)).frame(height: targeted ? 2 : 1)
+                HStack(spacing: 6) {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .heavy))
+                    if targeted { Text(L("New variant of %@: %@", after, desk.nextVariant(of: after))).font(.system(size: 11.5, weight: .semibold)) }
+                }
+                .foregroundStyle(targeted ? .black : accent)
+                .padding(.horizontal, targeted ? 12 : 7).frame(height: 26)
+                .background(targeted ? accent : Color(nsColor: .windowBackgroundColor), in: Capsule())
+                .overlay(Capsule().strokeBorder(accent.opacity(targeted ? 0 : 0.6)))
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: open ? 40 : 12)
+        .contentShape(Rectangle())
+        .kinoDrop($targeted) { desk.variant(of: after, with: $0) }
+        .onChange(of: targeted) { _, inside in desk.dragged(inside) }
+        .animation(.easeOut(duration: 0.12), value: open)
+        .animation(.easeOut(duration: 0.12), value: targeted)
+    }
+}
+
 /// The last card: drop files on it to make a shot of them, or press it for an empty one.
 struct KinoNewShot: View {
     @ObservedObject var desk: KinoDesk
@@ -1838,7 +1873,14 @@ struct KinoPromptView: NSViewRepresentable {
 }
 
 /// The prompt's text view: copies and cuts its pills as their @tags, and pastes plain text (tags in it become pills).
+/// Files dragged over it are not its own: they go to the shots' list behind it (a new shot), as text views otherwise take
+/// any file dragged over them.
 final class KinoPromptTextView: NSTextView {
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] { [.string] }
+    override func updateDragTypeRegistration() {
+        unregisterDraggedTypes()
+        registerForDraggedTypes([.string])
+    }
     override func copy(_ sender: Any?) {
         let range = selectedRange()
         guard range.length > 0, let storage = textStorage else { return super.copy(sender) }
