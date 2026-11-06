@@ -4,6 +4,8 @@ import AppKit
 @main
 struct Checks {
     static func main() async throws {
+        // A run stopped inside the language checks leaves Vietnamese saved; every run starts in the Mac's language.
+        UserDefaults.standard.removeObject(forKey: "appLanguage")
         var count = 0
         func check(_ condition: @autoclosure () -> Bool, _ name: String) {
             guard condition() else { fatalError("FAIL: \(name)") }
