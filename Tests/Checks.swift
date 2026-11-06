@@ -1299,6 +1299,12 @@ struct Checks {
             copied.copied["2026-11-05"] = nov5.addingTimeInterval(-10)                        // just copied: not yet
             check(Ledger.wanted(now: nov5, summary: copied, kept: 4) == ["2026-11-04", "2026-11-02"],
                   "Penny copies the days he hasn't and the ones not yet settled, newest first")
+            check(Ledger.state(of: "2026-11-03", in: copied) == .final(copied: copied.copied["2026-11-03"]!)
+                  && Ledger.state(of: "2026-11-04", in: copied) == .live(copied: copied.copied["2026-11-04"]!, until: Ledger.bounds(of: "2026-11-04")!.to.addingTimeInterval(Ledger.settles))
+                  && Ledger.state(of: "2026-11-02", in: copied) == .missing,
+                  "Penny's data shows each day as final, still coming in, or not copied")
+            let old = try JSONDecoder().decode(Ledger.Summary.self, from: Data(#"{"copied":{},"products":{"P":{"2026-11-04":[1,0,0,0,0,0,0,0,0]}}}"#.utf8))
+            check(old.products["P"]?["2026-11-04"]?.spent == 1 && old.latest.isEmpty, "A summary saved before the last hour was kept still reads")
             let ads = Grafana.Frame(columns: [Grafana.Column(name: "product", kind: "string", cells: [.text("ComfyJeans"), .text("")]),
                                               Grafana.Column(name: "ad_id", kind: "string", cells: [.text("a1"), .text("a2")]),
                                               Grafana.Column(name: "campaign_id", kind: "string", cells: [.text("c1"), .text("c2")]),
@@ -1314,6 +1320,7 @@ struct Checks {
             check(Set(products.keys) == ["ComfyJeans", "NA"] && chapter?.ads.map { $0.id } == ["a1", "a3"] && chapter?.ads.first?.budget == 500
                   && chapter?.numbers == Ledger.Numbers([45, 0, 0, 0, 34, 0, 0, 3, 85]),
                   "Penny sorts each ad and its hours under its product; an ad seen only in the hours keeps its id")
+            check(Ledger.latest(products) == 20, "Penny knows the last hour Grafana has numbers for")
             let saved = try JSONEncoder().encode(Ledger.Numbers([1, 2, 3, 4, 5, 6, 7, 8, 9]))
             check(String(decoding: saved, as: UTF8.self) == "[1,2,3,4,5,6,7,8,9]" && (try? JSONDecoder().decode(Ledger.Numbers.self, from: saved))?.orders == 8,
                   "An hour's numbers are saved as a plain list")

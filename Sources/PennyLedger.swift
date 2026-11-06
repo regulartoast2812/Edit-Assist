@@ -74,6 +74,17 @@ enum Ledger {
     struct Summary: Equatable, Codable {
         var copied: [String: Date] = [:]
         var products: [String: [String: Numbers]] = [:]
+        /// The last hour of each day with numbers in it, as last copied.
+        var latest: [String: Int] = [:]
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            copied = try container.decodeIfPresent([String: Date].self, forKey: .copied) ?? [:]
+            products = try container.decodeIfPresent([String: [String: Numbers]].self, forKey: .products) ?? [:]
+            latest = try container.decodeIfPresent([String: Int].self, forKey: .latest) ?? [:]
+        }
 
         func numbers(of product: String, on days: [String]) -> Numbers {
             days.reduce(Numbers()) { $0 + (products[product]?[$1] ?? Numbers()) }
@@ -119,6 +130,21 @@ enum Ledger {
             guard let end = bounds(of: day)?.to else { return false }
             return copied < end.addingTimeInterval(settles) && now >= copied.addingTimeInterval(60)
         }
+    }
+
+    /// How far a day's copy can be trusted: not copied, copied while its numbers still come in (copied again until
+    /// `settles` after it ends), or copied after that and final.
+    enum State: Equatable { case missing, live(copied: Date, until: Date), final(copied: Date) }
+
+    static func state(of day: String, in summary: Summary) -> State {
+        guard let copied = summary.copied[day], let end = bounds(of: day)?.to else { return .missing }
+        let until = end.addingTimeInterval(settles)
+        return copied >= until ? .final(copied: copied) : .live(copied: copied, until: until)
+    }
+
+    /// The last hour any product has numbers in.
+    static func latest(_ products: [String: Day]) -> Int? {
+        products.values.flatMap { $0.hours.filter { $0.numbers.spent > 0 || $0.numbers.orders > 0 }.map(\.hour) }.max()
     }
 
     /// A product as a folder name: what a folder can't hold becomes "-".
@@ -381,6 +407,8 @@ final class PennyLedger: ObservableObject {
     /// The day being copied now.
     @Published private(set) var copying: String?
     @Published private(set) var failure: String?
+    /// When the copy runs again by itself.
+    @Published private(set) var next: Date?
     /// Days you picked that are older than the copy keeps: copied once, and kept.
     private var asked: Set<String> = []
     var onSignedOut: (() -> Void)?
@@ -405,12 +433,13 @@ final class PennyLedger: ObservableObject {
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.sync()
+                self?.next = Date().addingTimeInterval(30 * 60)
                 try? await Task.sleep(nanoseconds: 30 * 60 * 1_000_000_000)
             }
         }
     }
 
-    func stop() { loop?.cancel(); loop = nil; copying = nil }
+    func stop() { loop?.cancel(); loop = nil; copying = nil; next = nil }
 
     /// Days you picked: the ones not yet copied are copied now, newest first.
     func ask(for days: [String]) {
@@ -466,6 +495,7 @@ final class PennyLedger: ObservableObject {
         for product in had where products[product] == nil { summary.products[product]?[day] = nil }
         for (product, numbers) in products { summary.products[product, default: [:]][day] = numbers.numbers }
         summary.copied[day] = copied
+        summary.latest[day] = Ledger.latest(products)
         saveSummary()
     }
 

@@ -37,6 +37,7 @@ struct ProductsView: View {
         let product = products.first(where: { $0.name == chosen })?.name ?? products.first?.name
         VStack(alignment: .leading, spacing: 12) {
             toolbar
+            card(L("DATA")) { DataState(ledger: ledger, days: days.now) }
             if products.isEmpty {
                 Text(ledger.summary.copied.isEmpty ? L("Penny is making his first copy of the ads' numbers; products show here as each day comes in.") : L("No product ran in these days."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -69,16 +70,6 @@ struct ProductsView: View {
                     from = Ledger.name(of: first); to = Ledger.name(of: last); range = -2; picking = false
                     ledger.ask(for: Ledger.days(from: from, to: to))
                 }
-            }
-            if let day = ledger.copying {
-                ProgressView().controlSize(.small)
-                Text(L("Copying %@…", day)).font(.system(size: 10)).foregroundStyle(.secondary)
-            } else if let last = ledger.summary.copied.values.max() {
-                Text(L("%@ days copied, last at %@", ledger.summary.copied.count, last.formatted(date: .omitted, time: .shortened)))
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-            if let failure = ledger.failure {
-                Label(failure, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(2)
             }
             Spacer()
             Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
@@ -180,6 +171,77 @@ struct ProductsView: View {
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
     }
+}
+
+/// Whether Penny's copy is up to date: when he last copied and copies next, how far today's numbers reach in Grafana,
+/// and each day you're looking at: final, still coming in (copied again until its numbers settle), or not copied.
+struct DataState: View {
+    @ObservedObject var ledger: PennyLedger
+    let days: [String]
+
+    var body: some View {
+        let today = Ledger.name(of: Date())
+        VStack(alignment: .leading, spacing: 8) {
+            headline(today: today).font(.system(size: 11))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
+                ForEach(days.reversed(), id: \.self) { day in tile(day, today: today) }
+            }
+        }
+    }
+
+    @ViewBuilder func headline(today: String) -> some View {
+        let summary = ledger.summary
+        HStack(spacing: 6) {
+            if let failure = ledger.failure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).lineLimit(2)
+            } else if let day = ledger.copying {
+                ProgressView().controlSize(.mini)
+                Text(L("Copying %@…", Self.written(day)))
+            } else if let last = summary.copied[today], Date().timeIntervalSince(last) < 40 * 60 {
+                Label(ledger.next.map { L("Up to date: copied at %@, next copy at %@", Self.time(last), Self.time($0)) } ?? L("Up to date: copied at %@", Self.time(last)),
+                      systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            } else if let last = summary.copied.values.max() {
+                Label(L("Not copied since %@", last.formatted(date: .abbreviated, time: .shortened)), systemImage: "clock.badge.exclamationmark").foregroundStyle(.orange)
+            } else {
+                Text(L("No copy yet")).foregroundStyle(.secondary)
+            }
+            if let hour = summary.latest[today] {
+                Text("·").foregroundStyle(.secondary)
+                Text(L("Grafana has today up to %@, Alaska time", Ledger.hourName(hour))).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    func tile(_ day: String, today: String) -> some View {
+        let state = Ledger.state(of: day, in: ledger.summary)
+        let (mark, color, note, help): (String, Color, String, String) = {
+            if ledger.copying == day { return ("arrow.triangle.2.circlepath", .secondary, L("Copying…"), L("Copying now")) }
+            switch state {
+            case .missing:
+                return ("circle.dashed", .secondary, L("Not copied"), L("Not copied yet"))
+            case let .live(copied, until):
+                return ("clock", .orange, L("Coming in · %@", Self.time(copied)),
+                        L("Copied %@; its numbers still come in, so Penny copies it again until %@", copied.formatted(date: .abbreviated, time: .shortened), until.formatted(date: .abbreviated, time: .shortened)))
+            case let .final(copied):
+                return ("checkmark.circle.fill", .green, L("Final"), L("Copied %@, after its numbers had settled", copied.formatted(date: .abbreviated, time: .shortened)))
+            }
+        }()
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(day == today ? L("Today") : Self.written(day)).font(.system(size: 10, weight: .semibold))
+            Label(note, systemImage: mark).font(.system(size: 9)).foregroundStyle(color).lineLimit(1)
+        }
+        .padding(6).frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        .help(help)
+    }
+
+    static func written(_ day: String) -> String {
+        var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        style.timeZone = Ledger.zone
+        return Ledger.start(of: day)?.formatted(style) ?? day
+    }
+
+    static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
 }
 
 /// Spend and revenue each day.
