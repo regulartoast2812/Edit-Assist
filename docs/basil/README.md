@@ -39,7 +39,11 @@ touches projects, Premiere, Grafana or any Crossian account.
    call must answer. Videos it lists in `show` appear with the answer as cards (Write recipe, watch). The prompt carries
    the notes list (title, status, cuisine, tags), the last 20 messages and the videos shown last. Saved in
    `basil/chat.json`. Search and chat need no folder; the folder is asked for when a recipe is first saved.
-7. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
+7. **Saving and picks.** Searches add "recipe" unless the words already ask for cooking (`Kitchen.recipeSearch`).
+   A video dragged onto the save area (right of the results) is written into the vault. **Pick for me** searches,
+   asks the brain once which results are real recipe videos worth saving (`Kitchen.pickPrompt`, `Kitchen.pickSchema`;
+   at most five, only ids it was shown, `Kitchen.picks`) and saves those one after another, each with its reason.
+8. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
 
 ## Rules carried from Edit Assist
 

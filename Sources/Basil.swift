@@ -50,6 +50,7 @@ struct BasilPage: View {
     @ObservedObject var desk: BasilDesk
     @AppStorage("basilTab") private var tab = "chat"
     @State private var draft = ""
+    @State private var dropping = false
     @State private var words = ""
     @State private var search = ""
     @State private var filter = ""
@@ -237,15 +238,73 @@ struct BasilPage: View {
                 HStack(spacing: 8) {
                     TextField(L("A dish or an ingredient, e.g. chicken adobo"), text: $words).textFieldStyle(.roundedBorder).frame(maxWidth: 420)
                         .onSubmit { desk.search(words) }
-                    Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching)
-                    if desk.searching { ProgressView().controlSize(.small) }
+                    Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching || desk.picking)
+                    Button { desk.pick(words) } label: { Label(L("Pick for me"), systemImage: "sparkles") }
+                        .disabled(words.isEmpty || desk.searching || desk.picking)
+                        .help(L("Basil searches recipes for your words, picks the real recipe videos worth saving (up to 5) and saves them"))
+                    if desk.searching || desk.picking { ProgressView().controlSize(.small) }
+                    if desk.picking { Text(L("Basil is picking…")).font(.system(size: 11)).foregroundStyle(.secondary) }
                     Spacer()
                     Button(L("Forget key"), role: .destructive) { desk.forgetKey() }.controlSize(.small).buttonStyle(.link)
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], spacing: 16) {
-                    ForEach(desk.results) { video in card(video) }
+                HStack(alignment: .top, spacing: 16) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 14)], spacing: 16) {
+                        ForEach(desk.results) { video in card(video) }
+                    }.frame(maxWidth: .infinity, alignment: .top)
+                    shelf.frame(width: 280)
                 }
             }
+        }
+    }
+
+    /// Where videos are saved: drop one here (from the results or the chat) and Basil writes its recipe into your vault;
+    /// his picks land here too.
+    var shelf: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(L("SAVE TO YOUR VAULT")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Spacer()
+                if desk.shelf.contains(where: { if case .saving = $0.state { return false }; return true }) {
+                    Button(L("Clear")) { desk.clearShelf() }.buttonStyle(.link).font(.system(size: 10))
+                }
+            }
+            VStack(spacing: 6) {
+                Image(systemName: "tray.and.arrow.down").font(.system(size: 20)).foregroundStyle(dropping ? accent : .secondary)
+                Text(L("Drag videos here to save their recipes")).font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 18)
+            .background(accent.opacity(dropping ? 0.14 : 0.03), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(dropping ? accent : .secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+            ForEach(desk.shelf) { item in shelved(item) }
+        }
+        .padding(12)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+        .dropDestination(for: String.self) { ids, _ in
+            ids.forEach(desk.shelve(id:))
+            return !ids.isEmpty
+        } isTargeted: { dropping = $0 }
+    }
+
+    func shelved(_ item: BasilDesk.Shelved) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            AsyncImage(url: item.video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.video.title).font(.system(size: 11, weight: .medium)).lineLimit(2)
+                if !item.why.isEmpty {
+                    Label(item.why, systemImage: "sparkles").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
+                }
+                switch item.state {
+                case .saving:
+                    HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(L("Writing…")).font(.system(size: 10)).foregroundStyle(.secondary) }
+                case .saved(let file):
+                    Button { open(file) } label: { Label(L("Saved: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
+                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Open in Obsidian"))
+                case .failed(let reason):
+                    Label(reason, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -275,6 +334,11 @@ struct BasilPage: View {
                 Spacer()
                 Button { NSWorkspace.shared.open(video.url) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))
             }
+        }
+        .contentShape(Rectangle())
+        // Dragged onto the save area by its id.
+        .draggable(video.id) {
+            Text(video.title).font(.system(size: 11)).lineLimit(1).padding(6).background(accent.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
         }
     }
 

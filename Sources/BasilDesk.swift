@@ -19,8 +19,21 @@ import Security
     /// The chat with him, kept in basil/chat.json beside projects.json.
     @Published private(set) var chat: [Kitchen.Message] = []
     @Published private(set) var thinking = false
+    /// The videos saved here (dropped on the save area, or Basil's picks), newest first, with how each went.
+    @Published private(set) var shelf: [Shelved] = []
+    /// Basil choosing recipe videos for you.
+    @Published private(set) var picking = false
 
-    var busy: Bool { searching || thinking || !writing.isEmpty }
+    struct Shelved: Identifiable, Equatable {
+        enum State: Equatable { case saving, saved(URL), failed(String) }
+        var video: Kitchen.Video
+        var state = State.saving
+        /// Why Basil picked it; empty for one you saved.
+        var why = ""
+        var id: String { video.id }
+    }
+
+    var busy: Bool { searching || thinking || picking || !writing.isEmpty }
     /// The videos already in the vault, by their link.
     var sources: Set<String> { Set(recipes.map(\.source).filter { !$0.isEmpty }) }
 
@@ -153,30 +166,74 @@ import Security
         Task {
             defer { searching = false }
             do {
-                results = try await videos(for: words, key: key)
+                results = try await videos(for: Kitchen.recipeSearch(words), key: key)
             } catch { failure = describe(error) }
         }
     }
 
     /// The video's recipe as a note: from the recipe page it links to when there is one, else from its description.
     func write(_ video: Kitchen.Video) {
-        guard !writing.contains(video.id), folder != nil || chooseFolder(), let folder else { return }
-        writing.insert(video.id); failure = nil
+        guard !writing.contains(video.id), folder != nil || chooseFolder() else { return }
+        Task { await shelve(video) }
+    }
+
+    /// Saves the video's recipe in the vault, shown on the shelf while it goes. Already in the vault or being saved: nothing to do.
+    private func shelve(_ video: Kitchen.Video, why: String = "") async {
+        guard let folder, !writing.contains(video.id) else { return }
+        if sources.contains(video.url.absoluteString) {
+            if !shelf.contains(where: { $0.id == video.id }), let entry = recipes.first(where: { $0.source == video.url.absoluteString }) {
+                shelf.insert(Shelved(video: video, state: .saved(entry.file), why: why), at: 0)
+            }
+            return
+        }
+        shelf.removeAll { $0.id == video.id }
+        shelf.insert(Shelved(video: video, why: why), at: 0)
+        writing.insert(video.id)
+        defer { writing.remove(video.id) }
+        let state: Shelved.State
+        do {
+            var page: (url: URL, data: [String: Any])?
+            for link in Kitchen.links(in: video.description) {
+                if let data = await recipePage(link) { page = (link, data); break }
+            }
+            let answer = try await HelperBrain.ask(Kitchen.prompt(for: video, page: page?.data), schema: Kitchen.schema)
+            var recipe = Kitchen.recipe(from: answer)
+            if recipe.title.isEmpty { recipe.title = video.title }
+            recipe.source = video.url.absoluteString; recipe.channel = video.channel; recipe.page = page?.url.absoluteString ?? ""
+            state = .saved(try save(recipe, in: folder))
+        } catch { state = .failed(describe(error)) }
+        if let index = shelf.firstIndex(where: { $0.id == video.id }) { shelf[index].state = state }
+    }
+
+    /// A video dragged onto the save area, by its id: from the results or the chat.
+    func shelve(id: String) {
+        guard let video = results.first(where: { $0.id == id }) ?? chat.lazy.flatMap(\.videos).first(where: { $0.id == id }) else { return }
+        write(video)
+    }
+
+    /// Basil searches recipes for your words, picks the real recipe videos worth saving (at most five), and saves them.
+    func pick(_ words: String) {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, let key = Self.key, !picking, !searching, folder != nil || chooseFolder() else { return }
+        picking = true; failure = nil
         Task {
-            defer { writing.remove(video.id) }
+            defer { picking = false }
             do {
-                var page: (url: URL, data: [String: Any])?
-                for link in Kitchen.links(in: video.description) {
-                    if let data = await recipePage(link) { page = (link, data); break }
+                let query = Kitchen.recipeSearch(words)
+                results = try await videos(for: query, key: key)
+                let fresh = results.filter { !sources.contains($0.url.absoluteString) }
+                guard !fresh.isEmpty else { return }
+                let answer = try await HelperBrain.ask(Kitchen.pickPrompt(query, videos: fresh, count: 5), schema: Kitchen.pickSchema)
+                let picks = Kitchen.picks(from: answer, among: fresh, count: 5)
+                if picks.isEmpty { failure = L("Basil found no real recipe among these videos. Try other words."); return }
+                for pick in picks {
+                    if let video = fresh.first(where: { $0.id == pick.id }) { await shelve(video, why: pick.why) }
                 }
-                let answer = try await HelperBrain.ask(Kitchen.prompt(for: video, page: page?.data), schema: Kitchen.schema)
-                var recipe = Kitchen.recipe(from: answer)
-                if recipe.title.isEmpty { recipe.title = video.title }
-                recipe.source = video.url.absoluteString; recipe.channel = video.channel; recipe.page = page?.url.absoluteString ?? ""
-                try save(recipe, in: folder)
             } catch { failure = describe(error) }
         }
     }
+
+    func clearShelf() { shelf.removeAll { if case .saving = $0.state { return false }; return true } }
 
     /// A recipe from your own words.
     func write(words: String) {
@@ -193,13 +250,14 @@ import Security
     }
 
     /// Written as a new note, never over one already there.
-    private func save(_ recipe: Kitchen.Recipe, in folder: URL) throws {
+    @discardableResult private func save(_ recipe: Kitchen.Recipe, in folder: URL) throws -> URL {
         let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
         let file = folder.appendingPathComponent(Kitchen.fileName(for: recipe.title, taken: taken))
         let added = Date().formatted(.iso8601.year().month().day())
         try Data(Kitchen.note(recipe, added: added).utf8).write(to: file, options: .withoutOverwriting)
         written = file
         reload()
+        return file
     }
 
     /// Where a recipe stands, written into its note's header.

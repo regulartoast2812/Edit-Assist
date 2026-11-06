@@ -30,6 +30,45 @@ enum Kitchen {
         url("search", [("part", "snippet"), ("type", "video"), ("maxResults", "\(count)"), ("q", words), ("safeSearch", "none")], key: key)
     }
 
+    /// Your words as a recipe search: "chicken" finds songs and farm videos, "chicken recipe" finds cooking.
+    static func recipeSearch(_ words: String) -> String {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = words.lowercased()
+        return ["recipe", "how to", "cook", "bake", "make"].contains(where: lowered.contains) ? words : words + " recipe"
+    }
+
+    // MARK: Basil's picks (one brain call: which results are real recipe videos worth saving)
+
+    struct Pick: Equatable { var id: String, why: String }
+
+    static var pickSchema: [String: Any] {
+        let text: [String: Any] = ["type": "string"]
+        let pick: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["id", "why"], "properties": ["id": text, "why": text]]
+        return ["type": "object", "additionalProperties": false, "required": ["picks"], "properties": ["picks": ["type": "array", "items": pick]]]
+    }
+
+    static func pickPrompt(_ words: String, videos: [Video], count: Int) -> String {
+        """
+        I searched YouTube for recipes: "\(words)". Pick the videos that actually teach a recipe I could cook from, best first, at most \(count). \
+        Leave out songs, animals, Shorts with no method, compilations, reactions, mukbangs and anything that is not a recipe. Prefer a clear \
+        method with amounts (in the video or its description, or a linked recipe page), a trusted cook, and different dishes rather than \
+        the same one twice. For each pick give its id and in `why` one short line on what it is and why it's worth saving. If none is a \
+        recipe, return no picks.
+
+        The results (id | title | channel | length | views | description):
+        """ + "\n" + videos.map { video($0, description: 300) }.joined(separator: "\n")
+    }
+
+    /// The picks that are among the results, once each, at most `count`.
+    static func picks(from answer: [String: Any], among videos: [Video], count: Int) -> [Pick] {
+        let ids = Set(videos.map(\.id))
+        var seen: Set<String> = []
+        return (answer["picks"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespaces), ids.contains(id), seen.insert(id).inserted else { return nil }
+            return Pick(id: id, why: (item["why"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        }.prefix(count).map { $0 }
+    }
+
     /// Each video's title, channel, description, length and views.
     static func videosURL(_ ids: [String], key: String) -> URL {
         url("videos", [("part", "snippet,contentDetails,statistics"), ("id", ids.joined(separator: ",")), ("maxResults", "50")], key: key)
@@ -372,7 +411,7 @@ enum Kitchen {
         return text
     }
 
-    private static func video(_ video: Video, description: Int) -> String {
+    static func video(_ video: Video, description: Int) -> String {
         let views = video.views.map { " | \($0) views" } ?? ""
         let about = video.description.prefix(description).replacingOccurrences(of: "\n", with: " ")
         return "- id \(video.id) | \(video.title) | \(video.channel) | \(video.duration)\(views) | \(about)"

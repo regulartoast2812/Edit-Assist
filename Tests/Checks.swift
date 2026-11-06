@@ -1403,6 +1403,11 @@ struct Checks {
                   "Basil's chat gets your notes list, the chat, what he looked up, and what he can't do")
             check(Kitchen.chatPrompt(chat: asked, recipes: [], folder: false, canSearch: true, found: nil, searched: "", read: [], last: false).contains("not chosen yet"),
                   "Without a recipes folder Basil still chats, and says where to choose one")
+            check(Kitchen.recipeSearch(" chicken ") == "chicken recipe" && Kitchen.recipeSearch("how to make pho") == "how to make pho" && Kitchen.recipeSearch("Adobo Recipe") == "Adobo Recipe",
+                  "Basil searches for recipes, not anything with the word in it")
+            let picked = Kitchen.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
+            check(picked == [Kitchen.Pick(id: "v2", why: "Clear method")] && Kitchen.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
+                  "Basil's picks are only videos he was shown, once each")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).
