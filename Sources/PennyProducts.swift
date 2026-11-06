@@ -14,14 +14,13 @@ struct ProductsView: View {
     @State private var picking = false
     @AppStorage("pennyProduct") private var chosen = ""
     @State private var search = ""
-    @State private var loaded: [Ledger.Day] = []
-    @State private var loadedKey = ""
-    /// The day opened hour by hour, from the trend or the calendar.
-    @State private var openDay: String?
+    /// The chosen product worked out off the main thread (2026-11-06: the page was slow when every redraw worked it
+    /// out again); the last one stays up while the next is read.
+    @State private var analysis: PennyAnalysis?
 
     static let ranges: [(days: Int, name: String)] = [(0, "Today"), (-1, "Yesterday"), (7, "Last 7 days"), (14, "Last 14 days"), (30, "Last 30 days")]
 
-    /// The days in the range, and as many before them to compare with.
+    /// The days in the range, newest first, and as many before them to compare with.
     var days: (now: [String], before: [String]) {
         if range == -2, case let picked = Ledger.days(from: from, to: to), let first = picked.last, let start = Ledger.start(of: first) {
             let before = Ledger.days(back: picked.count + 1, from: start).dropFirst()
@@ -37,6 +36,8 @@ struct ProductsView: View {
         let days = days
         let products = ledger.products(on: days.now)
         let product = products.first(where: { $0.name == chosen })?.name ?? products.first?.name
+        let copied = ledger.summary.copied.values.max()?.timeIntervalSince1970 ?? 0
+        let key = PennyAnalysis.key(product ?? "", days.now, copied)
         VStack(alignment: .leading, spacing: 12) {
             toolbar
             card(L("DATA")) { DataState(ledger: ledger, days: days.now) }
@@ -44,17 +45,22 @@ struct ProductsView: View {
                 Text(ledger.summary.copied.isEmpty ? L("Penny is making his first copy of the ads' numbers; products show here as each day comes in.") : L("No product ran in these days."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
-                HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .top, spacing: 16) {
                     list(products, selected: product)
-                    if let product { detail(product, days: days) }
+                    if let analysis, product != nil {
+                        ProductDetail(analysis: analysis, loading: analysis.key != key).equatable()
+                    } else {
+                        ProgressView().controlSize(.small).frame(maxWidth: .infinity)
+                    }
                 }
             }
         }
-        .task(id: "\(product ?? "")|\(days.now.joined())|\(ledger.summary.copied.values.max()?.timeIntervalSince1970 ?? 0)") {
-            guard let product else { loaded = []; return }
-            let wanted = days.now
-            let read = await Task.detached { PennyLedger.days(of: product, wanted) }.value
-            loaded = read; loadedKey = product + "|" + wanted.joined()
+        .task(id: key) {
+            guard let product else { analysis = nil; return }
+            if analysis?.key == key { return }
+            let summary = ledger.summary
+            let read = await Task.detached(priority: .userInitiated) { PennyAnalysis(product: product, days: days, summary: summary, key: key) }.value
+            if !Task.isCancelled { analysis = read }
         }
     }
 
@@ -115,125 +121,6 @@ struct ProductsView: View {
         }.frame(width: 250)
     }
 
-    @ViewBuilder func detail(_ product: String, days: (now: [String], before: [String])) -> some View {
-        let ready = loadedKey == product + "|" + days.now.joined()
-        let total = Ledger.total(loaded)
-        let before = ledger.summary.numbers(of: product, on: days.before)
-        let profit = ledger.profit(of: product, on: days.now)
-        let margin = ledger.summary.margin(of: product, on: days.now)
-        let marginBefore = ledger.summary.margin(of: product, on: days.before)
-        let change = { (now: Double?, then: Double?) -> Double? in
-            guard before.spent > 0, let now, let then, then != 0 else { return nil }
-            return (now - then) / abs(then)
-        }
-        VStack(alignment: .leading, spacing: 14) {
-            header(product, days: days.now, profit: profit)
-            if ready {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 8)], spacing: 8) {
-                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent), neutral: true)
-                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue))
-                PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas))
-                if margin.days > 0 {
-                    PennyFigure(name: "CBH", value: Ledger.money(margin.margin.cbh), color: margin.margin.cbh < 0 ? PennyStyle.red : PennyStyle.green,
-                                change: marginBefore.days > 0 ? change(margin.margin.cbh, marginBefore.margin.cbh) : nil)
-                    PennyFigure(name: "%CBH", value: Ledger.percent(margin.margin.share), change: marginBefore.days > 0 ? change(margin.margin.share, marginBefore.margin.share) : nil)
-                }
-                PennyFigure(name: "Breakeven ROAS", value: PennyStyle.times(profit.breakeven), color: PennyStyle.red.opacity(0.85))
-                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders))
-                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp), upIsGood: false)
-                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov))
-                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr))
-                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr))
-                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm), upIsGood: false)
-            }
-                let dayReads = Ledger.dayReads(loaded, profit: profit)
-                let reads = Ledger.hourReads(loaded, profit: profit)
-                PennyPanel(title: L("Penny's read")) {
-                    let lines = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit)
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                                Circle().fill(PixelPenny.theme).frame(width: 5, height: 5).offset(y: -2)
-                                Text(md: line).fixedSize(horizontal: false, vertical: true)
-                            }.font(.system(size: 12))
-                        }
-                    }.textSelection(.enabled)
-                }
-                PennyPanel(title: L("Daily ROAS and spend"),
-                           note: L("Press a day, on the chart or the calendar, to see it hour by hour. Weekends are shaded.")) {
-                    HStack(spacing: 12) {
-                        LegendKey(name: L("profitable"), color: PennyStyle.green.opacity(0.6))
-                        LegendKey(name: L("above breakeven"), color: PennyStyle.yellow.opacity(0.6))
-                        LegendKey(name: L("below breakeven"), color: PennyStyle.red.opacity(0.6))
-                        LegendKey(name: L("ROAS"), color: PennyStyle.orange, shape: .line)
-                        LegendKey(name: L("dead spend %"), color: PennyStyle.muted, shape: .dashed)
-                        LegendKey(name: L("breakeven"), color: PennyStyle.red, shape: .dashed)
-                    }
-                } content: {
-                    if dayReads.count == 1, let day = dayReads.first {
-                        DayDrill(day: day, profit: profit)
-                    } else {
-                        TrendChart(days: dayReads, profit: profit, selected: $openDay)
-                        if let open = openDay, let day = dayReads.first(where: { $0.day == open }) {
-                            DayDrill(day: day, profit: profit) { openDay = nil }
-                        }
-                        DaysCalendar(days: dayReads, profit: profit, selected: $openDay)
-                    }
-                }
-                PennyPanel(title: L("Hours: ROAS, bad and good days, spend a day"),
-                           note: L("Each hour over the days read, Alaska time. Bars: spend a day, coloured by verdict · line: average ROAS · whisker: its bad day to its good day (10th to 90th percentile of its days)")) {
-                    HoursRangeChart(reads: reads, profit: profit)
-                    VerdictLegend()
-                }
-                PennyPanel(title: L("Where the budget went"),
-                           note: L("Each hour's average against breakeven, then every hour of every day by the ROAS it brought back")) {
-                    HoursEfficiency(reads: reads, profit: profit, shows: .budget)
-                    Divider().opacity(0.4)
-                    BandsView(bands: Ledger.bands(loaded, profit: profit), profit: profit)
-                }
-                PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means")) {
-                    HoursEfficiency(reads: reads, profit: profit, shows: .table)
-                }
-                let weeks = Ledger.weekReads(dayReads)
-                if weeks.count >= 2 {
-                    PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: weeks, profit: profit) }
-                }
-                let creatives = Ledger.creatives(loaded)
-                PennyPanel(title: L("Creatives by hour"), note: L("Each creative's orders hour by hour, darker for more")) { CreativeHours(lines: Array(creatives.prefix(12))) }
-                PennyPanel(title: L("Creatives")) { LedgerTable(lines: creatives, counted: L("Campaigns")) }
-                PennyPanel(title: L("Campaigns")) { LedgerTable(lines: Ledger.campaigns(loaded), counted: L("Ads")) }
-            } else {
-                ProgressView().controlSize(.small)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: product) { _, _ in openDay = nil }
-    }
-
-    func header(_ product: String, days: [String], profit: Ledger.Profit) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(product).font(.system(size: 22, weight: .bold)).textSelection(.enabled)
-                Text(days.count == 1 ? L("%@ · Alaska time", PennyStyle.day(days.first ?? ""))
-                     : L("%@ days · %@ – %@ · Alaska time", days.count, PennyStyle.day(days.last ?? ""), PennyStyle.day(days.first ?? "")))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(profit.measured ? L("Breakeven %@ from CBH", PennyStyle.times(profit.breakeven)) : L("Breakeven %@ (usual line)", PennyStyle.times(profit.breakeven)))
-                .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 5)
-                .background(PennyStyle.red.opacity(0.14), in: Capsule()).foregroundStyle(PennyStyle.red)
-        }
-    }
-
-    func figure(_ name: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(L(name)).font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 18, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
-        }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
-    }
-
     func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
@@ -241,6 +128,150 @@ struct ProductsView: View {
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+/// Everything the product's page shows, worked out once from Penny's copy when the product, the days or the copy
+/// change, never while you scroll, hover or type.
+final class PennyAnalysis {
+    let key: String
+    let product: String
+    let days: [String]
+    let total: Ledger.Numbers
+    let before: Ledger.Numbers
+    let profit: Ledger.Profit
+    let margin: (margin: Ledger.Margin, days: Int)
+    let marginBefore: (margin: Ledger.Margin, days: Int)
+    let report: [String]
+    let dayReads: [Ledger.DayRead]
+    let hourReads: [Ledger.HourRead]
+    let daySlots: [PennySlot]
+    let hourSlots: [PennySlot]
+    let efficiency: Ledger.Efficiency
+    let bands: [Ledger.Band]
+    let weeks: [Ledger.WeekRead]
+    let creatives: [Ledger.Line]
+    let campaigns: [Ledger.Line]
+
+    static func key(_ product: String, _ days: [String], _ copied: Double) -> String { "\(product)|\(days.joined(separator: ","))|\(copied)" }
+
+    init(product: String, days: (now: [String], before: [String]), summary: Ledger.Summary, key: String) {
+        self.key = key
+        self.product = product
+        self.days = days.now
+        let loaded = PennyLedger.days(of: product, days.now)
+        total = Ledger.total(loaded)
+        before = summary.numbers(of: product, on: days.before)
+        margin = summary.margin(of: product, on: days.now)
+        marginBefore = summary.margin(of: product, on: days.before)
+        profit = Ledger.Profit(margin.margin) ?? .usual
+        report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit)
+        dayReads = Ledger.dayReads(loaded, profit: profit)
+        hourReads = Ledger.hourReads(loaded, profit: profit)
+        daySlots = PennySlot.days(dayReads, profit: profit)
+        hourSlots = PennySlot.hours(hourReads, days: dayReads, profit: profit)
+        efficiency = Ledger.efficiency(hourReads, profit: profit)
+        bands = Ledger.bands(loaded, profit: profit)
+        weeks = Ledger.weekReads(dayReads)
+        creatives = Ledger.creatives(loaded)
+        campaigns = Ledger.campaigns(loaded)
+    }
+}
+
+/// The chosen product's page. It redraws only when its analysis changes or you open a day: typing in the search,
+/// a copy coming in for another day and the minute ticking on the data strip leave it alone.
+struct ProductDetail: View, Equatable {
+    let analysis: PennyAnalysis
+    let loading: Bool
+    /// The day opened hour by hour, from the chart or the calendar.
+    @State private var openDay: String?
+
+    static func == (a: Self, b: Self) -> Bool { a.analysis === b.analysis && a.loading == b.loading }
+
+    var body: some View {
+        let a = analysis, profit = a.profit, total = a.total, before = a.before
+        let change = { (now: Double?, then: Double?) -> Double? in
+            guard before.spent > 0, let now, let then, then != 0 else { return nil }
+            return (now - then) / abs(then)
+        }
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 8)], spacing: 8) {
+                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent), neutral: true)
+                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue))
+                PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas))
+                if a.margin.days > 0 {
+                    PennyFigure(name: "CBH", value: Ledger.money(a.margin.margin.cbh), color: PennyStyle.money(a.margin.margin.cbh),
+                                change: a.marginBefore.days > 0 ? change(a.margin.margin.cbh, a.marginBefore.margin.cbh) : nil)
+                    PennyFigure(name: "%CBH", value: Ledger.percent(a.margin.margin.share), change: a.marginBefore.days > 0 ? change(a.margin.margin.share, a.marginBefore.margin.share) : nil)
+                }
+                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders))
+                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp), upIsGood: false)
+                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov))
+                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr))
+                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr))
+                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm), upIsGood: false)
+            }
+            PennyPanel(title: L("Penny's read")) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(a.report.enumerated()), id: \.offset) { _, line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Circle().fill(PixelPenny.theme).frame(width: 5, height: 5).offset(y: -2)
+                            PennyReadLine(line: line).fixedSize(horizontal: false, vertical: true)
+                        }.font(.system(size: 12.5))
+                    }
+                }.textSelection(.enabled)
+            }
+            PennyPanel(title: L("Days"), note: L("Press a day, on the charts or the calendar, to see it hour by hour")) {
+                if a.dayReads.count == 1, let day = a.dayReads.first {
+                    DayDrill(day: day, profit: profit)
+                } else {
+                    PennyColumns(slots: a.daySlots, profit: profit, selected: $openDay)
+                    if let open = openDay, let day = a.dayReads.first(where: { $0.day == open }) {
+                        DayDrill(day: day, profit: profit) { openDay = nil }
+                    }
+                    DaysCalendar(days: a.dayReads, profit: profit, selected: $openDay)
+                }
+            }
+            PennyPanel(title: L("Hours of the day"),
+                       note: L("Each hour over the days read, Alaska time: its average ROAS and its bad to good day (10th to 90th percentile of its days), what it spends a day and the CBH it makes a day")) {
+                PennyColumns(slots: a.hourSlots, profit: profit, ranges: true, perDay: true, height: 170)
+            }
+            PennyPanel(title: L("Where the budget went"), note: L("Each hour's average against breakeven, then every hour of every day by the ROAS it brought back")) {
+                HoursEfficiency(reads: a.hourReads, profit: profit, shows: .budget)
+                Divider().opacity(0.4)
+                BandsView(bands: a.bands, profit: profit)
+            }
+            PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means")) {
+                HoursEfficiency(reads: a.hourReads, profit: profit, shows: .table)
+                VerdictLegend().padding(.top, 6)
+            }
+            if a.weeks.count >= 2 {
+                PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: a.weeks, profit: profit) }
+            }
+            PennyPanel(title: L("Creatives by hour"), note: L("Each creative's orders hour by hour, darker for more")) { CreativeHours(lines: Array(a.creatives.prefix(12))) }
+            PennyPanel(title: L("Creatives")) { LedgerTable(lines: a.creatives, counted: L("Campaigns")) }
+            PennyPanel(title: L("Campaigns")) { LedgerTable(lines: a.campaigns, counted: L("Ads")) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: analysis.product) { _, _ in openDay = nil }
+    }
+
+    var header: some View {
+        let a = analysis, profit = a.profit
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(a.product).font(.system(size: 24, weight: .bold)).textSelection(.enabled)
+                Text(profit.measured ? L("Breakeven %@ from CBH", PennyStyle.times(profit.breakeven)) : L("Breakeven %@ (usual line)", PennyStyle.times(profit.breakeven)))
+                    .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(PennyStyle.red.opacity(0.16), in: Capsule()).foregroundStyle(PennyStyle.red)
+                    .help(L("Profitable from %@ (CBH 5%)", PennyStyle.times(profit.profitable)))
+                if loading { ProgressView().controlSize(.small) }
+            }
+            Text(a.days.count == 1 ? L("%@ · Alaska time", PennyStyle.day(a.days.first ?? ""))
+                 : L("%@ days · %@ – %@ · Alaska time", a.days.count, PennyStyle.day(a.days.last ?? ""), PennyStyle.day(a.days.first ?? "")))
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -258,7 +289,7 @@ struct DataState: View {
             VStack(alignment: .leading, spacing: 8) {
                 headline(today: today, now: context.date).font(.system(size: 11))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                    ForEach(days.reversed(), id: \.self) { day in tile(day, today: today, now: context.date) }
+                    ForEach(days, id: \.self) { day in tile(day, today: today, now: context.date) }
                 }
             }
         }
@@ -384,6 +415,7 @@ struct HoursEfficiency: View {
                  : L("Breakeven **%@**, profitable from **%@**: the usual lines, until Penny has this product's CBH for these days.",
                      Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable)))
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            BudgetBar(parts: parts)
             HStack(alignment: .top, spacing: 8) {
                 part(L("Below breakeven"), parts.losing, of: total, color: PennyStyle.red)
                 part(L("Thin profit"), parts.thin, of: total, color: PennyStyle.yellow)
@@ -399,7 +431,7 @@ struct HoursEfficiency: View {
             Text(L("%@ of spend", Ledger.percent(total.spent > 0 ? part.numbers.spent / total.spent : 0))).font(.system(size: 16, weight: .semibold).monospacedDigit())
             Text(L("%@ spent, %@ of revenue back", Ledger.money(part.numbers.spent), Ledger.percent(total.revenue > 0 ? part.numbers.revenue / total.revenue : 0)))
                 .font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(L("CBH %@", Ledger.money(part.cbh))).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(part.cbh < 0 ? PennyStyle.red : PennyStyle.green)
+            Text(L("CBH %@", Ledger.money(part.cbh))).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(PennyStyle.money(part.cbh))
             if !part.hours.isEmpty {
                 Text(part.hours.map(Ledger.hourName).joined(separator: ", ")).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(4)
             }
@@ -430,7 +462,7 @@ struct HoursEfficiency: View {
                     Text(Ledger.hourName(read.hour)).frame(width: 96, alignment: .leading)
                     ForEach(columns, id: \.name) { column in
                         Text(column.text(read)).frame(width: column.width, alignment: .trailing).lineLimit(1)
-                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" ? (read.cbh < 0 ? PennyStyle.red : PennyStyle.green) : .primary)
+                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" ? PennyStyle.money(read.cbh) : .primary)
                     }
                     RangeBar(read: read, profit: profit).frame(width: 120, height: 14)
                     Text(Self.name(read.verdict)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Self.color(read.verdict))
@@ -467,30 +499,58 @@ struct RangeBar: View {
     }
 }
 
-/// Which creatives sell in which hours: each creative's orders hour by hour, darker for more.
+/// Which creatives sell in which hours: each creative's orders hour by hour, darker for more. Drawn as one canvas
+/// with one hover tip (2026-11-06): a view and a tooltip for each of its 288 cells made the page slow.
 struct CreativeHours: View {
     let lines: [Ledger.Line]
+    @State private var hovered: CGPoint?
+    static let cell = CGSize(width: 26, height: 20)
+    static let gap: CGFloat = 2
+    static let nameWidth: CGFloat = 230
 
     var body: some View {
         let most = max(1, lines.flatMap { $0.hours.map(\.orders) }.max() ?? 1)
-        Grid(alignment: .leading, horizontalSpacing: 2, verticalSpacing: 2) {
-            GridRow {
-                Text("").gridColumnAlignment(.leading)
+        let width = 24 * (Self.cell.width + Self.gap), height = CGFloat(lines.count) * (Self.cell.height + Self.gap)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: Self.gap) {
+                Color.clear.frame(width: Self.nameWidth, height: 1)
                 ForEach(0 ..< 24, id: \.self) { hour in
-                    Text(hour % 3 == 0 ? "\(hour % 12 == 0 ? 12 : hour % 12)\(hour < 12 ? "a" : "p")" : "")
-                        .font(.system(size: 8)).foregroundStyle(.secondary).frame(width: 22)
+                    Text(hour % 3 == 0 ? PennyStyle.hour(hour) : "").font(.system(size: 9)).foregroundStyle(PennyStyle.muted).frame(width: Self.cell.width)
                 }
             }
-            ForEach(lines) { line in
-                GridRow {
-                    Text(line.name).font(.system(size: 10)).lineLimit(1).truncationMode(.middle).frame(width: 220, alignment: .leading).help(line.name)
-                    ForEach(0 ..< 24, id: \.self) { hour in
-                        let numbers = line.hours[hour]
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(numbers.orders > 0 ? Color.green.opacity(0.2 + 0.8 * numbers.orders / most) : (numbers.spent > 0 ? Color.white.opacity(0.06) : .clear))
-                            .overlay { if numbers.orders > 0 { Text(Ledger.whole(numbers.orders)).font(.system(size: 8, weight: .semibold)) } }
-                            .frame(width: 22, height: 18)
-                            .help(L("%@: spent %@, %@ orders, ROAS %@", Ledger.hourName(hour), Ledger.money(numbers.spent), Ledger.whole(numbers.orders), Ledger.ratio(numbers.roas)))
+            HStack(alignment: .top, spacing: Self.gap) {
+                VStack(alignment: .leading, spacing: Self.gap) {
+                    ForEach(lines) { line in
+                        Text(line.name).font(.system(size: 10.5)).lineLimit(1).truncationMode(.middle).frame(width: Self.nameWidth, height: Self.cell.height, alignment: .leading)
+                    }
+                }
+                Canvas { context, _ in
+                    for (row, line) in lines.enumerated() {
+                        for hour in 0 ..< 24 {
+                            let numbers = line.hours[hour]
+                            let rect = CGRect(x: CGFloat(hour) * (Self.cell.width + Self.gap), y: CGFloat(row) * (Self.cell.height + Self.gap),
+                                              width: Self.cell.width, height: Self.cell.height)
+                            let fill: Color = numbers.orders > 0 ? PennyStyle.green.opacity(0.45 + 0.55 * numbers.orders / most) : numbers.spent > 0 ? .white.opacity(0.06) : .white.opacity(0.015)
+                            context.fill(Path(roundedRect: rect, cornerRadius: 4), with: .color(fill))
+                            if numbers.orders > 0 {
+                                context.draw(Text(Ledger.whole(numbers.orders)).font(.system(size: 9, weight: .semibold)).foregroundColor(.white), at: CGPoint(x: rect.midX, y: rect.midY))
+                            }
+                        }
+                    }
+                }
+                .frame(width: width, height: height)
+                .onContinuousHover { phase in
+                    if case let .active(point) = phase { hovered = point } else { hovered = nil }
+                }
+                .overlay(alignment: .topLeading) {
+                    if let hovered, case let row = Int(hovered.y / (Self.cell.height + Self.gap)), case let hour = Int(hovered.x / (Self.cell.width + Self.gap)),
+                       lines.indices.contains(row), (0 ..< 24).contains(hour) {
+                        let numbers = lines[row].hours[hour]
+                        ChartTip(title: Ledger.hourName(hour), lines: [
+                            PennyTipLine(name: L("Spent"), value: Ledger.money(numbers.spent)),
+                            PennyTipLine(name: L("Orders"), value: Ledger.whole(numbers.orders)),
+                            PennyTipLine(name: L("ROAS"), value: PennyStyle.times(numbers.roas))])
+                        .offset(x: min(CGFloat(hour + 1) * (Self.cell.width + Self.gap) + 6, width - ChartTip.width), y: CGFloat(row + 1) * (Self.cell.height + Self.gap))
                     }
                 }
             }

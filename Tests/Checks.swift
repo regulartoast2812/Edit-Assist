@@ -1376,8 +1376,8 @@ struct Checks {
             check(parts.losing.hours == [3, 9] && parts.profitable.hours == [12, 14, 19] && parts.losing.numbers.spent == 480,
                   "The budget splits into hours below breakeven and profitable hours")
             let hoursRead = Ledger.report(week, profit: profit)
-            check(hoursRead.contains { $0.contains("Breakeven ROAS **1.72**") } && hoursRead.contains { $0.hasPrefix("Put more in: 7 PM-8 PM") }
-                  && hoursRead.contains { $0.hasPrefix("Cut back: 3 AM-4 AM") }, "Penny's read names breakeven, the hours to put more in and the ones to cut")
+            check(hoursRead.contains { $0.contains("Breakeven ROAS **1.72**") } && hoursRead.contains { Ledger.plain($0).hasPrefix("Put more in: 7 PM-8 PM") }
+                  && hoursRead.contains { Ledger.plain($0).hasPrefix("Cut back: 3 AM-4 AM") } && hoursRead.contains { $0.contains("⟦g⟧7 PM-8 PM⟦/⟧") }, "Penny's read names breakeven, the hours to put more in and the ones to cut")
             var priced = Ledger.Summary()
             priced.margins = ["P": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 10, 40, 50])], "Q": ["2026-11-04": Ledger.Margin([1, 100, 0, 0, 0, 50, 50])]]
             check(priced.margin(of: "P", on: ["2026-11-04", "2026-11-03"]).days == 1 && (try? JSONDecoder().decode(Ledger.Summary.self, from: JSONEncoder().encode(priced))) == priced,

@@ -591,30 +591,31 @@ enum Ledger {
         let total = total(days)
         guard total.spent > 0 || total.orders > 0 else { return [L("Nothing ran in these days.")] }
         var lines: [String] = []
-        var first = L("Spent **%@**, **%@** orders, **%@** revenue: ROAS **%@**", money(total.spent), whole(total.orders), money(total.revenue), ratio(total.roas))
+        var first = L("Spent **%@**, **%@** orders, **%@** revenue: ROAS **%@**", money(total.spent), whole(total.orders), money(total.revenue),
+                      tone(ratio(total.roas), tone(roas: total.roas, profit)))
         if let cpp = total.cpp { first += L(", %@ per order", money(cpp)) }
         lines.append(first)
         if let before, before.spent > 0, let now = total.roas, let then = before.roas {
             let change = then > 0 ? (now - then) / then : 0
-            lines.append(abs(change) < 0.05 ? L("ROAS about the same as the days before (%@)", ratio(then))
-                         : L(change > 0 ? "ROAS **up %@** on the days before (%@)" : "ROAS **down %@** on the days before (%@)", percent(abs(change)), ratio(then)))
+            let moved = tone(L(change > 0 ? "up %@" : "down %@", percent(abs(change))), change > 0 ? .good : .bad)
+            lines.append(abs(change) < 0.05 ? L("ROAS about the same as the days before (%@)", ratio(then)) : L("ROAS %@ on the days before (%@)", moved, ratio(then)))
         }
         // Creatives worth naming spent at least 2% of the product's spend; one with no orders, twice what an order costs.
         let all = creatives(days), floor = max(total.spent * 0.02, 5), roas = total.roas ?? 0
         let creatives = all.filter { $0.numbers.spent >= floor }
         let selling = creatives.filter { $0.numbers.orders >= 2 }.sorted { ($0.numbers.roas ?? 0) > ($1.numbers.roas ?? 0) }
         for line in selling.prefix(3) where (line.numbers.roas ?? 0) >= roas {
-            var text = L("Sells: **%@**: ROAS %@ on %@, %@ orders", line.name, ratio(line.numbers.roas), money(line.numbers.spent), whole(line.numbers.orders))
+            var text = L("Sells: **%@**: ROAS %@ on %@, %@ orders", line.name, tone(ratio(line.numbers.roas), tone(roas: line.numbers.roas, profit)), money(line.numbers.spent), whole(line.numbers.orders))
             let hours = line.bestHours()
             if !hours.isEmpty { text += L(", most orders at %@", hours.map(hourName).joined(separator: ", ")) }
             lines.append(text)
         }
         for line in creatives.filter({ $0.numbers.orders > 0 && ($0.numbers.roas ?? 0) < roas * 0.7 }).prefix(3) {
-            lines.append(L("Below the product: **%@**: ROAS %@ on %@", line.name, ratio(line.numbers.roas), money(line.numbers.spent)))
+            lines.append(L("Below the product: **%@**: ROAS %@ on %@", line.name, tone(ratio(line.numbers.roas), tone(roas: line.numbers.roas, profit)), money(line.numbers.spent)))
         }
         let waste = max(2 * (total.cpp ?? 10), 20)
         for line in all.filter({ $0.numbers.orders == 0 && $0.numbers.spent >= waste }).prefix(3) {
-            lines.append(L("No orders: **%@** spent %@", line.name, money(line.numbers.spent)))
+            lines.append(L("No orders: **%@** spent %@", line.name, tone(money(line.numbers.spent), .bad)))
         }
         // The hours, as a media buyer reads them: breakeven, where the budget went, what to cut and where to put more.
         let reads = hourReads(days, profit: profit)
@@ -623,22 +624,40 @@ enum Ledger {
                      : L("Breakeven ROAS **%@**, the usual line: no CBH copied for these days yet", ratio(profit.breakeven)))
         let parts = efficiency(reads, profit: profit), spent = parts.total.spent, revenue = parts.total.revenue
         if spent > 0, !parts.losing.hours.isEmpty {
-            lines.append(L("**%@** of spend went to hours below breakeven, bringing back %@ of revenue: CBH **%@**", percent(parts.losing.numbers.spent / spent),
-                           percent(revenue > 0 ? parts.losing.numbers.revenue / revenue : 0), money(parts.losing.cbh)))
+            lines.append(L("**%@** of spend went to hours below breakeven, bringing back %@ of revenue: CBH **%@**", tone(percent(parts.losing.numbers.spent / spent), .bad),
+                           percent(revenue > 0 ? parts.losing.numbers.revenue / revenue : 0), tone(money(parts.losing.cbh), tone(money: parts.losing.cbh))))
         }
         if spent > 0, !parts.profitable.hours.isEmpty {
-            lines.append(L("**%@** of spend went to profitable hours and made %@ of revenue: CBH **%@**", percent(parts.profitable.numbers.spent / spent),
-                           percent(revenue > 0 ? parts.profitable.numbers.revenue / revenue : 0), money(parts.profitable.cbh)))
+            lines.append(L("**%@** of spend went to profitable hours and made %@ of revenue: CBH **%@**", tone(percent(parts.profitable.numbers.spent / spent), .good),
+                           percent(revenue > 0 ? parts.profitable.numbers.revenue / revenue : 0), tone(money(parts.profitable.cbh), tone(money: parts.profitable.cbh))))
         }
         let more = reads.filter { $0.verdict == .reliable }.sorted { $0.cbh > $1.cbh }.prefix(3)
         if !more.isEmpty {
-            lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad days %@)", hourName($0.hour), ratio($0.numbers.roas), ratio($0.floor)) }.joined(separator: ", ")))
+            lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad days %@)", tone(hourName($0.hour), .good), tone(ratio($0.numbers.roas), .good), ratio($0.floor)) }.joined(separator: ", ")))
         }
         let cut = reads.filter { $0.verdict == .costly || $0.verdict == .dead }.sorted { $0.cbh < $1.cbh }.prefix(3)
         if !cut.isEmpty {
-            lines.append(L("Cut back: %@", cut.map { L("%@ (ROAS %@, CBH %@ a day)", hourName($0.hour), ratio($0.numbers.roas), money($0.cbh / Double(max($0.days, 1)))) }.joined(separator: ", ")))
+            lines.append(L("Cut back: %@", cut.map { L("%@ (ROAS %@, CBH %@ a day)", tone(hourName($0.hour), .bad), tone(ratio($0.numbers.roas), .bad), tone(money($0.cbh / Double(max($0.days, 1))), .bad)) }.joined(separator: ", ")))
         }
         return lines
+    }
+
+    /// A value Penny's read colours (2026-11-06): green good news, yellow so-so, red bad. The page draws it bold;
+    /// `plain` gives the line without its marks.
+    enum Tone: String { case good = "g", fair = "y", bad = "r" }
+
+    static func tone(_ text: String, _ tone: Tone?) -> String { tone.map { "⟦\($0.rawValue)⟧\(text)⟦/⟧" } ?? text }
+
+    /// Green from the profitable line, yellow from breakeven, red under it.
+    static func tone(roas: Double?, _ profit: Profit) -> Tone? {
+        guard let roas else { return nil }
+        return roas >= profit.profitable ? .good : roas >= profit.breakeven ? .fair : .bad
+    }
+
+    static func tone(money: Double) -> Tone { money < 0 ? .bad : .good }
+
+    static func plain(_ line: String) -> String {
+        line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "⟦[gyr/]⟧", with: "", options: .regularExpression)
     }
 
     /// An hour as the dashboards write it: "11 PM-12 AM".
