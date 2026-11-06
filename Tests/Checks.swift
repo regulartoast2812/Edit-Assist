@@ -1423,6 +1423,10 @@ struct Checks {
                   && Kitchen.ago(old, now: old.addingTimeInterval(3 * 3600)) == "3h" && Kitchen.ago(old, now: old.addingTimeInterval(2 * 86_400)) == "2d"
                   && Kitchen.ago(old, now: old.addingTimeInterval(15 * 86_400)) == "2w",
                   "Each chat shows how long ago it was")
+            check(Kitchen.thumbnail(of: "https://www.youtube.com/watch?v=wwapBsT0oc8&t=3")?.absoluteString == "https://i.ytimg.com/vi/wwapBsT0oc8/mqdefault.jpg"
+                  && Kitchen.thumbnail(of: "https://youtu.be/abc_-1")?.lastPathComponent == "mqdefault.jpg" && Kitchen.thumbnail(of: "https://youtube.com/shorts/xyz") != nil
+                  && Kitchen.thumbnail(of: "https://example.com/watch?v=x") == nil && Kitchen.thumbnail(of: "") == nil,
+                  "A recipe card shows its video's picture")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).

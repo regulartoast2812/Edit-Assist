@@ -25,7 +25,7 @@ touches projects, Premiere, Grafana or any Crossian account.
 3. **Writing it.** One call to the helper brain (the Claude CLI; Codex as the backup) with no tools and the strict
    schema `Kitchen.schema`: title, servings, prep, cook, total, cuisine, course, tags, ingredients, steps, notes. The
    prompt (`Kitchen.rules`) forbids inventing amounts, times or steps; anything missing is said in a note. Your own
-   words (the Write tab) go through the same schema, keeping your amounts.
+   words (Write your own) go through the same schema, keeping your amounts.
 4. **The note.** `Kitchen.note`: a YAML header Obsidian shows as properties (`title`, `status`, `source`, `channel`,
    `page`, `servings`, `prep`, `cook`, `total`, `cuisine`, `course`, `tags` with `recipe` first, `added`), the video
    embedded (`![](youtube link)`), then Ingredients, Steps (numbered) and Notes. The file is named after the dish with
@@ -33,7 +33,7 @@ touches projects, Premiere, Grafana or any Crossian account.
 5. **Tracking.** The recipes folder you choose (and the folders in it, `.obsidian` and hidden ones left out) is read
    into `Kitchen.Entry` rows. `status` is `to try`, `made` or `favourite`; changing it rewrites only that header line
    (`Kitchen.setting`). A video whose link is already a note's `source` shows "In your vault".
-6. **Chat.** The first tab. Each message is answered in up to three brain calls with `Kitchen.chatSchema`
+6. **Chat.** The left column of his one-page dashboard (Find and Your recipes in the middle, Saved and Write your own on the right). What he searches from the chat also fills Find. Each message is answered in up to three brain calls with `Kitchen.chatSchema`
    (`reply`, `youtube`, `notes`, `show`): a call can ask for a YouTube search (12 videos) or notes to read by title
    (`Kitchen.named`, at most 5), which the desk does and hands back in the next call (`Kitchen.chatPrompt`); the last
    call must answer. Videos it lists in `show` appear with the answer as cards (Write recipe, watch). The prompt carries

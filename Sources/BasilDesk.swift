@@ -8,6 +8,9 @@ import Security
     @Published private(set) var folder: URL?
     @Published private(set) var recipes: [Kitchen.Entry] = []
     @Published private(set) var results: [Kitchen.Video] = []
+    /// What the results are for, and whether Basil searched it from the chat.
+    @Published private(set) var resultsFor = ""
+    @Published private(set) var resultsByBasil = false
     @Published private(set) var searching = false
     /// The videos being written ("words" for your own).
     @Published private(set) var writing: Set<String> = []
@@ -137,6 +140,8 @@ import Security
                     if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key, round < 2 {
                         searched = reply.youtube
                         found = try await videos(for: reply.youtube, key: key, count: 12)
+                        // What he found shows in Find too, to save from.
+                        results = found ?? []; resultsFor = reply.youtube; resultsByBasil = true
                         looked = true
                     }
                     let wanted = Kitchen.named(reply.notes, in: recipes).filter { !read.contains($0) }
@@ -195,7 +200,8 @@ import Security
         Task {
             defer { searching = false }
             do {
-                results = try await videos(for: Kitchen.recipeSearch(words), key: key)
+                let query = Kitchen.recipeSearch(words)
+                results = try await videos(for: query, key: key); resultsFor = query; resultsByBasil = false
             } catch { failure = describe(error) }
         }
     }
@@ -269,7 +275,7 @@ import Security
             defer { picking = false }
             do {
                 let query = Kitchen.recipeSearch(words)
-                results = try await videos(for: query, key: key)
+                results = try await videos(for: query, key: key); resultsFor = query; resultsByBasil = false
                 let kept = Set(saved.map(\.id))
                 let fresh = results.filter { !sources.contains($0.url.absoluteString) && !kept.contains($0.id) }
                 guard !fresh.isEmpty else { return }

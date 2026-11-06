@@ -469,6 +469,19 @@ enum Kitchen {
     static func items(_ data: Data) -> [[String: Any]] { json(data)?["items"] as? [[String: Any]] ?? [] }
     static func text(_ value: Any?) -> String { decoded(value as? String ?? "") }
 
+    /// The picture of a recipe's video, from the note's `source` link (watch?v=, youtu.be/ or shorts/), or nil.
+    static func thumbnail(of source: String) -> URL? {
+        guard let url = URL(string: source), let host = url.host?.lowercased() else { return nil }
+        var id: String?
+        if host.hasSuffix("youtu.be") { id = url.pathComponents.dropFirst().first }
+        else if host.hasSuffix("youtube.com") {
+            id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "v" }?.value
+                ?? (url.pathComponents.count > 2 && url.pathComponents[1] == "shorts" ? url.pathComponents[2] : nil)
+        }
+        guard let id, !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        return URL(string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg")
+    }
+
     /// YouTube's titles come HTML-escaped ("Mac &amp; Cheese").
     static func decoded(_ text: String) -> String {
         guard text.contains("&") else { return text }
