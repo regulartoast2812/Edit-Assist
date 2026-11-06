@@ -413,11 +413,37 @@ struct PixMessage: Codable, Equatable, Identifiable {
     var date = Date()
 }
 
+/// A chat with Pix kept in the script's history (New chat keeps the one before), titled by your first message (2026-11-06).
+struct PixChat: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var messages: [PixMessage] = []
+    var updated = Date()
+
+    var title: String {
+        let first = messages.first { !$0.fromPix && !$0.text.isEmpty }?.text ?? ""
+        let line = first.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+        return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line
+    }
+}
+
 struct PixBoard: Codable, Equatable {
     var jobs: [PixJob] = []
     var chat: [PixMessage] = []
+    /// The script's earlier chats, newest first.
+    var past: [PixChat] = []
     /// The CTA words, look and style the last automatic CTA was made from: a new brief with the same ones queues none.
     var ctaFrom: String?
+
+    init() {}
+
+    /// Boards saved before there was a history read as they were.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        jobs = try container.decodeIfPresent([PixJob].self, forKey: .jobs) ?? []
+        chat = try container.decodeIfPresent([PixMessage].self, forKey: .chat) ?? []
+        past = try container.decodeIfPresent([PixChat].self, forKey: .past) ?? []
+        ctaFrom = try container.decodeIfPresent(String.self, forKey: .ctaFrom)
+    }
 }
 
 /// Pix's desk: the jobs and chat of each script, the job being made, and the OpenAI key for GPT Image.
@@ -647,6 +673,31 @@ final class PixDesk: ObservableObject {
     func clearChat() {
         guard let script, !thinking else { return }
         change(script) { $0.chat.removeAll() }
+    }
+
+    /// A new, empty chat; the one before goes into the script's history.
+    func newChat() {
+        guard let script, !thinking else { return }
+        change(script) { board in
+            if !board.chat.isEmpty { board.past.insert(PixChat(messages: board.chat, updated: board.chat.last?.date ?? Date()), at: 0) }
+            board.chat = []
+        }
+    }
+
+    /// An earlier chat opened to carry on; the one open goes into the history.
+    func openChat(_ id: UUID) {
+        guard let script, !thinking else { return }
+        change(script) { board in
+            guard let index = board.past.firstIndex(where: { $0.id == id }) else { return }
+            let opened = board.past.remove(at: index)
+            if !board.chat.isEmpty { board.past.insert(PixChat(messages: board.chat, updated: board.chat.last?.date ?? Date()), at: 0) }
+            board.chat = opened.messages
+        }
+    }
+
+    func deleteChat(_ id: UUID) {
+        guard let script else { return }
+        change(script) { $0.past.removeAll { $0.id == id } }
     }
 
     // MARK: OpenAI key

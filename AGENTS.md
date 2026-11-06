@@ -183,7 +183,7 @@ chat are proposals you queue with a press, since GPT Image costs credit. The CTA
 product pictures go in as `PICTUREn` placeholders Pix swaps for the picture. Schematics and pictures come from GPT Image
 (`OpenAIImages`; the OpenAI key lives in the Keychain; the newest full gpt-image model the key lists). Made files go to
 Downloads, named after the project and script, never over an earlier one. Briefs and Pix's jobs and chat are kept per
-script in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
+script (each script's chat with a history: New chat keeps the one before in `PixBoard.past`, reopened or deleted from the list; his chat is a column on the side of his page, as Basil's is) in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
 default, Codex as the backup you pick in Pix's chat, one call with no tools and a strict JSON schema each; the highlight
 runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts; `KinoDesk`, `Sources/KinoDesk.swift`)
 works on a batch per project that starts empty: he reads only the files you drop or add, never a folder by himself. Files
@@ -204,7 +204,8 @@ are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
 shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
 projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.
-How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`.
+How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`. How to prompt in Kino (@, /, what each model takes, the services' prompt
+advice), for the team, is `prompting.md`, opened from How to prompt on his page; keep it in step with the commands.
 **Penny** (the numbers of the products you run, from the company's Grafana) signs in to grafana.selless.com (Grafana
 11.2; Google sign-in only, its login form is off) in a private web view and keeps only the `grafana_session` cookie, in
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401

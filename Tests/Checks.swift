@@ -1393,6 +1393,13 @@ struct Checks {
             check(bands.map(\.cells) == [0, 5, 4, 0, 0, 9] && bands[2].high == profit.breakeven && bands[5].numbers.spent == 230,
                   "Every hour of every day falls in a band by the ROAS it brought back")
         }
+        // Pix's chat history (2026-11-06): boards saved before it still read, each earlier chat titled by your first message.
+        do {
+            let before = try JSONDecoder().decode(PixBoard.self, from: Data(#"{"jobs":[],"chat":[{"id":"8D3F1C2A-0000-4000-8000-000000000001","fromPix":false,"text":"Make the CTA red\nplease","pictures":[],"proposals":[],"taken":[],"date":0}],"ctaFrom":"x"}"#.utf8))
+            check(before.chat.count == 1 && before.past.isEmpty && before.ctaFrom == "x", "Pix's boards saved before the chat history still load")
+            check(PixChat(messages: before.chat).title == "Make the CTA red" && PixChat(messages: [PixMessage(fromPix: false, text: "", pictures: ["a.jpg"])]).title == "",
+                  "An earlier chat with Pix is titled by your first message")
+        }
         // Basil, the recipe helper: YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {
             check(Kitchen.duration("PT1M15S") == "1:15" && Kitchen.duration("PT1H2M3S") == "1:02:03" && Kitchen.duration("PT45S") == "0:45" && Kitchen.duration("P0D") == "",
