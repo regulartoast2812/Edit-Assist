@@ -1,12 +1,12 @@
 import Foundation
 
-/// Basil's note view, free of the Mac (Foundation only) like `Kitchen`: a recipe note's Markdown drawn as Obsidian draws it
+/// Sage's note view, free of the Mac (Foundation only) like `Study`: a recipe note's Markdown drawn as Obsidian draws it
 /// in reading view, with your vault's own look (2026-11-06). The page copies Obsidian's structure (body.theme-dark or
 /// theme-light, .markdown-preview-view.markdown-rendered, a .metadata-container for the properties) and its CSS
 /// variables, then adds your vault's settings (.obsidian/appearance.json: light or dark, accent colour, font size, fonts),
 /// your community theme (.obsidian/themes/<name>/theme.css) and your enabled snippets (.obsidian/snippets/<name>.css), so
 /// a theme made for Obsidian dresses it the same way.
-extension Kitchen {
+extension Study {
     // MARK: The vault's look
 
     struct Look: Equatable {
@@ -57,7 +57,7 @@ extension Kitchen {
 
     // MARK: The page
 
-    /// The note as a web page in Obsidian's reading view. Links: `basil-note:<name>` for a [[wikilink]], http(s) as written.
+    /// The note as a web page in Obsidian's reading view. Links: `sage-note:<name>` for a [[wikilink]], http(s) as written.
     static func page(note text: String, look: Look, dark: Bool) -> String {
         let (header, body) = split(text)
         var html = ""
@@ -84,7 +84,7 @@ extension Kitchen {
 
     /// The header as Obsidian's Properties block: each key with its value, lists as pills, links clickable.
     static func properties(_ header: String) -> String {
-        let values = Kitchen.header(of: "---\n" + header + "\n---\n")
+        let values = Study.header(of: "---\n" + header + "\n---\n")
         var order: [String] = []
         for line in header.components(separatedBy: "\n") where !line.hasPrefix(" ") && !line.hasPrefix("-") {
             if let colon = line.firstIndex(of: ":") { let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces); if !order.contains(key) { order.append(key) } }
@@ -201,10 +201,10 @@ extension Kitchen {
         var line = replacing(#"`([^`]+)`"#, in: text) { groups in codes.append("<code>\(escape(groups[1]))</code>"); return "\u{1}\(codes.count - 1)\u{2}" }
         line = escape(line)
         line = replacing(#"!\[\[([^\]|]+)(?:\|([^\]]*))?\]\]"#, in: line) { groups in
-            "<span class=\"internal-embed\"><a class=\"internal-link\" href=\"basil-note:\(attribute(unescape(groups[1])))\">\(groups[1])</a></span>"
+            "<span class=\"internal-embed\"><a class=\"internal-link\" href=\"sage-note:\(attribute(unescape(groups[1])))\">\(groups[1])</a></span>"
         }
         line = replacing(#"\[\[([^\]|]+)(?:\|([^\]]*))?\]\]"#, in: line) { groups in
-            "<a class=\"internal-link\" href=\"basil-note:\(attribute(unescape(groups[1])))\">\(groups[2].isEmpty ? groups[1] : groups[2])</a>"
+            "<a class=\"internal-link\" href=\"sage-note:\(attribute(unescape(groups[1])))\">\(groups[2].isEmpty ? groups[1] : groups[2])</a>"
         }
         line = replacing(#"!\[([^\]]*)\]\(([^)\s]+)\)"#, in: line) { groups in
             let url = unescape(groups[2])
