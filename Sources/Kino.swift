@@ -745,7 +745,6 @@ struct KinoShotCard: View {
     @Binding var folded: Bool
     let openAccounts: () -> Void
     let openEveryShot: () -> Void
-    @State private var insert: String?
     @State private var targeted = false
     /// How many of the card's own boxes and files files are dragged over.
     @State private var over = 0
@@ -887,7 +886,7 @@ struct KinoShotCard: View {
                         let index = plan.inputs.firstIndex { $0.handle == file.handle }
                         KinoFileTile(file: file, role: role, seconds: desk.durations[file.id], number: index.map { $0 + 1 },
                                      sentAs: index.map { plan.inputs[$0].tag }, missing: desk.missing.contains(file.id), shot: code,
-                                     choose: { desk.setRole($0, of: file, in: code) }, tag: { insert = "@" + file.handle },
+                                     choose: { desk.setRole($0, of: file, in: code) },
                                      takeOut: { desk.takeOut(file, of: code) },
                                      drop: { desk.add($0, into: code, as: role == .unused ? nil : role); desk.selected = code }, hovered: hovered)
                     case .empty(let role)?:
@@ -921,15 +920,19 @@ struct KinoShotCard: View {
         let model = KinoModel.named(desk.settings(code).model)
         let text = desk.shot(code).prompt
         let roles = desk.roles(code)
-        var tints: [String: NSColor] = [:]
-        for file in files where plan.inputs.contains(where: { $0.handle == file.handle }) { tints[file.handle.lowercased()] = (roles[file.handle] ?? .look).tint }
+        // Every file of the shot can be named in the prompt; one left out shows grey.
+        let tags = files.map { file in
+            let role = roles[file.handle] ?? .look
+            let sent = plan.inputs.contains { $0.handle == file.handle }
+            return KinoPromptTag(handle: file.handle, name: file.name, url: file.url, tint: sent ? role.tint : .secondaryLabelColor, role: L(role.short))
+        }
         let issues = KinoSummary.issues(plan)
         return VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .topLeading) {
-                KinoPromptView(text: Binding(get: { desk.shot(code).prompt }, set: { desk.setPrompt($0, for: code) }), tints: tints, insert: $insert,
+                KinoPromptView(text: Binding(get: { desk.shot(code).prompt }, set: { desk.setPrompt($0, for: code) }), tags: tags,
                                began: { desk.selected = code })
                 if text.isEmpty {
-                    Text(md: L("What happens in the shot. Press a file's **@tag** to name it: \"@%@ is held up to the camera…\"", files.first?.handle ?? code))
+                    Text(md: L("What happens in the shot. Type **@** to name a file: \"@%@ is held up to the camera…\"", files.first?.name ?? code))
                         .font(.system(size: 13)).foregroundStyle(.tertiary).padding(.horizontal, 13).padding(.vertical, 12)
                         .allowsHitTesting(false)
                 }
@@ -1034,8 +1037,7 @@ struct KinoRequestView: View {
 }
 
 /// A file in its shot: its picture framed in its role's colour, the order it is sent in, its role on the picture (press it
-/// to change it), and its tag under it (press it to put it in the prompt). Drag it onto another shot to use it there too,
-/// or into Premiere; drop files on it to add them in the same role (on a start or end frame, they take its place).
+/// to change it); the prompt names it by typing @. Drag it onto another shot to use it there too, or into Premiere; drop files on it to add them in the same role (on a start or end frame, they take its place).
 struct KinoFileTile: View {
     let file: KinoFile
     let role: KinoRole
@@ -1046,7 +1048,6 @@ struct KinoFileTile: View {
     let missing: Bool
     let shot: String
     let choose: (KinoRole) -> Void
-    let tag: () -> Void
     let takeOut: () -> Void
     let drop: ([URL]) -> Void
     /// Files dragged onto it or off it.
@@ -1110,11 +1111,6 @@ struct KinoFileTile: View {
                     .padding(.bottom, 5).help(L(role.detail))
                 }
                 .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
-            Button(action: tag) {
-                Text("@" + file.handle).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(off ? Color.secondary : role.color)
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            .buttonStyle(.plain).help(L("Put @%@ in the prompt where the cursor is", file.handle))
         }
         .frame(width: Self.width, alignment: .leading)
         .contentShape(Rectangle())
@@ -1543,11 +1539,22 @@ struct KinoThumb: View {
 
 /// A shot's prompt as you write it: the tag of each file the shot sends in its role's colour, any other @tag in red and
 /// underlined (it names no file this shot sends). A file's tag button puts its tag where the cursor is.
+/// A file the prompt can name: its tag, what the pill shows (the file's name), and its role's colour.
+struct KinoPromptTag: Equatable {
+    let handle: String
+    let name: String
+    let url: URL
+    let tint: NSColor
+    let role: String
+}
+
+/// The shot's prompt. The text kept and sent names files by tag (@K4-size); here each named file shows as a pill with its
+/// name in its role's colour, as the Forge shows them, and goes as one piece when deleted. Typing @ lists the shot's files
+/// to pick from (arrows and Return, or a click; Escape keeps the @ as typed); a tag typed out whole becomes a pill after a
+/// space. A tag that names no file of the shot stays text, in red.
 struct KinoPromptView: NSViewRepresentable {
     @Binding var text: String
-    /// The role's colour of each file sent, by its tag in lower case.
-    let tints: [String: NSColor]
-    @Binding var insert: String?
+    let tags: [KinoPromptTag]
     /// When you start writing in it.
     var began: (() -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -1555,69 +1562,320 @@ struct KinoPromptView: NSViewRepresentable {
         let scroll = OverlayScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
-        let editor = NSTextView()
-        editor.isRichText = false
+        let editor = KinoPromptTextView()
+        editor.isRichText = true
+        editor.importsGraphics = false
+        editor.usesFontPanel = false
         editor.allowsUndo = true
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
         editor.isAutomaticSpellingCorrectionEnabled = false
         editor.drawsBackground = false
-        editor.font = .systemFont(ofSize: 13)
-        editor.textColor = .labelColor
         editor.insertionPointColor = NSColor(PixelKino.theme)
         editor.textContainerInset = NSSize(width: 8, height: 12)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
+        editor.typingAttributes = Coordinator.plain
         editor.delegate = context.coordinator
+        editor.textStorage?.setAttributedString(context.coordinator.rendered(text))
+        context.coordinator.color(editor)
         scroll.documentView = editor
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        let changed = context.coordinator.parent.tints != tints
-        context.coordinator.parent = self
-        guard let view = scroll.documentView as? NSTextView else { return }
-        if view.string != text { view.string = text; context.coordinator.color(view) } else if changed { context.coordinator.color(view) }
-        if let tag = insert {
-            DispatchQueue.main.async { insert = nil }
+        let coordinator = context.coordinator
+        let changed = coordinator.parent.tags != tags
+        coordinator.parent = self
+        guard let view = scroll.documentView as? NSTextView, let storage = view.textStorage else { return }
+        if Coordinator.written(storage) != text || changed {
+            // Changed from outside (another project, a file renamed or its role changed): drawn again from the text.
             let at = view.selectedRange()
-            // A space either side unless there is one already, so the tag never joins a word.
-            let before = at.location > 0 && !(view.string as NSString).substring(with: NSRange(location: at.location - 1, length: 1)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            view.window?.makeFirstResponder(view)
-            view.insertText((before ? " " : "") + tag + " ", replacementRange: at)
+            storage.setAttributedString(coordinator.rendered(text))
+            view.setSelectedRange(NSRange(location: min(at.location, storage.length), length: 0))
+            coordinator.color(view)
         }
     }
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) { coordinator.picker.hide() }
+
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: KinoPromptView
+        let picker = KinoTagPicker()
+        /// The @ you pressed Escape on: no list for it again.
+        private var dismissed: Int?
+        private var busy = false
+        static let font = NSFont.systemFont(ofSize: 13)
+        static var plain: [NSAttributedString.Key: Any] {
+            let lines = NSMutableParagraphStyle()
+            lines.lineSpacing = 5
+            return [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: lines]
+        }
         init(_ parent: KinoPromptView) { self.parent = parent }
+
+        func known(_ handle: String) -> KinoPromptTag? { parent.tags.first { $0.handle.lowercased() == handle.lowercased() } }
+
+        /// The text as kept, each pill written as its @tag.
+        static func written(_ text: NSAttributedString) -> String {
+            var out = ""
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+                if let pill = value as? KinoTagAttachment {
+                    out += String(repeating: "@" + pill.handle, count: range.length)
+                } else {
+                    out += (text.string as NSString).substring(with: range)
+                }
+            }
+            return out
+        }
+        /// The text kept, each tag of a file in the shot as its pill.
+        func rendered(_ text: String) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            var last = text.startIndex
+            for tag in KinoPrompt.tags(in: text) {
+                guard let file = known(tag.handle) else { continue }
+                result.append(NSAttributedString(string: String(text[last..<tag.range.lowerBound]), attributes: Self.plain))
+                result.append(pill(file))
+                last = tag.range.upperBound
+            }
+            result.append(NSAttributedString(string: String(text[last...]), attributes: Self.plain))
+            return result
+        }
+        func pill(_ file: KinoPromptTag) -> NSAttributedString {
+            let made = NSMutableAttributedString(attachment: KinoTagAttachment(file))
+            made.addAttributes(Self.plain, range: NSRange(location: 0, length: made.length))
+            return made
+        }
+
         func textDidBeginEditing(_ notification: Notification) { parent.began?() }
+        func textDidEndEditing(_ notification: Notification) { picker.hide() }
         func textDidChange(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView else { return }
-            parent.text = view.string
+            guard !busy, let view = notification.object as? NSTextView else { return }
+            pillTyped(view)
+            parent.text = Self.written(view.textStorage ?? NSAttributedString())
+            color(view)
+            suggest(view)
+        }
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !busy, let view = notification.object as? NSTextView else { return }
+            suggest(view)
+        }
+        func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard picker.shown else { return false }
+            switch selector {
+            case #selector(NSResponder.moveDown(_:)): picker.move(1); return true
+            case #selector(NSResponder.moveUp(_:)): picker.move(-1); return true
+            case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+                if let file = picker.chosen { pick(file, in: view) }
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                dismissed = query(view)?.range.location
+                picker.hide()
+                return true
+            default: return false
+            }
+        }
+
+        /// The @ and what is typed after it, up to the cursor, when the cursor is in one.
+        func query(_ view: NSTextView) -> (range: NSRange, text: String)? {
+            let selection = view.selectedRange()
+            guard selection.length == 0 else { return nil }
+            let string = view.string as NSString
+            var start = selection.location
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+            while start > 0, let scalar = UnicodeScalar(string.character(at: start - 1)), allowed.contains(scalar), selection.location - start < 40 { start -= 1 }
+            guard start > 0, string.character(at: start - 1) == 64 else { return nil }  // "@"
+            let at = start - 1
+            // An @ inside a word (mail@x) is not a tag.
+            if at > 0, let before = UnicodeScalar(string.character(at: at - 1)), CharacterSet.alphanumerics.contains(before) { return nil }
+            return (NSRange(location: at, length: selection.location - at), string.substring(with: NSRange(location: start, length: selection.location - start)))
+        }
+
+        func suggest(_ view: NSTextView) {
+            guard let query = query(view) else { dismissed = nil; picker.hide(); return }
+            guard dismissed != query.range.location else { return }
+            let words = query.text.lowercased()
+            let found = parent.tags.filter { words.isEmpty || $0.handle.lowercased().hasPrefix(words) || $0.name.lowercased().contains(words) }
+            guard !found.isEmpty else { picker.hide(); return }
+            let caret = view.firstRect(forCharacterRange: NSRange(location: query.range.location, length: 0), actualRange: nil)
+            picker.show(found, under: caret, in: view.window) { [weak self, weak view] file in
+                guard let self, let view else { return }
+                self.pick(file, in: view)
+            }
+        }
+
+        /// The @ and what was typed after it become the file's pill, with a space after it.
+        func pick(_ file: KinoPromptTag, in view: NSTextView) {
+            guard let query = query(view), let storage = view.textStorage else { return }
+            picker.hide()
+            let string = view.string as NSString
+            let end = NSMaxRange(query.range)
+            let spaced = end < string.length && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(string.character(at: end)) ?? " ")
+            let made = NSMutableAttributedString(attributedString: pill(file))
+            if !spaced { made.append(NSAttributedString(string: " ", attributes: Self.plain)) }
+            guard view.shouldChangeText(in: query.range, replacementString: made.string) else { return }
+            busy = true
+            storage.replaceCharacters(in: query.range, with: made)
+            view.didChangeText()
+            busy = false
+            view.setSelectedRange(NSRange(location: query.range.location + made.length + (spaced ? 1 : 0), length: 0))
+            view.typingAttributes = Self.plain
+            parent.text = Self.written(storage)
             color(view)
         }
+
+        /// A tag of the shot's typed out whole (or pasted) becomes its pill once a space or a line follows it.
+        func pillTyped(_ view: NSTextView) {
+            guard let storage = view.textStorage else { return }
+            let string = view.string
+            for tag in KinoPrompt.tags(in: string).reversed() {
+                guard let file = known(tag.handle), tag.range.upperBound < string.endIndex,
+                      string[tag.range.upperBound].isWhitespace else { continue }
+                let range = NSRange(tag.range, in: string)
+                guard view.shouldChangeText(in: range, replacementString: "\u{FFFC}") else { continue }
+                let at = view.selectedRange()
+                busy = true
+                storage.replaceCharacters(in: range, with: pill(file))
+                view.didChangeText()
+                busy = false
+                let shift = range.length - 1
+                view.setSelectedRange(NSRange(location: at.location >= NSMaxRange(range) ? at.location - shift : min(at.location, range.location + 1), length: 0))
+            }
+            view.typingAttributes = Self.plain
+        }
+
+        /// Plain text in the text's colour; a tag that names no file of the shot in red, dotted.
         func color(_ view: NSTextView) {
             guard let storage = view.textStorage else { return }
             let all = NSRange(location: 0, length: storage.length)
             storage.beginEditing()
-            storage.removeAttribute(.backgroundColor, range: all)
             storage.removeAttribute(.underlineStyle, range: all)
-            let lines = NSMutableParagraphStyle()
-            lines.lineSpacing = 5
-            storage.addAttributes([.paragraphStyle: lines, .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 13)], range: all)
-            for tag in KinoPrompt.tags(in: view.string) {
-                let range = NSRange(tag.range, in: view.string)
-                if let tint = parent.tints[tag.handle.lowercased()] {
-                    storage.addAttributes([.foregroundColor: tint, .backgroundColor: tint.withAlphaComponent(0.16),
-                                           .font: NSFont.systemFont(ofSize: 13, weight: .semibold)], range: range)
-                } else {
-                    storage.addAttributes([.foregroundColor: NSColor.systemRed, .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
-                                           .underlineColor: NSColor.systemRed, .font: NSFont.systemFont(ofSize: 13, weight: .semibold)], range: range)
-                }
+            storage.addAttributes(Self.plain, range: all)
+            for tag in KinoPrompt.tags(in: view.string) where known(tag.handle) == nil {
+                storage.addAttributes([.foregroundColor: NSColor.systemRed, .underlineStyle: NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue,
+                                       .underlineColor: NSColor.systemRed, .font: NSFont.systemFont(ofSize: 13, weight: .semibold)],
+                                      range: NSRange(tag.range, in: view.string))
             }
             storage.endEditing()
         }
+    }
+}
+
+/// The prompt's text view: copies and cuts its pills as their @tags, and pastes plain text (tags in it become pills).
+final class KinoPromptTextView: NSTextView {
+    override func copy(_ sender: Any?) {
+        let range = selectedRange()
+        guard range.length > 0, let storage = textStorage else { return super.copy(sender) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(KinoPromptView.Coordinator.written(storage.attributedSubstring(from: range)), forType: .string)
+    }
+    override func cut(_ sender: Any?) {
+        guard selectedRange().length > 0 else { return }
+        copy(sender)
+        delete(sender)
+    }
+    override func paste(_ sender: Any?) { pasteAsPlainText(sender) }
+}
+
+/// A named file in the prompt: a rounded pill with its name, in its role's colour.
+final class KinoTagAttachment: NSTextAttachment {
+    let handle: String
+    init(_ file: KinoPromptTag) {
+        handle = file.handle
+        super.init(data: nil, ofType: nil)
+        let text = NSAttributedString(string: file.name, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: file.tint])
+        let size = NSSize(width: ceil(text.size().width) + 16, height: 21)
+        image = NSImage(size: size, flipped: false) { rect in
+            let shape = NSBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 0.5), xRadius: 5, yRadius: 5)
+            file.tint.withAlphaComponent(0.16).setFill()
+            shape.fill()
+            file.tint.withAlphaComponent(0.5).setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+            text.draw(at: NSPoint(x: 8, y: (rect.height - text.size().height) / 2))
+            return true
+        }
+        bounds = NSRect(x: 0, y: -5, width: size.width, height: size.height)
+    }
+    required init?(coder: NSCoder) { nil }
+}
+
+/// The list typing @ opens under the cursor: the shot's files, with their picture, name and role.
+@MainActor
+final class KinoTagPicker {
+    final class Choices: ObservableObject {
+        @Published var files: [KinoPromptTag] = []
+        @Published var index = 0
+        var pick: (KinoPromptTag) -> Void = { _ in }
+    }
+    /// Takes the first click, though the list's window never becomes the key one.
+    final class Host: NSHostingView<KinoTagList> {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+    private let choices = Choices()
+    private var panel: NSPanel?
+    var shown: Bool { panel?.isVisible == true }
+    var chosen: KinoPromptTag? { choices.files.indices.contains(choices.index) ? choices.files[choices.index] : nil }
+
+    func show(_ files: [KinoPromptTag], under caret: NSRect, in window: NSWindow?, pick: @escaping (KinoPromptTag) -> Void) {
+        guard let window else { return }
+        if choices.files.map(\.handle) != files.map(\.handle) { choices.index = 0 }
+        choices.files = files
+        choices.pick = pick
+        let size = NSSize(width: 250, height: CGFloat(files.count) * KinoTagList.row + 12)
+        let panel = self.panel ?? {
+            let made = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+            made.isOpaque = false
+            made.backgroundColor = .clear
+            made.hasShadow = true
+            made.contentView = Host(rootView: KinoTagList(choices: choices))
+            self.panel = made
+            return made
+        }()
+        // Under the @, or above it when there is no room below.
+        var origin = NSPoint(x: caret.minX - 10, y: caret.minY - size.height - 4)
+        if let screen = window.screen?.visibleFrame, origin.y < screen.minY { origin.y = caret.maxY + 4 }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        if panel.parent == nil { window.addChildWindow(panel, ordered: .above) }
+        panel.orderFront(nil)
+    }
+    func move(_ step: Int) {
+        guard !choices.files.isEmpty else { return }
+        choices.index = (choices.index + step + choices.files.count) % choices.files.count
+    }
+    func hide() {
+        guard let panel else { return }
+        panel.parent?.removeChildWindow(panel)
+        panel.orderOut(nil)
+    }
+}
+
+struct KinoTagList: View {
+    @ObservedObject var choices: KinoTagPicker.Choices
+    static let row: CGFloat = 44
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(choices.files.enumerated()), id: \.element.handle) { index, file in
+                HStack(spacing: 9) {
+                    KinoThumb(url: file.url, width: 28, height: 34, corner: 4)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(file.name).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                        Text(file.role).font(.system(size: 10, weight: .medium)).foregroundStyle(Color(nsColor: file.tint))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8).frame(height: Self.row)
+                .background(index == choices.index ? Color.white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+                .onHover { if $0 { choices.index = index } }
+                .onTapGesture { choices.pick(file) }
+            }
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.12)))
+        .environment(\.colorScheme, .dark)
     }
 }
 
