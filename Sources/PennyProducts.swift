@@ -16,6 +16,8 @@ struct ProductsView: View {
     @State private var search = ""
     @State private var loaded: [Ledger.Day] = []
     @State private var loadedKey = ""
+    /// The day opened hour by hour, from the trend or the calendar.
+    @State private var openDay: String?
 
     static let ranges: [(days: Int, name: String)] = [(0, "Today"), (-1, "Yesterday"), (7, "Last 7 days"), (14, "Last 14 days"), (30, "Last 30 days")]
 
@@ -119,47 +121,103 @@ struct ProductsView: View {
         let before = ledger.summary.numbers(of: product, on: days.before)
         let profit = ledger.profit(of: product, on: days.now)
         let margin = ledger.summary.margin(of: product, on: days.now)
+        let marginBefore = ledger.summary.margin(of: product, on: days.before)
+        let change = { (now: Double?, then: Double?) -> Double? in
+            guard before.spent > 0, let now, let then, then != 0 else { return nil }
+            return (now - then) / abs(then)
+        }
         VStack(alignment: .leading, spacing: 14) {
-            Text(product).font(.system(size: 18, weight: .semibold)).textSelection(.enabled)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
-                figure("Spent", Ledger.money(total.spent))
-                figure("Revenue", Ledger.money(total.revenue))
-                figure("ROAS", Ledger.ratio(total.roas))
-                figure("Orders", Ledger.whole(total.orders))
-                figure("Cost per order", total.cpp.map(Ledger.money) ?? "–")
-                figure("Order value", total.aov.map(Ledger.money) ?? "–")
-                figure("CR", Ledger.percent(total.cr))
-                figure("CTR", Ledger.percent(total.ctr))
-                figure("CPM", total.cpm.map(Ledger.money) ?? "–")
+            header(product, days: days.now, profit: profit)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 8)], spacing: 8) {
+                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent))
+                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue))
+                PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas))
                 if margin.days > 0 {
-                    figure("CBH", Ledger.money(margin.margin.cbh))
-                    figure("%CBH", Ledger.percent(margin.margin.share))
+                    PennyFigure(name: "CBH", value: Ledger.money(margin.margin.cbh), color: margin.margin.cbh < 0 ? PennyStyle.red : PennyStyle.green,
+                                change: marginBefore.days > 0 ? change(margin.margin.cbh, marginBefore.margin.cbh) : nil)
+                    PennyFigure(name: "%CBH", value: Ledger.percent(margin.margin.share), change: marginBefore.days > 0 ? change(margin.margin.share, marginBefore.margin.share) : nil)
                 }
-                figure("Breakeven ROAS", Ledger.ratio(profit.breakeven))
+                PennyFigure(name: "Breakeven ROAS", value: PennyStyle.times(profit.breakeven), color: PennyStyle.red.opacity(0.85))
+                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders))
+                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp), upIsGood: false)
+                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov))
+                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr))
+                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr))
+                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm), upIsGood: false)
             }
             if ready {
-                card(L("PENNY'S READ")) {
+                let dayReads = Ledger.dayReads(loaded, profit: profit)
+                let reads = Ledger.hourReads(loaded, profit: profit)
+                PennyPanel(title: L("Penny's read")) {
                     let lines = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit)
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text("•").foregroundStyle(.secondary)
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Circle().fill(PixelPenny.theme).frame(width: 5, height: 5).offset(y: -2)
                                 Text(md: line).fixedSize(horizontal: false, vertical: true)
                             }.font(.system(size: 12))
                         }
                     }.textSelection(.enabled)
                 }
-                card(L("HOURS · MEDIA BUYING (ALASKA TIME)")) { HoursEfficiency(reads: Ledger.hourReads(loaded, profit: profit), profit: profit) }
-                if loaded.count > 1 { card(L("BY DAY")) { DaysChart(days: loaded) } }
-                card(L("BY HOUR (ALASKA TIME)")) { HoursChart(hours: Ledger.hours(loaded)) }
+                PennyPanel(title: L("Daily ROAS and spend"),
+                           note: L("Press a day, on the chart or the calendar, to see it hour by hour. Weekends are shaded.")) {
+                    HStack(spacing: 12) {
+                        LegendKey(name: L("profitable"), color: PennyStyle.green.opacity(0.6))
+                        LegendKey(name: L("above breakeven"), color: PennyStyle.yellow.opacity(0.6))
+                        LegendKey(name: L("below breakeven"), color: PennyStyle.red.opacity(0.6))
+                        LegendKey(name: L("ROAS"), color: PennyStyle.orange, shape: .line)
+                        LegendKey(name: L("dead spend %"), color: PennyStyle.muted, shape: .dashed)
+                        LegendKey(name: L("breakeven"), color: PennyStyle.red, shape: .dashed)
+                    }
+                } content: {
+                    TrendChart(days: dayReads, profit: profit, selected: $openDay)
+                    if let open = openDay, let day = dayReads.first(where: { $0.day == open }) {
+                        DayDrill(day: day, profit: profit) { openDay = nil }
+                    }
+                    DaysCalendar(days: dayReads, profit: profit, selected: $openDay)
+                }
+                PennyPanel(title: L("Hours: ROAS, bad and good days, spend a day"),
+                           note: L("Each hour over the days read, Alaska time. Bars: spend a day, coloured by verdict · line: average ROAS · whisker: its bad day to its good day (10th to 90th percentile of its days)")) {
+                    HoursRangeChart(reads: reads, profit: profit)
+                    VerdictLegend()
+                }
+                PennyPanel(title: L("Where the budget went"),
+                           note: L("Each hour's average against breakeven, then every hour of every day by the ROAS it brought back")) {
+                    HoursEfficiency(reads: reads, profit: profit, shows: .budget)
+                    Divider().opacity(0.4)
+                    BandsView(bands: Ledger.bands(loaded, profit: profit), profit: profit)
+                }
+                PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means")) {
+                    HoursEfficiency(reads: reads, profit: profit, shows: .table)
+                }
+                let weeks = Ledger.weekReads(dayReads)
+                if weeks.count >= 2 {
+                    PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: weeks, profit: profit) }
+                }
                 let creatives = Ledger.creatives(loaded)
-                card(L("CREATIVES BY HOUR · ORDERS")) { CreativeHours(lines: Array(creatives.prefix(12))) }
-                card(L("CREATIVES")) { LedgerTable(lines: creatives, counted: L("Campaigns")) }
-                card(L("CAMPAIGNS")) { LedgerTable(lines: Ledger.campaigns(loaded), counted: L("Ads")) }
+                PennyPanel(title: L("Creatives by hour"), note: L("Each creative's orders hour by hour, darker for more")) { CreativeHours(lines: Array(creatives.prefix(12))) }
+                PennyPanel(title: L("Creatives")) { LedgerTable(lines: creatives, counted: L("Campaigns")) }
+                PennyPanel(title: L("Campaigns")) { LedgerTable(lines: Ledger.campaigns(loaded), counted: L("Ads")) }
             } else {
                 ProgressView().controlSize(.small)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: product) { _, _ in openDay = nil }
+    }
+
+    func header(_ product: String, days: [String], profit: Ledger.Profit) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(product).font(.system(size: 22, weight: .bold)).textSelection(.enabled)
+                Text(L("%@ days · %@ – %@ · Alaska time", days.count, PennyStyle.day(days.last ?? ""), PennyStyle.day(days.first ?? "")))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(profit.measured ? L("Breakeven %@ from CBH", PennyStyle.times(profit.breakeven)) : L("Breakeven %@ (usual line)", PennyStyle.times(profit.breakeven)))
+                .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 5)
+                .background(PennyStyle.red.opacity(0.14), in: Capsule()).foregroundStyle(PennyStyle.red)
+        }
     }
 
     func figure(_ name: String, _ value: String) -> some View {
@@ -264,6 +322,8 @@ struct DataState: View {
 struct HoursEfficiency: View {
     let reads: [Ledger.HourRead]
     let profit: Ledger.Profit
+    enum Shows { case budget, table }
+    var shows = Shows.budget
     @State private var sort = "Hour"
 
     static func name(_ verdict: Ledger.HourRead.Verdict) -> String {
@@ -292,22 +352,9 @@ struct HoursEfficiency: View {
         }
     }
 
-    static func color(_ verdict: Ledger.HourRead.Verdict) -> Color {
-        switch verdict {
-        case .reliable: return .green
-        case .volatile: return .blue
-        case .thin: return .yellow
-        case .losing: return .gray
-        case .costly: return .orange
-        case .dead: return .red
-        case .few, .idle: return .secondary
-        }
-    }
+    static func color(_ verdict: Ledger.HourRead.Verdict) -> Color { PennyStyle.verdict(verdict) }
 
-    func color(_ roas: Double?) -> Color {
-        guard let roas else { return .secondary }
-        return roas < profit.breakeven ? .orange : roas < profit.profitable ? .yellow : .green
-    }
+    func color(_ roas: Double?) -> Color { PennyStyle.roas(roas, profit) }
 
     struct Column { var name: String; var width: CGFloat; var value: (Ledger.HourRead) -> Double?; var text: (Ledger.HourRead) -> String }
 
@@ -324,6 +371,7 @@ struct HoursEfficiency: View {
     var body: some View {
         let parts = Ledger.efficiency(reads, profit: profit)
         let total = parts.total
+        if shows == .table { table } else {
         VStack(alignment: .leading, spacing: 10) {
             Text(md: profit.measured
                  ? L("Breakeven **%@** (CBH 0), profitable from **%@** (CBH 5%%): from this product's CBH, it keeps %@ of revenue before ads.",
@@ -332,11 +380,11 @@ struct HoursEfficiency: View {
                      Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable)))
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 8) {
-                part(L("Below breakeven"), parts.losing, of: total, color: .orange)
-                part(L("Thin profit"), parts.thin, of: total, color: .yellow)
-                part(L("Profitable"), parts.profitable, of: total, color: .green)
+                part(L("Below breakeven"), parts.losing, of: total, color: PennyStyle.red)
+                part(L("Thin profit"), parts.thin, of: total, color: PennyStyle.yellow)
+                part(L("Profitable"), parts.profitable, of: total, color: PennyStyle.green)
             }
-            table
+        }
         }
     }
 
@@ -346,7 +394,7 @@ struct HoursEfficiency: View {
             Text(L("%@ of spend", Ledger.percent(total.spent > 0 ? part.numbers.spent / total.spent : 0))).font(.system(size: 16, weight: .semibold).monospacedDigit())
             Text(L("%@ spent, %@ of revenue back", Ledger.money(part.numbers.spent), Ledger.percent(total.revenue > 0 ? part.numbers.revenue / total.revenue : 0)))
                 .font(.system(size: 10)).foregroundStyle(.secondary)
-            Text(L("CBH %@", Ledger.money(part.cbh))).font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(part.cbh < 0 ? .orange : .primary)
+            Text(L("CBH %@", Ledger.money(part.cbh))).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(part.cbh < 0 ? PennyStyle.red : PennyStyle.green)
             if !part.hours.isEmpty {
                 Text(part.hours.map(Ledger.hourName).joined(separator: ", ")).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(4)
             }
@@ -368,6 +416,7 @@ struct HoursEfficiency: View {
                         Text(L(column.name) + (sort == column.name ? " ↓" : "")).frame(width: column.width, alignment: .trailing)
                     }.buttonStyle(.plain)
                 }
+                Text(L("Range")).frame(width: 120, alignment: .center)
                 Text(L("Verdict")).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8)
             }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.vertical, 4)
             Divider()
@@ -376,58 +425,40 @@ struct HoursEfficiency: View {
                     Text(Ledger.hourName(read.hour)).frame(width: 96, alignment: .leading)
                     ForEach(columns, id: \.name) { column in
                         Text(column.text(read)).frame(width: column.width, alignment: .trailing).lineLimit(1)
-                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" && read.cbh < 0 ? .orange : .primary)
+                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" ? (read.cbh < 0 ? PennyStyle.red : PennyStyle.green) : .primary)
                     }
+                    RangeBar(read: read, profit: profit).frame(width: 120, height: 14)
                     Text(Self.name(read.verdict)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Self.color(read.verdict))
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8).help(Self.meaning(read.verdict))
-                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 3).textSelection(.enabled)
-                Divider().opacity(0.4)
+                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 4).padding(.horizontal, 4)
+                .background(Self.color(read.verdict).opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
+                .textSelection(.enabled)
             }
         }
     }
 }
 
-/// Spend and revenue each day.
-struct DaysChart: View {
-    let days: [Ledger.Day]
+/// An hour's bad-to-good-day range on a 0–4× track, its average as a dot, breakeven as a red tick.
+struct RangeBar: View {
+    let read: Ledger.HourRead
+    let profit: Ledger.Profit
+    static let top = 4.0
 
     var body: some View {
-        let points = days.sorted { $0.day < $1.day }.flatMap { day -> [(String, String, Double)] in
-            let numbers = day.numbers
-            return [(String(day.day.dropFirst(5)), L("Spent"), numbers.spent), (String(day.day.dropFirst(5)), L("Revenue"), numbers.revenue)]
+        GeometryReader { geometry in
+            let x = { (roas: Double) in geometry.size.width * min(max(roas, 0), Self.top) / Self.top }
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.06)).frame(height: 4)
+                if let floor = read.floor, let ceiling = read.ceiling {
+                    Capsule().fill(PennyStyle.verdict(read.verdict).opacity(0.55)).frame(width: max(2, x(ceiling) - x(floor)), height: 4).offset(x: x(floor))
+                }
+                Rectangle().fill(PennyStyle.red).frame(width: 1.5, height: 12).offset(x: x(profit.breakeven))
+                if let roas = read.numbers.roas {
+                    Circle().fill(PennyStyle.orange).frame(width: 7, height: 7).offset(x: x(roas) - 3.5)
+                }
+            }.frame(maxHeight: .infinity)
         }
-        Chart(Array(points.enumerated()), id: \.offset) { _, point in
-            BarMark(x: .value("Day", point.0), y: .value("$", point.2))
-                .foregroundStyle(by: .value("", point.1))
-                .position(by: .value("", point.1))
-        }
-        .chartForegroundStyleScale([L("Spent"): Color.orange, L("Revenue"): Color.green])
-        .frame(height: 180)
-    }
-}
-
-/// Spend and revenue in each hour of the day, with the orders over the bars.
-struct HoursChart: View {
-    let hours: [Ledger.Numbers]
-
-    var body: some View {
-        let points = hours.enumerated().flatMap { hour, numbers in [(hour, L("Spent"), numbers.spent), (hour, L("Revenue"), numbers.revenue)] }
-        Chart {
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                BarMark(x: .value("Hour", point.0), y: .value("$", point.2), width: .fixed(7))
-                    .foregroundStyle(by: .value("", point.1))
-                    .position(by: .value("", point.1))
-            }
-        }
-        .chartForegroundStyleScale([L("Spent"): Color.orange, L("Revenue"): Color.green])
-        .chartXAxis {
-            AxisMarks(values: Array(stride(from: 0, to: 24, by: 2))) { value in
-                AxisGridLine()
-                AxisValueLabel { if let hour = value.as(Int.self) { Text(hour % 12 == 0 ? (hour == 0 ? "12a" : "12p") : "\(hour % 12)\(hour < 12 ? "a" : "p")") } }
-            }
-        }
-        .chartXScale(domain: -0.5 ... 23.5)
-        .frame(height: 180)
+        .help(L("Bad day %@, good day %@, average %@; the red tick is breakeven", PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
     }
 }
 
