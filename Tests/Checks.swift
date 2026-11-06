@@ -1609,19 +1609,22 @@ struct Checks {
                       "A file dropped on a shot's empty place takes that place's role")
                 desk.add([at("K12.png"), at("K12.1.png")])
                 let twelve = desk.files(in: "K12")
-                check(desk.role(of: twelve[0], in: "K12") == .start && desk.role(of: twelve[1], in: "K12") == .look,
-                      "A shot's first picture opens it (its start frame); the others are looks")
+                check(desk.given("K12").isEmpty && desk.role(of: twelve[0], in: "K12") == .look && desk.role(of: twelve[1], in: "K12") == .look,
+                      "A shot's pictures have no role until you give one: each goes as a reference (no start frame made by Kino)")
+                desk.setPrompt("/start @K12 She turns. /end @K12.1", for: "K12")
+                check(desk.given("K12") == ["K12": .start, "K12.1": .end] && desk.plan("K12").prompt.contains("She turns.")
+                      && !desk.plan("K12").prompt.contains("/start") && !desk.plan("K12").prompt.contains("/end"),
+                      "Commands in the prompt give roles (/start @K12) and are not sent to the model")
                 desk.setRole(.start, of: twelve[1], in: "K12")
-                check(desk.role(of: twelve[0], in: "K12") == .look && desk.role(of: twelve[1], in: "K12") == .start,
-                      "A picture made the start frame takes the place of the one before")
+                check(desk.given("K12") == ["K12.1": .start] && desk.shot("K12").prompt == "@K12 She turns. /start @K12.1",
+                      "A role given on the file rewrites its command in the prompt; the start frame before it loses its command and role")
+                desk.setPrompt("She turns.", for: "K12")
                 desk.add([at("K12 Size.png")], into: "K12", as: .end)
                 desk.add([at("K12.2.png")], into: "K12", as: .end)
-                check(desk.files(in: "K12").filter { desk.role(of: $0, in: "K12") == .end }.map(\.name) == ["K12.2"], "A shot keeps one end frame")
-                desk.setRole(.look, of: twelve[1], in: "K12")
-                check(desk.role(of: twelve[0], in: "K12") == .start, "With no start frame given, the first picture opens the shot again")
-                desk.setRole(.look, of: twelve[0], in: "K12")
-                check(desk.role(of: twelve[0], in: "K12") == .look && !desk.roles("K12").values.contains(.start),
-                      "A first picture made a look stays a look")
+                check(desk.files(in: "K12").filter { desk.role(of: $0, in: "K12") == .end }.map(\.name) == ["K12.2"]
+                      && desk.given("K12")["K12-size"] == nil, "A shot keeps one end frame; the one before goes back to no role")
+                check(KinoPrompt.withoutCommands("/start @K1 She walks. /out @K2") == "She walks. " && KinoPrompt.commands(in: "and/or @K1").isEmpty
+                      && KinoPrompt.commands(in: "/hello @K1").isEmpty, "Only a / starting a word with a role's name is a command")
                 desk.add([at("K4.png"), at("K4.1.mp4")])
                 check(desk.role(of: desk.files(in: "K4")[0], in: "K4") == .look, "With a video in the shot, its picture is a look, not a start frame")
                 check(desk.media(sorted: .name).map(\.name).prefix(4) == ["7", "clip", "hero", "IMG_1234"]

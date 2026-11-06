@@ -64,11 +64,26 @@ final class KinoDesk: ObservableObject {
     func shot(_ code: String) -> KinoShot { batch.shots[code] ?? KinoShot() }
     /// The shot's own settings, or the batch's when it has none.
     func settings(_ code: String) -> KinoSettings { shot(code).settings ?? batch.settings }
-    /// Every file's role in the shot: the ones you gave, the usual for the rest (the first picture opens the shot).
-    func roles(_ code: String) -> [String: KinoRole] { KinoRole.all(files(in: code), set: shot(code).roles, model: settings(code).model) }
+    /// The roles you gave the shot's files, by tag: on the file, or by a command in the prompt (/start @K2), which wins.
+    /// A shot has one start frame and one end frame: a later one takes the role from the one before.
+    func given(_ code: String) -> [String: KinoRole] {
+        var given = shot(code).roles
+        let files = files(in: code)
+        for command in KinoPrompt.commands(in: shot(code).prompt) {
+            guard let file = files.first(where: { $0.handle.lowercased() == command.handle.lowercased() }),
+                  KinoRole.choices(file.kind).contains(command.role) else { continue }
+            if command.role == .start || command.role == .end {
+                for (other, had) in given where had == command.role && other != file.handle { given[other] = nil }
+            }
+            given[file.handle] = command.role
+        }
+        return given
+    }
+    /// Every file's role in the shot: the one you gave, else the usual for its kind (a picture or a video is a reference).
+    func roles(_ code: String) -> [String: KinoRole] { KinoRole.all(files(in: code), set: given(code), model: settings(code).model) }
     func role(of file: KinoFile, in code: String) -> KinoRole { roles(code)[file.handle] ?? KinoRole.of(file, shot(code).roles) }
     func plan(_ code: String) -> KinoPlan {
-        var plan = KinoRequest.plan(files: files(in: code), roles: roles(code), prompt: shot(code).prompt, shared: batch.shared,
+        var plan = KinoRequest.plan(files: files(in: code), roles: roles(code), prompt: KinoPrompt.withoutCommands(shot(code).prompt), shared: batch.shared,
                                     settings: settings(code), durations: durations)
         for file in files(in: code) where missing.contains(file.id) { plan.problems.insert(L("@%@ is no longer on this Mac", file.handle), at: 0) }
         return plan
@@ -270,13 +285,22 @@ final class KinoDesk: ObservableObject {
     }
 
     func setPrompt(_ text: String, for code: String) { edit(code) { $0.prompt = text } }
-    func setRole(_ role: KinoRole, of file: KinoFile, in code: String) { give(role, to: file.handle, in: code) }
-    /// A role you give is kept as given, even the usual one, so the first picture can be made a look. A shot has one start
-    /// frame and one end frame: the one it had becomes a look.
+    /// A role given on the file. Its command in the prompt, if it has one, says the new role, so the two never differ; a
+    /// start or end frame the shot had (on its file or by a command) goes back to having no role.
+    func setRole(_ role: KinoRole, of file: KinoFile, in code: String) {
+        give(role, to: file.handle, in: code)
+        edit(code) { shot in
+            shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, had in
+                handle.lowercased() == file.handle.lowercased() ? role : (role == .start || role == .end) && had == role ? nil : had
+            }
+        }
+    }
+    /// A role you give is kept as given, even the usual one. A shot has one start frame and one end frame: the one it had
+    /// goes back to having no role.
     private func give(_ role: KinoRole, to tag: String, in code: String) {
         edit(code) { shot in
             if role == .start || role == .end {
-                for (other, had) in shot.roles where had == role && other != tag { shot.roles[other] = .look }
+                for (other, had) in shot.roles where had == role && other != tag { shot.roles[other] = nil }
             }
             shot.roles[tag] = role
         }
@@ -581,18 +605,11 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         let role = roles[file.handle] ?? usual(file.kind)
         return choices(file.kind).contains(role) ? role : usual(file.kind)
     }
-    /// Every file's role in a shot: the one you gave it, else the usual one for its kind, except that the shot's first
-    /// picture with no role given is its start frame while no file is and no video is in the shot, as a shot made from a
-    /// picture opens on it (image-to-video, the Forge's usual job). Motion Control takes a person, not frames; with a
-    /// video, Kling O3 and Seedance take no frames.
+    /// Every file's role in a shot: the one you gave it, else the usual one for its kind. Nothing is made a start frame
+    /// unless you say so (2026-11-06): a file with no role goes as a reference, and the model works out how to use it.
     static func all(_ files: [KinoFile], set: [String: KinoRole], model: String) -> [String: KinoRole] {
         var roles: [String: KinoRole] = [:]
         for file in files { roles[file.handle] = of(file, set) }
-        if model != "kling-motion", !roles.values.contains(.start),
-           !files.contains(where: { $0.kind == .video && roles[$0.handle] != .unused }),
-           let first = files.first(where: { $0.kind == .image && set[$0.handle] == nil }) {
-            roles[first.handle] = .start
-        }
         return roles
     }
 }
@@ -680,6 +697,37 @@ enum KinoPrompt {
             guard let whole = Range(match.range, in: text), let name = Range(match.range(at: 1), in: text) else { return nil }
             return (whole, String(text[name]))
         }
+    }
+
+    private static let command = try! NSRegularExpression(pattern: #"(?<![^\s])/([A-Za-z]+)[ \t]*@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"#)
+
+    /// The roles the prompt gives, in order: "/start @K2" makes K2 the start frame. A word that is no command is text.
+    static func commands(in text: String) -> [(range: Range<String.Index>, role: KinoRole, handle: String)] {
+        command.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+            guard let whole = Range(match.range, in: text), let word = Range(match.range(at: 1), in: text),
+                  let name = Range(match.range(at: 2), in: text), let role = KinoRole.commanded(String(text[word])) else { return nil }
+            return (whole, role, String(text[name]))
+        }
+    }
+    /// The prompt as the model gets it: the commands are Kino's, not words for the model, so they go (with a space after).
+    static func withoutCommands(_ text: String) -> String {
+        var result = text
+        for command in commands(in: text).reversed() {
+            var range = command.range
+            if range.upperBound < result.endIndex, result[range.upperBound] == " " { range = range.lowerBound..<result.index(after: range.upperBound) }
+            result.removeSubrange(range)
+        }
+        return result
+    }
+    /// The commands with the role `change` gives each file instead (nil: the command goes, its tag stays).
+    static func rewriting(_ text: String, _ change: (String, KinoRole) -> KinoRole?) -> String {
+        var result = text
+        for command in commands(in: text).reversed() {
+            let role = change(command.handle, command.role)
+            guard role != command.role else { continue }
+            result.replaceSubrange(command.range, with: (role.map { "/" + $0.command + " " } ?? "") + "@" + command.handle)
+        }
+        return result
     }
 
     /// The text with each tag `name` knows written its way; the others are kept as typed.

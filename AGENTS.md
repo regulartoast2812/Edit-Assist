@@ -191,12 +191,14 @@ named by shot code go into their shot as they come in (K1, K1.1 and K1.2 into sh
 @K1.1); any file can be dragged into any shot, and one picture can be in many shots under a tag of each (K2.3). Each file
 has a role (look, start or end frame, camera and motion, video to edit, sound, left out), and the roles decide the model's
 endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out;
-a shot's first picture is its start frame unless you give a role or the shot has a video. The shots are cards in one list,
+a file has no role until you give one (no start frame is made for you, 2026-11-06): with none it goes as a
+reference, and only a given role shows on its picture. The shots are cards in one list,
 as the Forge shows its jobs, with the shot's files and one + box (the boxes for other roles show while files are dragged
 over it). Files dropped on a shot's files go into it; dropped anywhere else in the list they make a new shot, and while
 files are dragged each shot's files are outlined to show it. The prompt names a file by typing @ (a list of the shot's files);
 it shows each as a pill with the file's name in its role's colour and keeps it as its @tag. Typing / gives a role: /start then a file
-makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same), and the command leaves the prompt. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
+makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same), shown as one pill ("Start · K2") and kept
+as "/start @K2"; deleting it takes the role away, a role picked on the file rewrites it, and commands are never sent. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
 place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
 are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot

@@ -855,6 +855,7 @@ struct KinoShotCard: View {
     func inputs(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {
         let model = KinoModel.named(desk.settings(code).model)
         let roles = desk.roles(code)
+        let given = desk.given(code)
         let slots = KinoSlot.all(model: model.id, files: files, roles: roles)
         let most = KinoSlot.most(model: model.id, files: files, roles: roles)
         let used = files.filter { roles[$0.handle] != .unused }
@@ -884,11 +885,12 @@ struct KinoShotCard: View {
                     case .file(let file)?:
                         let role = roles[file.handle] ?? .look
                         let index = plan.inputs.firstIndex { $0.handle == file.handle }
-                        KinoFileTile(file: file, role: role, seconds: desk.durations[file.id], number: index.map { $0 + 1 },
+                        KinoFileTile(file: file, role: role, given: given[file.handle] != nil, seconds: desk.durations[file.id], number: index.map { $0 + 1 },
                                      sentAs: index.map { plan.inputs[$0].tag }, missing: desk.missing.contains(file.id), shot: code,
                                      choose: { desk.setRole($0, of: file, in: code) },
                                      takeOut: { desk.takeOut(file, of: code) },
-                                     drop: { desk.add($0, into: code, as: role == .unused ? nil : role); desk.selected = code }, hovered: hovered)
+                                     drop: { desk.add($0, into: code, as: given[file.handle].flatMap { $0 == .unused ? nil : $0 }); desk.selected = code },
+                                     hovered: hovered)
                     case .empty(let role)?:
                         KinoEmptySlot(role: role, motionControl: model.id == "kling-motion",
                                       drop: { desk.add($0, into: code, as: role); desk.selected = code }, choose: { desk.choose(into: code, as: role) },
@@ -920,20 +922,20 @@ struct KinoShotCard: View {
         let model = KinoModel.named(desk.settings(code).model)
         let text = desk.shot(code).prompt
         let roles = desk.roles(code)
-        // Every file of the shot can be named in the prompt; one left out shows grey.
+        // Every file of the shot can be named in the prompt, in its role's colour once it has one; one left out shows grey.
+        let given = desk.given(code)
         let tags = files.map { file in
-            let role = roles[file.handle] ?? .look
+            let role = given[file.handle]
             let sent = plan.inputs.contains { $0.handle == file.handle }
-            return KinoPromptTag(handle: file.handle, name: file.name, url: file.url, kind: file.kind, tint: sent ? role.tint : .secondaryLabelColor, role: L(role.short))
+            return KinoPromptTag(handle: file.handle, name: file.name, url: file.url, kind: file.kind,
+                                 tint: !sent ? .secondaryLabelColor : role?.tint ?? .labelColor,
+                                 role: role.map { L($0.short) } ?? L(file.kind == .image ? "Picture" : file.kind == .video ? "Video" : "Sound"))
         }
         let issues = KinoSummary.issues(plan)
         return VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .topLeading) {
                 KinoPromptView(text: Binding(get: { desk.shot(code).prompt }, set: { desk.setPrompt($0, for: code) }), tags: tags,
-                               began: { desk.selected = code },
-                               setRole: { handle, role in
-                                   if let file = files.first(where: { $0.handle == handle }) { desk.setRole(role, of: file, in: code) }
-                               })
+                               began: { desk.selected = code })
                 if text.isEmpty {
                     Text(md: L("What happens in the shot. Type **@** to name a file, **/** to give one a role (/start @%@)", files.first?.name ?? code))
                         .font(.system(size: 13)).foregroundStyle(.tertiary).padding(.horizontal, 13).padding(.vertical, 12)
@@ -1044,6 +1046,8 @@ struct KinoRequestView: View {
 struct KinoFileTile: View {
     let file: KinoFile
     let role: KinoRole
+    /// You gave it its role (on the file or by a command): only then is its role shown on it.
+    let given: Bool
     let seconds: Double?
     /// Its place in what is sent (1 is sent first), and the name the service gives it.
     let number: Int?
@@ -1069,8 +1073,10 @@ struct KinoFileTile: View {
                         RoundedRectangle(cornerRadius: 8).strokeBorder(PixelKino.theme, lineWidth: 2.5)
                     } else if off {
                         RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    } else {
+                    } else if given {
                         RoundedRectangle(cornerRadius: 8).strokeBorder(role.color, lineWidth: 2)
+                    } else {
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(hovering ? 0.35 : 0.12), lineWidth: 1)
                     }
                 }
                 .overlay(alignment: .topLeading) {
@@ -1094,24 +1100,26 @@ struct KinoFileTile: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    Menu {
+                    // Its role when you gave one; else, on hover, a way to give one (or type /start @ in the prompt).
+                    if given || hovering { Menu {
                         ForEach(KinoRole.choices(file.kind)) { option in
                             Button { choose(option) } label: {
-                                if option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
+                                if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
                             }
                         }
                     } label: {
                         HStack(spacing: 3) {
-                            Image(systemName: role.icon).font(.system(size: 8))
-                            Text(L(role.short)).font(.system(size: 9.5, weight: .semibold)).lineLimit(1)
+                            if given { Image(systemName: role.icon).font(.system(size: 8)) }
+                            Text(given ? L(role.short) : L("Role")).font(.system(size: 9.5, weight: .semibold)).lineLimit(1)
                             Image(systemName: "chevron.down").font(.system(size: 6.5, weight: .bold)).opacity(0.7)
                         }
-                        .foregroundStyle(off ? Color.primary : .white).padding(.horizontal, 6).frame(height: 18)
-                        .background(off ? Color.black.opacity(0.6) : Color(nsColor: role.tint.shadow(withLevel: 0.25) ?? role.tint), in: Capsule())
+                        .foregroundStyle(off || !given ? Color.primary : .white).padding(.horizontal, 6).frame(height: 18)
+                        .background(off || !given ? Color.black.opacity(0.65) : Color(nsColor: role.tint.shadow(withLevel: 0.25) ?? role.tint), in: Capsule())
                         .contentShape(Capsule())
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .padding(.bottom, 5).help(L(role.detail))
+                    .padding(.bottom, 5).help(given ? L(role.detail) : L("No role given: it goes as a reference. Type /start @ in the prompt, or pick one here"))
+                    }
                 }
                 .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
         }
@@ -1125,7 +1133,7 @@ struct KinoFileTile: View {
         .contextMenu {
             ForEach(KinoRole.choices(file.kind)) { option in
                 Button { choose(option) } label: {
-                    if option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
+                    if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
                 }
             }
             Divider()
@@ -1554,17 +1562,15 @@ struct KinoPromptTag: Equatable {
 
 /// The shot's prompt. The text kept and sent names files by tag (@K4-size); here each named file shows as a pill with its
 /// name in its role's colour, as the Forge shows them, and goes as one piece when deleted. Typing @ lists the shot's files;
-/// typing / lists the roles as commands: /start then a file makes it the start frame, and the command and its file leave
-/// the prompt, which is sent to the model as written. Both lists are picked from with the arrows and Return (or Tab, or a
-/// click); Escape keeps what was typed. A tag typed out whole becomes a pill after a space, a command typed out whole
-/// gives its role the same way. A tag that names no file of the shot stays text, in red.
+/// typing / lists the roles as commands: /start then a file makes it the start frame, shown as one pill ("Start · K2")
+/// and kept as "/start @K2"; deleting the pill takes the role away. Commands are Kino's, not sent to the model. Both lists
+/// are picked from with the arrows and Return (or Tab, or a click); Escape keeps what was typed. A tag or a command typed
+/// out whole becomes its pill after a space. A tag that names no file of the shot stays text, in red.
 struct KinoPromptView: NSViewRepresentable {
     @Binding var text: String
     let tags: [KinoPromptTag]
     /// When you start writing in it.
     var began: (() -> Void)? = nil
-    /// A command gave a file (by its tag) a role.
-    var setRole: (String, KinoRole) -> Void = { _, _ in }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = OverlayScrollView()
@@ -1624,33 +1630,39 @@ struct KinoPromptView: NSViewRepresentable {
 
         func known(_ handle: String) -> KinoPromptTag? { parent.tags.first { $0.handle.lowercased() == handle.lowercased() } }
 
-        /// The text as kept, each pill written as its @tag.
+        /// The text as kept, each pill written as its @tag or its command.
         static func written(_ text: NSAttributedString) -> String {
             var out = ""
             text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
                 if let pill = value as? KinoTagAttachment {
-                    out += String(repeating: "@" + pill.handle, count: range.length)
+                    out += String(repeating: pill.written, count: range.length)
                 } else {
                     out += (text.string as NSString).substring(with: range)
                 }
             }
             return out
         }
-        /// The text kept, each tag of a file in the shot as its pill.
+        /// The text kept, each command and each tag of a file in the shot as its pill.
         func rendered(_ text: String) -> NSAttributedString {
+            var pills: [(range: Range<String.Index>, file: KinoPromptTag, role: KinoRole?)] = []
+            for command in KinoPrompt.commands(in: text) {
+                if let file = known(command.handle), KinoRole.choices(file.kind).contains(command.role) { pills.append((command.range, file, command.role)) }
+            }
+            for tag in KinoPrompt.tags(in: text) where !pills.contains(where: { $0.range.overlaps(tag.range) }) {
+                if let file = known(tag.handle) { pills.append((tag.range, file, nil)) }
+            }
             let result = NSMutableAttributedString()
             var last = text.startIndex
-            for tag in KinoPrompt.tags(in: text) {
-                guard let file = known(tag.handle) else { continue }
-                result.append(NSAttributedString(string: String(text[last..<tag.range.lowerBound]), attributes: Self.plain))
-                result.append(pill(file))
-                last = tag.range.upperBound
+            for item in pills.sorted(by: { $0.range.lowerBound < $1.range.lowerBound }) {
+                result.append(NSAttributedString(string: String(text[last..<item.range.lowerBound]), attributes: Self.plain))
+                result.append(pill(item.file, command: item.role))
+                last = item.range.upperBound
             }
             result.append(NSAttributedString(string: String(text[last...]), attributes: Self.plain))
             return result
         }
-        func pill(_ file: KinoPromptTag) -> NSAttributedString {
-            let made = NSMutableAttributedString(attachment: KinoTagAttachment(file))
+        func pill(_ file: KinoPromptTag, command: KinoRole? = nil) -> NSAttributedString {
+            let made = NSMutableAttributedString(attachment: KinoTagAttachment(file, command: command))
             made.addAttributes(Self.plain, range: NSRange(location: 0, length: made.length))
             return made
         }
@@ -1752,26 +1764,16 @@ struct KinoPromptView: NSViewRepresentable {
                 replace(query.range, with: NSAttributedString(string: item.id + " @", attributes: Self.plain), in: view)
                 suggest(view)
             } else if let file = known(String(item.id.dropFirst())), let query = typing(view, after: "@") {
-                if let command = command(before: query.range.location, in: view) {
-                    give(command.role, to: file, from: command.start, to: NSMaxRange(query.range), in: view)
-                } else {
-                    let string = view.string as NSString
-                    let end = NSMaxRange(query.range)
-                    let spaced = end < string.length && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(string.character(at: end)) ?? " ")
-                    let made = NSMutableAttributedString(attributedString: pill(file))
-                    if !spaced { made.append(NSAttributedString(string: " ", attributes: Self.plain)) }
-                    replace(query.range, with: made, in: view, caret: spaced ? 1 : 0)
-                }
+                // After a command, the command and the file make one pill: the file takes its role.
+                let command = command(before: query.range.location, in: view)
+                let range = command.map { NSRange(location: $0.start, length: NSMaxRange(query.range) - $0.start) } ?? query.range
+                let string = view.string as NSString
+                let end = NSMaxRange(range)
+                let spaced = end < string.length && CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(string.character(at: end)) ?? " ")
+                let made = NSMutableAttributedString(attributedString: pill(file, command: command?.role))
+                if !spaced { made.append(NSAttributedString(string: " ", attributes: Self.plain)) }
+                replace(range, with: made, in: view, caret: spaced ? 1 : 0)
             }
-        }
-
-        /// The command and its file leave the prompt; the file takes the command's role.
-        private func give(_ role: KinoRole, to file: KinoPromptTag, from start: Int, to end: Int, in view: NSTextView) {
-            let string = view.string as NSString
-            // The space after them goes too; the one before stays, for what is typed next.
-            let range = NSRange(location: start, length: end - start + (end < string.length && string.character(at: end) == 32 ? 1 : 0))
-            replace(range, with: NSAttributedString(), in: view)
-            parent.setRole(file.handle, role)
         }
 
         private func replace(_ range: NSRange, with made: NSAttributedString, in view: NSTextView, caret extra: Int = 0) {
@@ -1795,17 +1797,16 @@ struct KinoPromptView: NSViewRepresentable {
             for tag in KinoPrompt.tags(in: string).reversed() {
                 guard let file = known(tag.handle), tag.range.upperBound < string.endIndex,
                       string[tag.range.upperBound].isWhitespace else { continue }
-                let range = NSRange(tag.range, in: string)
+                var range = NSRange(tag.range, in: string)
                 // The tag being typed, before a space already there, is not finished yet (@K2 on its way to @K2.1).
                 if NSMaxRange(range) == caret { continue }
-                if let command = command(before: range.location, in: view), KinoRole.choices(file.kind).contains(command.role) {
-                    give(command.role, to: file, from: command.start, to: NSMaxRange(range), in: view)
-                    return
-                }
+                var command = command(before: range.location, in: view)
+                if let role = command?.role, !KinoRole.choices(file.kind).contains(role) { command = nil }
+                if let command { range = NSRange(location: command.start, length: NSMaxRange(range) - command.start) }
                 guard view.shouldChangeText(in: range, replacementString: "\u{FFFC}") else { continue }
                 let at = view.selectedRange()
                 busy = true
-                storage.replaceCharacters(in: range, with: pill(file))
+                storage.replaceCharacters(in: range, with: pill(file, command: command?.role))
                 view.didChangeText()
                 busy = false
                 let shift = range.length - 1
@@ -1847,19 +1848,26 @@ final class KinoPromptTextView: NSTextView {
     override func paste(_ sender: Any?) { pasteAsPlainText(sender) }
 }
 
-/// A named file in the prompt: a rounded pill with its name, in its role's colour.
+/// A named file in the prompt: a rounded pill with its name, in its role's colour; with a command, the role before the
+/// name ("Start · K2") in that role's colour.
 final class KinoTagAttachment: NSTextAttachment {
-    let handle: String
-    init(_ file: KinoPromptTag) {
-        handle = file.handle
+    /// What it is in the text kept: "@K2", or "/start @K2".
+    let written: String
+    init(_ file: KinoPromptTag, command: KinoRole? = nil) {
+        written = (command.map { "/" + $0.command + " " } ?? "") + "@" + file.handle
         super.init(data: nil, ofType: nil)
-        let text = NSAttributedString(string: file.name, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: file.tint])
+        let tint = command?.tint ?? file.tint
+        let text = NSMutableAttributedString()
+        if let command {
+            text.append(NSAttributedString(string: L(command.short) + "  ", attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .bold), .foregroundColor: tint.withAlphaComponent(0.8)]))
+        }
+        text.append(NSAttributedString(string: file.name, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: tint]))
         let size = NSSize(width: ceil(text.size().width) + 16, height: 21)
         image = NSImage(size: size, flipped: false) { rect in
             let shape = NSBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 0.5), xRadius: 5, yRadius: 5)
-            file.tint.withAlphaComponent(0.16).setFill()
+            tint.withAlphaComponent(command == nil ? 0.16 : 0.24).setFill()
             shape.fill()
-            file.tint.withAlphaComponent(0.5).setStroke()
+            tint.withAlphaComponent(0.5).setStroke()
             shape.lineWidth = 1
             shape.stroke()
             text.draw(at: NSPoint(x: 8, y: (rect.height - text.size().height) / 2))
