@@ -174,22 +174,26 @@ struct ProductsView: View {
 }
 
 /// Whether Penny's copy is up to date: when he last copied and copies next, how far today's numbers reach in Grafana,
-/// and each day you're looking at: final, still coming in (copied again until its numbers settle), or not copied.
+/// and each day you're looking at: final, updated in the last hour, behind, or not copied. A day still coming in counts
+/// as up to date when it was copied in the last hour.
 struct DataState: View {
     @ObservedObject var ledger: PennyLedger
     let days: [String]
+    static let fresh: TimeInterval = 3600
 
     var body: some View {
-        let today = Ledger.name(of: Date())
-        VStack(alignment: .leading, spacing: 8) {
-            headline(today: today).font(.system(size: 11))
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                ForEach(days.reversed(), id: \.self) { day in tile(day, today: today) }
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let today = Ledger.name(of: context.date)
+            VStack(alignment: .leading, spacing: 8) {
+                headline(today: today, now: context.date).font(.system(size: 11))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
+                    ForEach(days.reversed(), id: \.self) { day in tile(day, today: today, now: context.date) }
+                }
             }
         }
     }
 
-    @ViewBuilder func headline(today: String) -> some View {
+    @ViewBuilder func headline(today: String, now: Date) -> some View {
         let summary = ledger.summary
         HStack(spacing: 6) {
             if let failure = ledger.failure {
@@ -197,7 +201,7 @@ struct DataState: View {
             } else if let day = ledger.copying {
                 ProgressView().controlSize(.mini)
                 Text(L("Copying %@…", Self.written(day)))
-            } else if let last = summary.copied[today], Date().timeIntervalSince(last) < 40 * 60 {
+            } else if let last = summary.copied[today], now.timeIntervalSince(last) < Self.fresh {
                 Label(ledger.next.map { L("Up to date: copied at %@, next copy at %@", Self.time(last), Self.time($0)) } ?? L("Up to date: copied at %@", Self.time(last)),
                       systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else if let last = summary.copied.values.max() {
@@ -212,7 +216,7 @@ struct DataState: View {
         }
     }
 
-    func tile(_ day: String, today: String) -> some View {
+    func tile(_ day: String, today: String, now: Date) -> some View {
         let state = Ledger.state(of: day, in: ledger.summary)
         let (mark, color, note, help): (String, Color, String, String) = {
             if ledger.copying == day { return ("arrow.triangle.2.circlepath", .secondary, L("Copying…"), L("Copying now")) }
@@ -220,8 +224,10 @@ struct DataState: View {
             case .missing:
                 return ("circle.dashed", .secondary, L("Not copied"), L("Not copied yet"))
             case let .live(copied, until):
-                return ("clock", .orange, L("Coming in · %@", Self.time(copied)),
-                        L("Copied %@; its numbers still come in, so Penny copies it again until %@", copied.formatted(date: .abbreviated, time: .shortened), until.formatted(date: .abbreviated, time: .shortened)))
+                let help = L("Copied %@; its numbers still come in, so Penny copies it again until %@", copied.formatted(date: .abbreviated, time: .shortened), until.formatted(date: .abbreviated, time: .shortened))
+                return now.timeIntervalSince(copied) < Self.fresh
+                    ? ("checkmark.circle.fill", .green, L("Updated · %@", Self.time(copied)), help)
+                    : ("clock.badge.exclamationmark", .orange, L("Behind · %@", Self.time(copied)), help)
             case let .final(copied):
                 return ("checkmark.circle.fill", .green, L("Final"), L("Copied %@, after its numbers had settled", copied.formatted(date: .abbreviated, time: .shortened)))
             }
