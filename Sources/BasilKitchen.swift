@@ -398,19 +398,21 @@ enum Kitchen {
     struct Reply: Equatable {
         var text = "", youtube = ""
         var notes: [String] = [], show: [String] = []
+        /// Videos you asked him to save, by id: kept in the app's Saved list.
+        var save: [String] = []
         var looksUp: Bool { !youtube.isEmpty || !notes.isEmpty }
     }
 
     static var chatSchema: [String: Any] {
         let text: [String: Any] = ["type": "string"], list: [String: Any] = ["type": "array", "items": text]
-        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list]
+        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list, "save": list]
         return ["type": "object", "additionalProperties": false, "required": properties.keys.sorted(), "properties": properties]
     }
 
     static func reply(from answer: [String: Any]) -> Reply {
         let text = { (key: String) in (answer[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
         let list = { (key: String) in (answer[key] as? [Any] ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-        return Reply(text: text("reply"), youtube: text("youtube"), notes: list("notes"), show: list("show"))
+        return Reply(text: text("reply"), youtube: text("youtube"), notes: list("notes"), show: list("show"), save: list("save"))
     }
 
     /// The notes the brain named, matched by title (case and spacing aside), at most `count`.
@@ -434,6 +436,9 @@ enum Kitchen {
 
         To look something up first, put it in `youtube` (search words for recipe videos, e.g. "chicken adobo recipe") and/or `notes` (titles from my notes list to read in full), with `reply` saying in a few words what you are looking up. You then get the results and answer again. Look up only what the question needs; a cooking question you can answer needs no lookup.
         To show videos from a search with your answer, put their ids in `show` (at most 6, best first) and say in `reply` why each is worth it. Otherwise leave `show` empty.
+        When I ask you to save videos (keep them, put them in Saved, save the first two…), put their ids in `save`: the app keeps them in its \
+        Saved list for me to review and write down. You can save any video from the results or the ones you showed earlier; never say you \
+        can't save. Leave `save` empty otherwise.
 
         """
         if last { text += "Answer now with what you have: leave `youtube` and `notes` empty.\n\n" }

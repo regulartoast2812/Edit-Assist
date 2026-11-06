@@ -11,6 +11,14 @@ import Security
     /// What the results are for, and whether Basil searched it from the chat.
     @Published private(set) var resultsFor = ""
     @Published private(set) var resultsByBasil = false
+    /// Which half of the page shows beside the chat: research (Find, Saved, Write your own) or notes (your recipes, one open).
+    @Published var stage = UserDefaults.standard.string(forKey: "basilStage") ?? "research" {
+        didSet { UserDefaults.standard.set(stage, forKey: "basilStage") }
+    }
+    /// The note open in the notes stage.
+    @Published var note: URL?
+    /// Your vault's look in Obsidian (theme, accent, fonts, snippets), read with the folder.
+    @Published private(set) var look = Kitchen.Look()
     @Published private(set) var searching = false
     /// The videos being written ("words" for your own).
     @Published private(set) var writing: Set<String> = []
@@ -111,8 +119,8 @@ import Security
     func reload() {
         guard let folder else { recipes = []; return }
         Task {
-            let found = await Task.detached { Kitchen.entries(in: folder) }.value
-            if self.folder == folder { recipes = found }
+            let (found, look) = await Task.detached { (Kitchen.entries(in: folder), Kitchen.vault(of: folder).map(Kitchen.look(vault:)) ?? Kitchen.Look()) }.value
+            if self.folder == folder { recipes = found; self.look = look }
         }
     }
 
@@ -151,7 +159,9 @@ import Security
                         looked = true
                     }
                     if looked { continue }
-                    let shown = reply.show.compactMap { id in found?.first { $0.id == id } ?? chat.last { $0.fromBasil && !$0.videos.isEmpty }?.videos.first { $0.id == id } }
+                    let known = { (id: String) in found?.first { $0.id == id } ?? chat.reversed().lazy.flatMap(\.videos).first { $0.id == id } }
+                    let shown = reply.show.compactMap(known)
+                    for video in reply.save.compactMap(known).reversed() { save(video) }
                     append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
                                            videos: Array(shown.prefix(6)), notes: read.map(\.file.path)), to: id)
                     return
@@ -310,11 +320,16 @@ import Security
         let added = Date().formatted(.iso8601.year().month().day())
         try Data(Kitchen.note(recipe, added: added).utf8).write(to: file, options: .withoutOverwriting)
         written = file
+        // What was just written opens in the notes stage.
+        note = file; stage = "notes"
         reload()
         return file
     }
 
     /// Where a recipe stands, written into its note's header.
+    /// A note opened in the notes stage.
+    func show(_ file: URL) { note = file; stage = "notes" }
+
     func set(_ status: String, for entry: Kitchen.Entry) {
         guard let data = try? Data(contentsOf: entry.file) else { return }
         let text = Kitchen.setting("status", to: status, in: String(decoding: data, as: UTF8.self))

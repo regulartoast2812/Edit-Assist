@@ -1427,6 +1427,25 @@ struct Checks {
                   && Kitchen.thumbnail(of: "https://youtu.be/abc_-1")?.lastPathComponent == "mqdefault.jpg" && Kitchen.thumbnail(of: "https://youtube.com/shorts/xyz") != nil
                   && Kitchen.thumbnail(of: "https://example.com/watch?v=x") == nil && Kitchen.thumbnail(of: "") == nil,
                   "A recipe card shows its video's picture")
+            let md = Kitchen.markdown("## Steps\n\n1. Brown **chicken**\n2. Add `soy`\n   - nested *one*\n\n- [x] done\n- [ ] todo\n\n> [!tip] Swap\n> Use ==thighs==\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [[Pho|my pho]] and #soup <b>")
+            check(md.contains("<h2>Steps</h2>") && md.contains("<ol><li>Brown <strong>chicken</strong>") && md.contains("<code>soy</code>") && md.contains("<ul><li>nested <em>one</em>")
+                  && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td>2</td>")
+                  && md.contains("href=\"basil-note:Pho\">my pho</a>") && md.contains("class=\"tag\" href=\"#soup\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
+                  "Basil draws a note's Markdown as Obsidian's reading view does")
+            let page = Kitchen.page(note: note, look: Kitchen.Look(dark: true, accent: "#ff8800", fontSize: 18, css: ".theme-dark{--x:1}"), dark: true)
+            check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("multi-select-pill\">#filipino-food") && page.contains("--accent: #ff8800")
+                  && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("<h2>Steps</h2>"),
+                  "A note's page has its properties, the video, your accent, size and theme")
+            let obsidian = vault.appendingPathComponent(".obsidian")
+            try FileManager.default.createDirectory(at: obsidian.appendingPathComponent("themes/Minimal"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: obsidian.appendingPathComponent("snippets"), withIntermediateDirectories: true)
+            try Data(##"{"theme":"moonstone","accentColor":"#3366ff","baseFontSize":17,"cssTheme":"Minimal","enabledCssSnippets":["wide"]}"##.utf8).write(to: obsidian.appendingPathComponent("appearance.json"))
+            try Data("/* minimal */".utf8).write(to: obsidian.appendingPathComponent("themes/Minimal/theme.css"))
+            try Data("/* wide */".utf8).write(to: obsidian.appendingPathComponent("snippets/wide.css"))
+            let look = Kitchen.look(vault: vault)
+            check(Kitchen.vault(of: vault.appendingPathComponent("Soups"))?.standardizedFileURL.path == vault.standardizedFileURL.path && look.dark == false && look.accent == "#3366ff"
+                  && look.fontSize == 17 && look.css.contains("minimal") && look.css.contains("wide"),
+                  "Basil reads your vault's Obsidian look: light or dark, accent, size, theme and snippets")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).

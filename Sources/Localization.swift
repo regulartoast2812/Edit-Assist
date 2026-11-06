@@ -706,6 +706,12 @@ enum Vietnamese {
         "Copied %@, after its numbers had settled": "Đã chép lúc %@, sau khi số liệu đã chốt",
         // Basil, the recipe helper.
         "Recipe helper": "Trợ lý công thức nấu ăn",
+        "Read it in Notes": "Đọc trong Ghi chú",
+        "Notes": "Ghi chú",
+        "Choose a recipe to read it.": "Chọn một công thức để đọc.",
+        "Recipes you write show here, read as in Obsidian.": "Công thức bạn viết sẽ hiện ở đây, đọc như trong Obsidian.",
+        "Your recipes, read as in Obsidian": "Công thức của bạn, đọc như trong Obsidian",
+        "Find recipe videos, save the good ones, write them down": "Tìm video công thức, lưu video hay, rồi chép lại",
         "Personal: nothing to do with your work": "Cá nhân: không liên quan đến công việc",
         "recipes": "công thức",
         "to try": "sẽ thử",
