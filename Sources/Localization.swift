@@ -558,6 +558,7 @@ enum Vietnamese {
         "Give each file a **role**, write what happens, and Kino shows what he would send": "Chọn **vai trò** cho từng file, viết chuyện gì xảy ra, và Kino cho thấy sẽ gửi gì",
         "In %@": "Trong %@",
         "Kino": "Kino",
+        "No role": "Không vai trò",
         "How to prompt": "Cách viết prompt",
         "How to prompt in Kino": "Cách viết prompt trong Kino",
         "@ and / in the prompt, what each model takes, and how to write a shot": "@ và / trong prompt, mỗi model nhận gì, và cách viết một shot",

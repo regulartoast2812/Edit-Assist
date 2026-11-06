@@ -64,10 +64,11 @@ final class KinoDesk: ObservableObject {
     func shot(_ code: String) -> KinoShot { batch.shots[code] ?? KinoShot() }
     /// The shot's own settings, or the batch's when it has none.
     func settings(_ code: String) -> KinoSettings { shot(code).settings ?? batch.settings }
-    /// The roles you gave the shot's files, by tag: on the file, or by a command in the prompt (/start @K2), which wins.
-    /// A shot has one start frame and one end frame: a later one takes the role from the one before.
+    /// The roles you gave the shot's files, by tag: each is a command in the prompt (/start @K2), so every role shown on a
+    /// picture can be seen and deleted there. Roles kept beside the prompt before 2026-11-06 are not read. A shot has one
+    /// start frame and one end frame: a later command takes the role from the one before.
     func given(_ code: String) -> [String: KinoRole] {
-        var given = shot(code).roles
+        var given: [String: KinoRole] = [:]
         let files = files(in: code)
         for command in KinoPrompt.commands(in: shot(code).prompt) {
             guard let file = files.first(where: { $0.handle.lowercased() == command.handle.lowercased() }),
@@ -237,7 +238,7 @@ final class KinoDesk: ObservableObject {
     func takeOut(_ file: KinoFile, of code: String) {
         edit(code) { shot in
             shot.inputs.removeAll { $0.tag == file.handle }
-            shot.roles[file.handle] = nil
+            shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, had in handle.lowercased() == file.handle.lowercased() ? nil : had }
         }
     }
 
@@ -245,7 +246,9 @@ final class KinoDesk: ObservableObject {
     func remove(_ path: String) {
         batch.media.removeAll { $0 == path }
         for code in batch.order { edit(code) { shot in
-            for input in shot.inputs where input.path == path { shot.roles[input.tag] = nil }
+            for input in shot.inputs where input.path == path {
+                shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, had in handle.lowercased() == input.tag.lowercased() ? nil : had }
+            }
             shot.inputs.removeAll { $0.path == path }
         } }
         save()
@@ -285,24 +288,17 @@ final class KinoDesk: ObservableObject {
     }
 
     func setPrompt(_ text: String, for code: String) { edit(code) { $0.prompt = text } }
-    /// A role given on the file. Its command in the prompt, if it has one, says the new role, so the two never differ; a
-    /// start or end frame the shot had (on its file or by a command) goes back to having no role.
-    func setRole(_ role: KinoRole, of file: KinoFile, in code: String) {
-        give(role, to: file.handle, in: code)
+    /// A role picked on the file (nil: no role). It is written in the prompt as the file's command: the one it has says
+    /// the new role, else one goes at the start. A start or end frame the shot had loses its command.
+    func setRole(_ role: KinoRole?, of file: KinoFile, in code: String) { give(role, to: file.handle, in: code) }
+    private func give(_ role: KinoRole?, to tag: String, in code: String) {
         edit(code) { shot in
-            shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, had in
-                handle.lowercased() == file.handle.lowercased() ? role : (role == .start || role == .end) && had == role ? nil : had
+            let had = KinoPrompt.commands(in: shot.prompt).contains { $0.handle.lowercased() == tag.lowercased() }
+            shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, was in
+                handle.lowercased() == tag.lowercased() ? role : role != nil && (role == .start || role == .end) && was == role ? nil : was
             }
-        }
-    }
-    /// A role you give is kept as given, even the usual one. A shot has one start frame and one end frame: the one it had
-    /// goes back to having no role.
-    private func give(_ role: KinoRole, to tag: String, in code: String) {
-        edit(code) { shot in
-            if role == .start || role == .end {
-                for (other, had) in shot.roles where had == role && other != tag { shot.roles[other] = nil }
-            }
-            shot.roles[tag] = role
+            if let role, !had { shot.prompt = "/" + role.command + " @" + tag + " " + shot.prompt }
+            shot.roles = [:]
         }
     }
     /// A shot's own settings; the batch's again when they are the same.
@@ -719,13 +715,19 @@ enum KinoPrompt {
         }
         return result
     }
-    /// The commands with the role `change` gives each file instead (nil: the command goes, its tag stays).
+    /// The commands with the role `change` gives each file instead (nil: the command goes, with a space after it).
     static func rewriting(_ text: String, _ change: (String, KinoRole) -> KinoRole?) -> String {
         var result = text
         for command in commands(in: text).reversed() {
             let role = change(command.handle, command.role)
             guard role != command.role else { continue }
-            result.replaceSubrange(command.range, with: (role.map { "/" + $0.command + " " } ?? "") + "@" + command.handle)
+            if let role {
+                result.replaceSubrange(command.range, with: "/" + role.command + " @" + command.handle)
+            } else {
+                var range = command.range
+                if range.upperBound < result.endIndex, result[range.upperBound] == " " { range = range.lowerBound..<result.index(after: range.upperBound) }
+                result.removeSubrange(range)
+            }
         }
         return result
     }

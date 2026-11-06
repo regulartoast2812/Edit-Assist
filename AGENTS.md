@@ -198,7 +198,8 @@ over it). Files dropped on a shot's files go into it; dropped anywhere else in t
 files are dragged each shot's files are outlined to show it. The prompt names a file by typing @ (a list of the shot's files);
 it shows each as a pill with the file's name in its role's colour and keeps it as its @tag. Typing / gives a role: /start then a file
 makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same), shown as one pill ("Start · K2") and kept
-as "/start @K2"; deleting it takes the role away, a role picked on the file rewrites it, and commands are never sent. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
+as "/start @K2"; a role lives only there (2026-11-06): one picked on the file or by dropping on a role's box is written as its command,
+No role or deleting the pill takes it away, roles kept beside the prompt before are not read, and commands are never sent. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
 place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
 are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot

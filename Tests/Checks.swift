@@ -1698,13 +1698,21 @@ struct Checks {
                       && !desk.plan("K12").prompt.contains("/start") && !desk.plan("K12").prompt.contains("/end"),
                       "Commands in the prompt give roles (/start @K12) and are not sent to the model")
                 desk.setRole(.start, of: twelve[1], in: "K12")
-                check(desk.given("K12") == ["K12.1": .start] && desk.shot("K12").prompt == "@K12 She turns. /start @K12.1",
-                      "A role given on the file rewrites its command in the prompt; the start frame before it loses its command and role")
+                check(desk.given("K12") == ["K12.1": .start] && desk.shot("K12").prompt == "She turns. /start @K12.1",
+                      "A role picked on the file rewrites its command in the prompt; the start frame before it loses its command")
                 desk.setPrompt("She turns.", for: "K12")
                 desk.add([at("K12 Size.png")], into: "K12", as: .end)
+                check(desk.shot("K12").prompt == "/end @K12-size She turns.", "A role picked for a file with no command writes one at the start of the prompt")
                 desk.add([at("K12.2.png")], into: "K12", as: .end)
                 check(desk.files(in: "K12").filter { desk.role(of: $0, in: "K12") == .end }.map(\.name) == ["K12.2"]
-                      && desk.given("K12")["K12-size"] == nil, "A shot keeps one end frame; the one before goes back to no role")
+                      && desk.shot("K12").prompt == "/end @K12.2 She turns.", "A shot keeps one end frame; the one before loses its command")
+                desk.setRole(nil, of: desk.files(in: "K12").first { $0.name == "K12.2" }!, in: "K12")
+                check(desk.given("K12").isEmpty && desk.shot("K12").prompt == "She turns.", "No role: the file's command leaves the prompt")
+                desk.setPrompt("/start @K12 She turns.", for: "K12")
+                desk.takeOut(twelve[0], of: "K12")
+                check(desk.shot("K12").prompt == "She turns.", "A file taken out of a shot takes its command with it")
+                var old = KinoShot(); old.roles = ["K12.1": .start]
+                check(old.roles.count == 1 && desk.given("K12")["K12.1"] == nil, "Roles kept beside the prompt before are not read: a role is only a command you can see")
                 check(KinoPrompt.withoutCommands("/start @K1 She walks. /out @K2") == "She walks. " && KinoPrompt.commands(in: "and/or @K1").isEmpty
                       && KinoPrompt.commands(in: "/hello @K1").isEmpty, "Only a / starting a word with a role's name is a command")
                 desk.add([at("K4.png"), at("K4.1.mp4")])

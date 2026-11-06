@@ -1056,7 +1056,8 @@ struct KinoFileTile: View {
     let sentAs: String?
     let missing: Bool
     let shot: String
-    let choose: (KinoRole) -> Void
+    /// A role picked for it, written in the prompt as its command (nil: no role, the command goes).
+    let choose: (KinoRole?) -> Void
     let takeOut: () -> Void
     let drop: ([URL]) -> Void
     /// Files dragged onto it or off it.
@@ -1109,6 +1110,7 @@ struct KinoFileTile: View {
                                 if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
                             }
                         }
+                        if given { Divider(); Button(L("No role")) { choose(nil) } }
                     } label: {
                         HStack(spacing: 3) {
                             if given { Image(systemName: role.icon).font(.system(size: 8)) }
@@ -1138,6 +1140,7 @@ struct KinoFileTile: View {
                     if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
                 }
             }
+            if given { Button(L("No role")) { choose(nil) } }
             Divider()
             Button(L("Open")) { NSWorkspace.shared.open(file.url) }
             Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }

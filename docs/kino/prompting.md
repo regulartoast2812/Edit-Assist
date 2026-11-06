@@ -32,7 +32,8 @@ a file is for, type **/**, pick the role, then pick the file. `/start` **Return*
 | `/out` | Left out | Not sent | any |
 
 - The command stays in the prompt as one pill, `[Start · K2]`, and the file's picture shows the same role.
-- **Delete the pill and the role goes with it.** Changing the role on the picture changes the pill.
+- **The prompt is the only place a role lives.** Delete the pill and the role goes. Picking a role on the picture (hover it,
+  **Role ⌄**) writes its command at the start of the prompt; **No role** there takes it out.
 - Commands are Kino's, not words for the model: they are never sent.
 - A shot has one start frame and one end frame. Giving the role to another picture takes it from the first.
 - The / list only shows roles the shot's files can take: with only pictures, there is no /motion or /edit.
