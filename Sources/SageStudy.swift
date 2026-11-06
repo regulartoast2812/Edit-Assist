@@ -1,11 +1,11 @@
 import Foundation
 
-/// Basil's logic, free of the Mac (Foundation only), so the Windows app can take it as it is (2026-11-06): finding recipe
+/// Sage's logic, free of the Mac (Foundation only), so the Windows app can take it as it is (2026-11-06): finding recipe
 /// videos with YouTube's Data API on your key, reading the recipe a video links to (the page's schema.org Recipe, which
 /// recipe sites publish for programs to read), and the recipe notes in your Obsidian vault: written as Markdown with a
 /// YAML header, read back and tracked by their `status`. Personal: nothing here touches Crossian's work.
-/// How it fits together for the port: docs/basil/README.md.
-enum Kitchen {
+/// How it fits together for the port: docs/sage/README.md.
+enum Study {
     // MARK: YouTube (Data API v3: a search costs 100 of the key's 10,000 free units a day, a video's details 1)
 
     static let api = URL(string: "https://www.googleapis.com/youtube/v3/")!
@@ -30,15 +30,28 @@ enum Kitchen {
         url("search", [("part", "snippet"), ("type", "video"), ("maxResults", "\(count)"), ("q", words), ("safeSearch", "none")], key: key)
     }
 
-    /// A video saved in the app to review: dropped on the save area or picked by Basil. Its recipe is written into the vault
+    /// A video saved in the app to review: dropped on the save area or picked by Sage. Its recipe is written into the vault
     /// only when you ask (`written` is then the note's path).
     struct Saved: Codable, Equatable, Identifiable {
-        var video: Video
-        /// Why Basil picked it; empty for one you saved.
+        /// A YouTube video, or a web page.
+        var video: Video?
+        var page: Page?
+        /// Why Sage picked it; empty for one you saved.
         var why = ""
         var added = Date()
         var written = ""
-        var id: String { video.id }
+        /// The topic it was saved in (nil: saved before there were topics, so the first one).
+        var topic: UUID?
+
+        var id: String { video?.id ?? page?.url.absoluteString ?? "" }
+        var title: String { video?.title ?? (page.map { $0.title.isEmpty ? $0.url.absoluteString : $0.title } ?? "") }
+        var link: URL? { video?.url ?? page?.url }
+        var thumbnail: URL? { video?.thumbnail ?? page?.image }
+        var origin: String { video.map { [$0.channel, $0.duration].filter { !$0.isEmpty }.joined(separator: " · ") } ?? page?.site ?? "" }
+
+        init(video: Video? = nil, page: Page? = nil, why: String = "", topic: UUID? = nil) {
+            self.video = video; self.page = page; self.why = why; self.topic = topic
+        }
     }
 
     /// Your words as a recipe search: "chicken" finds songs and farm videos, "chicken recipe" finds cooking.
@@ -48,7 +61,7 @@ enum Kitchen {
         return ["recipe", "how to", "cook", "bake", "make"].contains(where: lowered.contains) ? words : words + " recipe"
     }
 
-    // MARK: Basil's picks (one brain call: which results are real recipe videos worth saving)
+    // MARK: Sage's picks (one brain call: which results are real recipe videos worth saving)
 
     struct Pick: Equatable { var id: String, why: String }
 
@@ -312,6 +325,10 @@ enum Kitchen {
         var id: String { file.path }
         var title: String, status: String, tags: [String], source: String, cuisine: String, added: String
         var modified: Date
+        /// The note's picture: a page's, when it isn't a video.
+        var image = ""
+        /// The video's picture, else the page's.
+        var picture: URL? { thumbnail(of: source) ?? URL(string: image) }
     }
 
     static func entry(_ file: URL, text: String, modified: Date) -> Entry {
@@ -319,7 +336,7 @@ enum Kitchen {
         let value = { (key: String) in header[key]?.first ?? "" }
         let title = value("title").isEmpty ? file.deletingPathExtension().lastPathComponent : value("title")
         return Entry(file: file, title: title, status: value("status").lowercased(), tags: (header["tags"] ?? []).map(tag), source: value("source"),
-                     cuisine: value("cuisine"), added: value("added"), modified: modified)
+                     cuisine: value("cuisine"), added: value("added"), modified: modified, image: value("image"))
     }
 
     /// Every note in the recipes folder you chose and the folders in it (Obsidian's own and hidden ones left out), newest first.
@@ -351,7 +368,7 @@ enum Kitchen {
 
     struct Message: Codable, Equatable, Identifiable {
         var id = UUID()
-        var fromBasil: Bool
+        var fromSage: Bool
         var text: String
         /// The videos he shows with his answer.
         var videos: [Video] = []
@@ -368,7 +385,7 @@ enum Kitchen {
         var updated = Date()
 
         var title: String {
-            let first = messages.first { !$0.fromBasil }?.text ?? ""
+            let first = messages.first { !$0.fromSage }?.text ?? ""
             let line = first.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !line.isEmpty else { return "" }
             return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line
@@ -427,14 +444,20 @@ enum Kitchen {
         return Array(found.prefix(count))
     }
 
-    /// One round's question: who Basil is, your recipe notes, the chat so far, and what he looked up this turn.
+    /// One round's question: who Sage is, your recipe notes, the chat so far, and what he looked up this turn.
     /// `last` is the final round: he answers with what he has.
     static func chatPrompt(chat: [Message], recipes: [Entry], folder: Bool, canSearch: Bool, found: [Video]?, searched: String,
-                           read: [(title: String, text: String)], last: Bool) -> String {
-        var text = """
-        You are Basil, a friendly cook who helps me with recipes: finding them on YouTube, answering cooking questions, and looking things up in my own recipe notes (an Obsidian vault). Answer my last message in `reply`: plain text, short and practical, no Markdown headings. Use what you know about cooking; for my notes and YouTube, use only what you were given.
+                           read: [(title: String, text: String)], last: Bool, topic: Topic = Topic(name: "Recipes", kind: .recipes)) -> String {
+        let cooking = topic.kind == .recipes
+        var text = (cooking ? """
+        You are Sage, a research helper; right now we're on my topic "\(topic.name)": recipes. You find recipe videos on YouTube, answer cooking questions, and look things up in my own recipe notes (an Obsidian vault). Answer my last message in `reply`: plain text, short and practical, no Markdown headings. Use what you know about cooking; for my notes and YouTube, use only what you were given.
 
         To look something up first, put it in `youtube` (search words for recipe videos, e.g. "chicken adobo recipe") and/or `notes` (titles from my notes list to read in full), with `reply` saying in a few words what you are looking up. You then get the results and answer again. Look up only what the question needs; a cooking question you can answer needs no lookup.
+        """ : """
+        You are Sage, a research helper; right now we're researching my topic "\(topic.name)". You find videos on YouTube worth learning from, answer my questions, and look things up in my own notes on this topic (an Obsidian vault). Answer my last message in `reply`: plain text, clear and to the point, no Markdown headings. Use what you know; for my notes and YouTube, use only what you were given, and say when you are not sure.
+
+        To look something up first, put it in `youtube` (search words, e.g. "premiere pro speed ramp tutorial") and/or `notes` (titles from my notes list to read in full), with `reply` saying in a few words what you are looking up. You then get the results and answer again. Look up only what the question needs; a question you can answer needs no lookup.
+        """) + "\n" + """
         To show videos from a search with your answer, put their ids in `show` (at most 6, best first) and say in `reply` why each is worth it. Otherwise leave `show` empty.
         When I ask you to save videos (keep them, put them in Saved, save the first two…), put their ids in `save`: the app keeps them in its \
         Saved list for me to review and write down. You can save any video from the results or the ones you showed earlier; never say you \
@@ -442,19 +465,19 @@ enum Kitchen {
 
         """
         if last { text += "Answer now with what you have: leave `youtube` and `notes` empty.\n\n" }
-        if !canSearch { text += "YouTube search is not set up (no API key): don't search; if I want videos, tell me to add the key in the YouTube tab.\n\n" }
+        if !canSearch { text += "YouTube search is not set up (no API key): don't search; if I want videos, tell me to add the YouTube key at the top of the page.\n\n" }
         if !folder {
-            text += "My recipes folder is not chosen yet, so there are no notes: if I ask about my notes, tell me to choose it in the Recipes tab.\n\n"
+            text += "This topic's folder in my vault is not chosen yet, so there are no notes: if I ask about my notes, tell me to choose it at the top of the page.\n\n"
         } else {
-            text += "My recipe notes (title | status | cuisine | tags), \(recipes.count) in all:\n"
+            text += "My notes in this topic (title | status | \(cooking ? "cuisine" : "-") | tags), \(recipes.count) in all:\n"
             text += recipes.prefix(400).map { "- \($0.title) | \($0.status.isEmpty ? "-" : $0.status) | \($0.cuisine.isEmpty ? "-" : $0.cuisine) | \($0.tags.joined(separator: ", "))" }
                 .joined(separator: "\n") + (recipes.isEmpty ? "(none yet)" : "") + "\n\n"
         }
         // The videos shown last stay at hand for questions about them.
-        if let shown = chat.last(where: { $0.fromBasil && !$0.videos.isEmpty })?.videos {
+        if let shown = chat.last(where: { $0.fromSage && !$0.videos.isEmpty })?.videos {
             text += "Videos you showed earlier:\n" + shown.map { video($0, description: 800) }.joined(separator: "\n") + "\n\n"
         }
-        text += "The chat so far:\n" + chat.suffix(20).map { ($0.fromBasil ? "Basil: " : "Me: ") + String($0.text.prefix(3000)) }.joined(separator: "\n") + "\n"
+        text += "The chat so far:\n" + chat.suffix(20).map { ($0.fromSage ? "Sage: " : "Me: ") + String($0.text.prefix(3000)) }.joined(separator: "\n") + "\n"
         if let found {
             text += "\nYouTube results for \"\(searched)\":\n" + (found.isEmpty ? "(nothing found)" : found.map { video($0, description: 400) }.joined(separator: "\n")) + "\n"
         }
@@ -476,6 +499,11 @@ enum Kitchen {
 
     /// The picture of a recipe's video, from the note's `source` link (watch?v=, youtu.be/ or shorts/), or nil.
     static func thumbnail(of source: String) -> URL? {
+        videoID(of: source).flatMap { URL(string: "https://i.ytimg.com/vi/\($0)/mqdefault.jpg") }
+    }
+
+    /// The video's id in a YouTube link (watch?v=, youtu.be/ or shorts/), or nil.
+    static func videoID(of source: String) -> String? {
         guard let url = URL(string: source), let host = url.host?.lowercased() else { return nil }
         var id: String?
         if host.hasSuffix("youtu.be") { id = url.pathComponents.dropFirst().first }
@@ -484,7 +512,7 @@ enum Kitchen {
                 ?? (url.pathComponents.count > 2 && url.pathComponents[1] == "shorts" ? url.pathComponents[2] : nil)
         }
         guard let id, !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
-        return URL(string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg")
+        return id
     }
 
     /// YouTube's titles come HTML-escaped ("Mac &amp; Cheese").
