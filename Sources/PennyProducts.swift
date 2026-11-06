@@ -117,6 +117,8 @@ struct ProductsView: View {
         let ready = loadedKey == product
         let total = Ledger.total(loaded)
         let before = ledger.summary.numbers(of: product, on: days.before)
+        let profit = ledger.profit(of: product, on: days.now)
+        let margin = ledger.summary.margin(of: product, on: days.now)
         VStack(alignment: .leading, spacing: 14) {
             Text(product).font(.system(size: 18, weight: .semibold)).textSelection(.enabled)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
@@ -129,10 +131,15 @@ struct ProductsView: View {
                 figure("CR", Ledger.percent(total.cr))
                 figure("CTR", Ledger.percent(total.ctr))
                 figure("CPM", total.cpm.map(Ledger.money) ?? "–")
+                if margin.days > 0 {
+                    figure("CBH", Ledger.money(margin.margin.cbh))
+                    figure("%CBH", Ledger.percent(margin.margin.share))
+                }
+                figure("Breakeven ROAS", Ledger.ratio(profit.breakeven))
             }
             if ready {
                 card(L("PENNY'S READ")) {
-                    let lines = Ledger.report(loaded, before: before.spent > 0 ? before : nil)
+                    let lines = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit)
                     VStack(alignment: .leading, spacing: 5) {
                         ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -142,6 +149,7 @@ struct ProductsView: View {
                         }
                     }.textSelection(.enabled)
                 }
+                card(L("HOURS · MEDIA BUYING (ALASKA TIME)")) { HoursEfficiency(reads: Ledger.hourReads(loaded, profit: profit), profit: profit) }
                 if loaded.count > 1 { card(L("BY DAY")) { DaysChart(days: loaded) } }
                 card(L("BY HOUR (ALASKA TIME)")) { HoursChart(hours: Ledger.hours(loaded)) }
                 let creatives = Ledger.creatives(loaded)
@@ -248,6 +256,135 @@ struct DataState: View {
     }
 
     static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
+}
+
+/// The hours as a media buyer reads them (2026-11-06), the Campaign Breakdown dashboard's way with breakeven from CBH:
+/// where the budget went against breakeven, then each hour's spend a day, ROAS, bad-day floor and good-day ceiling,
+/// orders, CBH and verdict.
+struct HoursEfficiency: View {
+    let reads: [Ledger.HourRead]
+    let profit: Ledger.Profit
+    @State private var sort = "Hour"
+
+    static func name(_ verdict: Ledger.HourRead.Verdict) -> String {
+        switch verdict {
+        case .reliable: return L("Reliable win")
+        case .volatile: return L("High ceiling")
+        case .thin: return L("Thin profit")
+        case .losing: return L("Below breakeven")
+        case .costly: return L("Costly waste")
+        case .dead: return L("Dead")
+        case .few: return L("Too few days")
+        case .idle: return ""
+        }
+    }
+
+    static func meaning(_ verdict: Ledger.HourRead.Verdict) -> String {
+        switch verdict {
+        case .reliable: return L("Profitable on average, and its bad days still break even")
+        case .volatile: return L("Profitable on average, but its bad days lose money")
+        case .thin: return L("Above breakeven, under 5% CBH: not worth more budget")
+        case .losing: return L("Below breakeven, on little spend")
+        case .costly: return L("Below breakeven while spending over $50 a day")
+        case .dead: return L("Under 1×: less comes back than is spent")
+        case .few: return L("Spent on fewer than 3 days: too few to judge")
+        case .idle: return ""
+        }
+    }
+
+    static func color(_ verdict: Ledger.HourRead.Verdict) -> Color {
+        switch verdict {
+        case .reliable: return .green
+        case .volatile: return .blue
+        case .thin: return .yellow
+        case .losing: return .gray
+        case .costly: return .orange
+        case .dead: return .red
+        case .few, .idle: return .secondary
+        }
+    }
+
+    func color(_ roas: Double?) -> Color {
+        guard let roas else { return .secondary }
+        return roas < profit.breakeven ? .orange : roas < profit.profitable ? .yellow : .green
+    }
+
+    struct Column { var name: String; var width: CGFloat; var value: (Ledger.HourRead) -> Double?; var text: (Ledger.HourRead) -> String }
+
+    var columns: [Column] {
+        [Column(name: "Days", width: 36, value: { Double($0.days) }, text: { "\($0.days)" }),
+         Column(name: "Spent a day", width: 76, value: { $0.spentPerDay }, text: { Ledger.money($0.spentPerDay) }),
+         Column(name: "ROAS", width: 46, value: { $0.numbers.roas }, text: { Ledger.ratio($0.numbers.roas) }),
+         Column(name: "Bad → good day", width: 96, value: { $0.floor }, text: { "\(Ledger.ratio($0.floor)) → \(Ledger.ratio($0.ceiling))" }),
+         Column(name: "Orders a day", width: 76, value: { $0.days > 0 ? $0.numbers.orders / Double($0.days) : nil },
+                text: { $0.days > 0 ? String(format: "%.1f", $0.numbers.orders / Double($0.days)) : "–" }),
+         Column(name: "CBH", width: 76, value: { $0.cbh }, text: { Ledger.money($0.cbh) })]
+    }
+
+    var body: some View {
+        let parts = Ledger.efficiency(reads, profit: profit)
+        let total = parts.total
+        VStack(alignment: .leading, spacing: 10) {
+            Text(md: profit.measured
+                 ? L("Breakeven **%@** (CBH 0), profitable from **%@** (CBH 5%%): from this product's CBH, it keeps %@ of revenue before ads.",
+                     Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable), Ledger.percent(profit.kept))
+                 : L("Breakeven **%@**, profitable from **%@**: the usual lines, until Penny has this product's CBH for these days.",
+                     Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable)))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                part(L("Below breakeven"), parts.losing, of: total, color: .orange)
+                part(L("Thin profit"), parts.thin, of: total, color: .yellow)
+                part(L("Profitable"), parts.profitable, of: total, color: .green)
+            }
+            table
+        }
+    }
+
+    func part(_ title: String, _ part: Ledger.Efficiency.Part, of total: Ledger.Numbers, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(color)
+            Text(L("%@ of spend", Ledger.percent(total.spent > 0 ? part.numbers.spent / total.spent : 0))).font(.system(size: 16, weight: .semibold).monospacedDigit())
+            Text(L("%@ spent, %@ of revenue back", Ledger.money(part.numbers.spent), Ledger.percent(total.revenue > 0 ? part.numbers.revenue / total.revenue : 0)))
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(L("CBH %@", Ledger.money(part.cbh))).font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(part.cbh < 0 ? .orange : .primary)
+            if !part.hours.isEmpty {
+                Text(part.hours.map(Ledger.hourName).joined(separator: ", ")).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(4)
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    var table: some View {
+        let columns = columns
+        let order = columns.first { $0.name == sort }
+        let shown = reads.filter { $0.days > 0 }
+        let sorted = order.map { order in shown.sorted { (order.value($0) ?? -.infinity) > (order.value($1) ?? -.infinity) } } ?? shown
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Button { sort = "Hour" } label: { Text(L("Hour") + (sort == "Hour" ? " ↓" : "")).frame(width: 96, alignment: .leading) }.buttonStyle(.plain)
+                ForEach(columns, id: \.name) { column in
+                    Button { sort = column.name } label: {
+                        Text(L(column.name) + (sort == column.name ? " ↓" : "")).frame(width: column.width, alignment: .trailing)
+                    }.buttonStyle(.plain)
+                }
+                Text(L("Verdict")).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8)
+            }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.vertical, 4)
+            Divider()
+            ForEach(sorted) { read in
+                HStack(spacing: 6) {
+                    Text(Ledger.hourName(read.hour)).frame(width: 96, alignment: .leading)
+                    ForEach(columns, id: \.name) { column in
+                        Text(column.text(read)).frame(width: column.width, alignment: .trailing).lineLimit(1)
+                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" && read.cbh < 0 ? .orange : .primary)
+                    }
+                    Text(Self.name(read.verdict)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Self.color(read.verdict))
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8).help(Self.meaning(read.verdict))
+                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 3).textSelection(.enabled)
+                Divider().opacity(0.4)
+            }
+        }
+    }
 }
 
 /// Spend and revenue each day.

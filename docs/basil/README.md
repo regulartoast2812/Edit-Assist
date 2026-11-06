@@ -46,7 +46,18 @@ touches projects, Premiere, Grafana or any Crossian account.
    asks the brain once which results are real recipe videos worth saving (`Kitchen.pickPrompt`, `Kitchen.pickSchema`;
    at most five, only ids it was shown, `Kitchen.picks`) and saves those, each with its reason. A saved video's recipe
    is written (steps 2–4) only when you press Write recipe or Write all; the vault folder is asked for then.
-8. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
+8. **Notes stage.** Beside the chat, the page has two stages: Research (Find, Saved, Write your own) and Notes (the
+   recipes list and the open note). The note is drawn by `Kitchen.page` (`Sources/BasilNotes.swift`, Foundation only) as
+   Obsidian's reading view: the same classes (`theme-dark`/`theme-light`, `markdown-preview-view markdown-rendered`,
+   `metadata-container` for the properties, `callout`, `task-list-item`, `internal-link`, `tag`) and CSS variables, then
+   the vault's look from `Kitchen.look(vault:)`: `.obsidian/appearance.json` (`theme` obsidian/moonstone/system,
+   `accentColor`, `baseFontSize`, `textFontFamily`, `monospaceFontFamily`), the community theme
+   (`.obsidian/themes/<cssTheme>/theme.css`) and enabled snippets (`.obsidian/snippets/<name>.css`). The vault is the
+   nearest folder up from the recipes folder holding `.obsidian` (`Kitchen.vault`). `Kitchen.markdown` covers what recipe
+   notes use: headings, paragraphs, nested lists, tasks, quotes and callouts, code, tables, bold/italic/strike/highlight,
+   links, pictures, YouTube embeds (drawn as the video's picture, opening YouTube), [[wikilinks]] (`basil-note:` links)
+   and #tags. On Windows, show the page in WebView2. The chat's answer can also carry `save` (video ids to keep in Saved).
+9. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
 
 ## Rules carried from Edit Assist
 

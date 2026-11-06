@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WebKit
 
 /// Basil, the recipe helper: a basil-green blob in a chef's hat with a red neckerchief and a wooden spoon. Working: he
 /// stirs. Personal, not Crossian's: he finds recipes on YouTube and keeps them in your Obsidian vault (2026-11-06).
@@ -61,6 +62,8 @@ struct BasilPage: View {
     @State private var own = ""
     @State private var addingKey = false
     @State private var width: CGFloat = 1400
+    @State private var noteHTML = ""
+    @Environment(\.colorScheme) private var scheme
     private let accent = PixelBasil.theme
 
     var body: some View {
@@ -76,20 +79,43 @@ struct BasilPage: View {
         .onAppear { desk.reload() }
     }
 
+    /// The chat, and beside it the stage: research or notes.
     @ViewBuilder var columns: some View {
-        if width >= 1180 {
+        if width >= 900 {
             HStack(alignment: .top, spacing: 14) {
-                chatColumn.frame(width: 360)
-                middle.frame(maxWidth: .infinity)
-                right.frame(width: 290)
-            }
-        } else if width >= 820 {
-            HStack(alignment: .top, spacing: 14) {
-                chatColumn.frame(width: 330)
-                VStack(spacing: 14) { middle; right }.frame(maxWidth: .infinity)
+                chatColumn.frame(width: width >= 1300 ? 360 : 320)
+                stage.frame(maxWidth: .infinity)
             }
         } else {
-            VStack(spacing: 14) { chatColumn; middle; right }
+            VStack(spacing: 14) { chatColumn; stage }
+        }
+    }
+
+    /// Two stages share the space beside the chat: Research (find and save videos, write your own) and Notes (your
+    /// recipes, the one open drawn as Obsidian draws it). Writing a recipe opens it in Notes.
+    var stage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Picker("", selection: $desk.stage) {
+                    Label(L("Research"), systemImage: "magnifyingglass").tag("research")
+                    Label(L("Notes"), systemImage: "doc.richtext").tag("notes")
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                Text(desk.stage == "notes" ? L("Your recipes, read as in Obsidian") : L("Find recipe videos, save the good ones, write them down"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+            }
+            if desk.stage == "notes" { notesStage } else { researchStage }
+        }
+    }
+
+    @ViewBuilder var researchStage: some View {
+        if width >= 1180 {
+            HStack(alignment: .top, spacing: 14) {
+                find.frame(maxWidth: .infinity)
+                right.frame(width: 290)
+            }
+        } else {
+            VStack(spacing: 14) { find; right }
         }
     }
 
@@ -120,7 +146,7 @@ struct BasilPage: View {
 
     /// A count; pressing it shows those recipes (nil: not a recipe filter).
     func stat(_ value: Int, _ name: String, _ status: String?, _ color: Color) -> some View {
-        Button { if let status { filter = filter == status && !status.isEmpty ? "" : status } } label: {
+        Button { if let status { filter = filter == status && !status.isEmpty ? "" : status; desk.stage = "notes" } } label: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(value)").font(.system(size: 15, weight: .semibold).monospacedDigit()).foregroundStyle(color)
                 Text(name).font(.system(size: 10)).foregroundStyle(.secondary)
@@ -269,8 +295,8 @@ struct BasilPage: View {
                         Text(L("Read:")).font(.system(size: 10)).foregroundStyle(.secondary)
                         ForEach(message.notes, id: \.self) { path in
                             let file = URL(fileURLWithPath: path)
-                            Button { open(file) } label: { Label(file.deletingPathExtension().lastPathComponent, systemImage: "doc.text") }
-                                .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).help(L("Open in Obsidian"))
+                            Button { desk.show(file) } label: { Label(file.deletingPathExtension().lastPathComponent, systemImage: "doc.text") }
+                                .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).help(L("Read it in Notes"))
                         }
                     }
                 }
@@ -283,13 +309,6 @@ struct BasilPage: View {
     }
 
     // MARK: Find and your recipes (middle)
-
-    var middle: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            find
-            recipes
-        }
-    }
 
     var find: some View {
         panel(L("FIND RECIPES ON YOUTUBE"), trailing: { EmptyView() }) {
@@ -327,76 +346,133 @@ struct BasilPage: View {
         }
     }
 
-    var recipes: some View {
-        let shown = desk.recipes.filter { entry in
+    // MARK: Notes stage
+
+    @ViewBuilder var notesStage: some View {
+        if desk.folder == nil {
+            panel(L("YOUR RECIPES"), trailing: { EmptyView() }) {
+                Text(md: L("Choose the folder in your vault where recipes go. Basil reads the notes in it and writes new ones there; he never writes anywhere else."))
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button(L("Choose your recipes folder…")) { _ = desk.chooseFolder() }
+            }
+        } else if width >= 1100 {
+            HStack(alignment: .top, spacing: 14) {
+                noteList.frame(width: 270)
+                viewer.frame(maxWidth: .infinity)
+            }
+        } else {
+            VStack(spacing: 14) { noteList; viewer }
+        }
+    }
+
+    var shownRecipes: [Kitchen.Entry] {
+        desk.recipes.filter { entry in
             (filter.isEmpty || entry.status == filter)
                 && (search.isEmpty || entry.title.localizedCaseInsensitiveContains(search) || entry.tags.contains { $0.localizedCaseInsensitiveContains(search) }
                     || entry.cuisine.localizedCaseInsensitiveContains(search))
         }
-        return panel(L("YOUR RECIPES"), trailing: {
-            if desk.folder != nil {
-                Picker("", selection: $filter) {
-                    Text(L("All")).tag("")
-                    ForEach(Kitchen.statuses, id: \.self) { Text(L(Self.statusName($0))).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
+    }
+
+    /// Your recipes as a list, like Obsidian's file list: the video's picture, title, status and cuisine.
+    var noteList: some View {
+        let shown = shownRecipes
+        return panel(L("YOUR RECIPES"), trailing: { Text("\(shown.count)").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary) }) {
+            TextField(L("Search your recipes"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
+            Picker("", selection: $filter) {
+                Text(L("All")).tag("")
+                ForEach(Kitchen.statuses, id: \.self) { Text(L(Self.statusName($0))).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().controlSize(.small)
+            if desk.recipes.isEmpty {
+                Text(L("No recipes in this folder yet. Find one on YouTube or write your own.")).font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if shown.isEmpty {
+                Text(L("No recipe matches.")).font(.system(size: 11)).foregroundStyle(.secondary)
             }
-        }) {
-            if desk.folder == nil {
-                Text(md: L("Choose the folder in your vault where recipes go. Basil reads the notes in it and writes new ones there; he never writes anywhere else."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button(L("Choose your recipes folder…")) { _ = desk.chooseFolder() }
-            } else {
-                TextField(L("Search your recipes"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small).frame(maxWidth: 300)
-                if desk.recipes.isEmpty {
-                    Text(L("No recipes in this folder yet. Find one on YouTube or write your own.")).font(.system(size: 11)).foregroundStyle(.secondary)
-                } else if shown.isEmpty {
-                    Text(L("No recipe matches.")).font(.system(size: 11)).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(shown) { entry in
+                        let open = entry.file == desk.note
+                        Button { desk.show(entry.file) } label: {
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    if let picture = Kitchen.thumbnail(of: entry.source) {
+                                        AsyncImage(url: picture) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                                    } else {
+                                        accent.opacity(0.18).overlay(Image(systemName: "fork.knife").font(.system(size: 11)).foregroundStyle(accent))
+                                    }
+                                }.frame(width: 52, height: 30).clipShape(RoundedRectangle(cornerRadius: 4))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.title).font(.system(size: 11, weight: open ? .semibold : .medium)).lineLimit(1)
+                                    HStack(spacing: 4) {
+                                        if !entry.status.isEmpty { Circle().fill(Self.statusColor(entry.status)).frame(width: 6, height: 6) }
+                                        Text(([entry.status.isEmpty ? "" : L(Self.statusName(entry.status)), entry.cuisine]).filter { !$0.isEmpty }.joined(separator: " · "))
+                                            .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(5)
+                            .background(open ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 12)], spacing: 12) {
-                    ForEach(shown) { entry in recipeCard(entry) }
-                }
-            }
+            }.frame(height: 560)
         }
     }
 
-    /// A recipe as a card: its video's picture, title, cuisine and status (changed from its menu).
-    func recipeCard(_ entry: Kitchen.Entry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack {
-                if let picture = Kitchen.thumbnail(of: entry.source) {
-                    AsyncImage(url: picture) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
-                } else {
-                    LinearGradient(colors: [accent.opacity(0.35), accent.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .overlay(Image(systemName: "fork.knife").font(.system(size: 22)).foregroundStyle(.white.opacity(0.6)))
-                }
+    /// The open note, drawn as Obsidian draws it with your vault's look, and what can be done with it.
+    @ViewBuilder var viewer: some View {
+        let entry = desk.recipes.first { $0.file == desk.note }
+        VStack(alignment: .leading, spacing: 8) {
+            if let entry {
+                HStack(spacing: 10) {
+                    Text(entry.file.deletingPathExtension().lastPathComponent).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 6)
+                    Menu {
+                        ForEach(Kitchen.statuses, id: \.self) { status in Button(L(Self.statusName(status))) { desk.set(status, for: entry) } }
+                    } label: { Label(entry.status.isEmpty ? L("No status") : L(Self.statusName(entry.status)), systemImage: "circle.fill") }
+                    .menuStyle(.borderlessButton).fixedSize().font(.system(size: 11)).tint(Self.statusColor(entry.status))
+                    Button { desk.send(L("Tell me about my recipe “%@”: what's in it, and tips for making it.", entry.title)) } label: { Image(systemName: "bubble.left") }
+                        .buttonStyle(.plain).help(L("Ask Basil about it")).disabled(desk.thinking)
+                    if let source = URL(string: entry.source), source.scheme?.hasPrefix("http") == true {
+                        Button { NSWorkspace.shared.open(source) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))
+                    }
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) } label: { Image(systemName: "folder") }.buttonStyle(.plain).help(L("Show in Finder"))
+                    Button { open(entry.file) } label: { Label(L("Open in Obsidian"), systemImage: "arrow.up.forward.app") }.controlSize(.small)
+                }.foregroundStyle(.secondary)
+                NoteView(html: noteHTML, link: follow)
+                    .frame(height: 640).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
+                    .task(id: "\(entry.file.path)|\(entry.modified.timeIntervalSince1970)|\(desk.look.css.count)|\(desk.look.accent)|\(scheme == .dark)") { await render(entry.file) }
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.richtext").font(.system(size: 28)).foregroundStyle(.secondary)
+                    Text(desk.recipes.isEmpty ? L("Recipes you write show here, read as in Obsidian.") : L("Choose a recipe to read it."))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, minHeight: 300)
             }
-            .aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay(alignment: .topLeading) {
-                if !entry.status.isEmpty {
-                    Text(L(Self.statusName(entry.status))).font(.system(size: 9, weight: .semibold)).padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Self.statusColor(entry.status).opacity(0.85), in: Capsule()).foregroundStyle(.black.opacity(0.8)).padding(5)
-                }
-            }
-            .onTapGesture { open(entry.file) }
-            Text(entry.title).font(.system(size: 12, weight: .medium)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            Text(([entry.cuisine] + entry.tags.filter { $0 != "recipe" }.prefix(2).map { "#" + $0 }).filter { !$0.isEmpty }.joined(separator: "  "))
-                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(Kitchen.statuses, id: \.self) { status in Button(L(Self.statusName(status))) { desk.set(status, for: entry) } }
-                } label: { Text(entry.status.isEmpty ? L("No status") : L(Self.statusName(entry.status))) }
-                .menuStyle(.borderlessButton).fixedSize().font(.system(size: 10))
-                Spacer()
-                Button { desk.send(L("Tell me about my recipe “%@”: what's in it, and tips for making it.", entry.title)) } label: { Image(systemName: "bubble.left") }
-                    .buttonStyle(.plain).help(L("Ask Basil about it")).disabled(desk.thinking)
-                if let source = URL(string: entry.source), source.scheme?.hasPrefix("http") == true {
-                    Button { NSWorkspace.shared.open(source) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))
-                }
-                Button { open(entry.file) } label: { Image(systemName: "arrow.up.forward.app") }.buttonStyle(.plain).help(L("Open in Obsidian"))
-            }.foregroundStyle(.secondary)
         }
-        .padding(8)
-        .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 9))
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// The note read off the main thread and made into its page.
+    func render(_ file: URL) async {
+        let look = desk.look, dark = desk.look.dark ?? (scheme == .dark)
+        noteHTML = await Task.detached { Kitchen.page(note: (try? String(contentsOf: file, encoding: .utf8)) ?? "", look: look, dark: dark) }.value
+    }
+
+    /// A link pressed in the note: a [[wikilink]] opens that recipe here, a web link in the browser.
+    func follow(_ url: URL) {
+        if url.scheme == "basil-note" {
+            let name = url.absoluteString.dropFirst("basil-note:".count).removingPercentEncoding ?? ""
+            let bare = (name as NSString).lastPathComponent.replacingOccurrences(of: ".md", with: "")
+            if let entry = Kitchen.named([bare], in: desk.recipes, count: 1).first ?? desk.recipes.first(where: { $0.file.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(bare) == .orderedSame }) {
+                desk.show(entry.file)
+            }
+        } else if ["http", "https"].contains(url.scheme ?? "") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     static func statusName(_ status: String) -> String { ["to try": "To try", "made": "Made", "favourite": "Favourite"][status] ?? status }
@@ -418,8 +494,8 @@ struct BasilPage: View {
                     if desk.writing.contains("words") { ProgressView().controlSize(.mini); Text(L("Writing…")).font(.system(size: 10)) }
                 }
                 if let written = desk.written {
-                    Button { open(written) } label: { Label(L("Written: %@", written.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
-                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Open in Obsidian"))
+                    Button { desk.show(written) } label: { Label(L("Written: %@", written.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
+                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Read it in Notes"))
                 }
             }
         }
@@ -469,8 +545,8 @@ struct BasilPage: View {
                     HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(L("Writing…")).font(.system(size: 10)).foregroundStyle(.secondary) }
                 } else if !item.written.isEmpty {
                     let file = URL(fileURLWithPath: item.written)
-                    Button { open(file) } label: { Label(L("Written: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
-                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Open in Obsidian"))
+                    Button { desk.show(file) } label: { Label(L("Written: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
+                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Read it in Notes"))
                 } else {
                     if let reason = desk.refused[item.id] {
                         Label(reason, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
@@ -581,6 +657,44 @@ struct BasilPage: View {
             Image(systemName: good == nil ? "info.circle" : good == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(good == nil ? Color.secondary : good == true ? accent : .orange)
             Text(md: text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// A note's page in a web view, as Obsidian's reading view is one: links go to `link` instead of loading here.
+struct NoteView: NSViewRepresentable {
+    let html: String
+    let link: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(link: link) }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        view.navigationDelegate = context.coordinator
+        view.setValue(false, forKey: "drawsBackground")
+        return view
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        context.coordinator.link = link
+        guard context.coordinator.shown != html else { return }
+        context.coordinator.shown = html
+        view.loadHTMLString(html, baseURL: nil)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var link: (URL) -> Void
+        var shown = ""
+        init(link: @escaping (URL) -> Void) { self.link = link }
+
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+            if action.navigationType == .linkActivated, let url = action.request.url {
+                decisionHandler(.cancel)
+                if url.fragment != nil, url.scheme == "about" { return }
+                link(url)
+            } else {
+                decisionHandler(.allow)
+            }
         }
     }
 }

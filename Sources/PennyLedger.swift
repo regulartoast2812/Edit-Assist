@@ -70,12 +70,40 @@ enum Ledger {
         var numbers: Numbers { hours.reduce(Numbers()) { $0 + $1.numbers } }
     }
 
+    /// A product's day as the company's CBH counts it (2026-11-06): all its orders and ad spend, every source, from the
+    /// tables Retail Operations V3.5 sums (stats_page, ad_stats_campaign) and the database's own `cbh_tax`. `beforeAds` is
+    /// `cbh_tax` asked again with no ad spend: what the product kept before ads, so the cost of an ad dollar is measured,
+    /// not assumed.
+    struct Margin: Equatable, Codable {
+        var orders = 0.0, revenue = 0.0, cost = 0.0, tax = 0.0, spent = 0.0, cbh = 0.0, beforeAds = 0.0
+        /// The query's column for each number, in the order they are saved. Revenue is after tax, as the dashboard shows it.
+        static let columns = ["po", "re", "pc", "tax", "me", "cbh", "cbh_before_ads"]
+
+        init() {}
+        init(_ values: [Double]) {
+            let value = { (index: Int) in values.indices.contains(index) ? values[index] : 0 }
+            (orders, revenue, cost, tax) = (value(0), value(1), value(2), value(3))
+            (spent, cbh, beforeAds) = (value(4), value(5), value(6))
+        }
+        var values: [Double] { [orders, revenue, cost, tax, spent, cbh, beforeAds] }
+
+        init(from decoder: Decoder) throws { self.init(try decoder.singleValueContainer().decode([Double].self)) }
+        func encode(to encoder: Encoder) throws { var container = encoder.singleValueContainer(); try container.encode(values) }
+
+        static func + (a: Margin, b: Margin) -> Margin { Margin(zip(a.values, b.values).map(+)) }
+        /// CBH as a share of revenue, as %CBH on the dashboard.
+        var share: Double? { revenue > 0 ? cbh / revenue : nil }
+    }
+
     /// What has been copied: when each day was, and each product's totals by day (penny/history/summary.json).
     struct Summary: Equatable, Codable {
         var copied: [String: Date] = [:]
         var products: [String: [String: Numbers]] = [:]
         /// The last hour of each day with numbers in it, as last copied.
         var latest: [String: Int] = [:]
+        /// Each product's CBH by day, and when each day's was copied (its own query, so a failure there leaves the ads' copy alone).
+        var margins: [String: [String: Margin]] = [:]
+        var margined: [String: Date] = [:]
 
         init() {}
 
@@ -84,10 +112,18 @@ enum Ledger {
             copied = try container.decodeIfPresent([String: Date].self, forKey: .copied) ?? [:]
             products = try container.decodeIfPresent([String: [String: Numbers]].self, forKey: .products) ?? [:]
             latest = try container.decodeIfPresent([String: Int].self, forKey: .latest) ?? [:]
+            margins = try container.decodeIfPresent([String: [String: Margin]].self, forKey: .margins) ?? [:]
+            margined = try container.decodeIfPresent([String: Date].self, forKey: .margined) ?? [:]
         }
 
         func numbers(of product: String, on days: [String]) -> Numbers {
             days.reduce(Numbers()) { $0 + (products[product]?[$1] ?? Numbers()) }
+        }
+
+        /// The product's CBH over the days, and how many of them had it.
+        func margin(of product: String, on days: [String]) -> (margin: Margin, days: Int) {
+            let found = days.compactMap { margins[product]?[$0] }
+            return (found.reduce(Margin()) { $0 + $1 }, found.count)
         }
     }
 
@@ -124,9 +160,11 @@ enum Ledger {
     }
 
     /// The days still to copy, newest first: never copied, or copied before they had settled.
-    static func wanted(now: Date, summary: Summary, kept: Int = kept) -> [String] {
+    static func wanted(now: Date, summary: Summary, kept: Int = kept) -> [String] { wanted(now: now, copied: summary.copied, kept: kept) }
+
+    static func wanted(now: Date, copied: [String: Date], kept: Int = kept) -> [String] {
         days(back: kept, from: now).filter { day in
-            guard let copied = summary.copied[day] else { return true }
+            guard let copied = copied[day] else { return true }
             guard let end = bounds(of: day)?.to else { return false }
             return copied < end.addingTimeInterval(settles) && now >= copied.addingTimeInterval(60)
         }
@@ -208,6 +246,53 @@ enum Ledger {
             ["refId": refId, "rawSql": sql, "format": "table", "rawQuery": true, "editorMode": "code",
              "datasource": ["uid": source.uid, "type": source.type]]
         }
+    }
+
+    /// Each product's day as the company's CBH counts it: Retail Operations V3.5's product table with no filters, and
+    /// `cbh_tax` asked a second time with no ad spend (`sum(me) * 0` keeps the argument's type).
+    static let marginsQuery = """
+        select product,
+               sum(po) as po,
+               sum(re) - sum(tax) as re,
+               sum(pc) as pc,
+               sum(tax) as tax,
+               sum(me) as me,
+               cbh_tax(sum(po), sum(re), sum(me), sum(pc), sum(tax)) as cbh,
+               cbh_tax(sum(po), sum(re), sum(me) * 0, sum(pc), sum(tax)) as cbh_before_ads
+        from (select coalesce(nullif(pbase_code, ''), 'NA') as product,
+                     sum(stats_po) as po,
+                     sum(stats_amount) as re,
+                     sum(stats_cost_product) + sum(stats_cost_fulfillment) + sum(stats_cost_shipping_handling) as pc,
+                     sum(stats_tax_amount) as tax,
+                     0 as me
+              from stats_page
+              where $__timeFilter(time)
+              group by 1
+              union all
+              select coalesce(nullif(pbase_code, ''), 'NA') as product, 0, 0, 0, 0, sum(coalesce(stats_spend, 0))
+              from ad_stats_campaign
+              where $__timeFilter(time)
+              group by 1) t
+        group by 1
+        having sum(re) > 0 or sum(me) > 0
+        """
+
+    static var marginTargets: [[String: Any]] {
+        [["refId": "C", "rawSql": marginsQuery, "format": "table", "rawQuery": true, "editorMode": "code",
+          "datasource": ["uid": source.uid, "type": source.type]]]
+    }
+
+    /// The CBH answer by product.
+    static func margins(from frames: [Grafana.Frame]) -> [String: Margin] {
+        var result: [String: Margin] = [:]
+        for frame in frames where frame.column("cbh") != nil {
+            let columns = Margin.columns.map { frame.column($0) }
+            for row in 0 ..< frame.rows {
+                let name = frame.column("product").flatMap { Grafana.text(of: $0.at(row)) } ?? ""
+                result[name.isEmpty ? "NA" : name] = Margin(columns.map { $0?.at(row).number ?? 0 })
+            }
+        }
+        return result
     }
 
     /// The two answers sorted into each product's day. An ad with hours but no row of its own keeps just its id.
@@ -311,11 +396,114 @@ enum Ledger {
             .sorted { ($0.numbers.spent, $0.numbers.revenue, $1.name) > ($1.numbers.spent, $1.numbers.revenue, $0.name) }
     }
 
+    // MARK: Profit
+
+    /// What a product keeps, from the company's CBH over the days (2026-11-06): of each revenue dollar before ads
+    /// (`kept`), and what each ad dollar takes from CBH (`cost`, 1 when CBH is what's left after ads). Breakeven is the
+    /// ROAS where an hour's CBH is zero. Without CBH, the usual 1.8× line.
+    struct Profit: Equatable {
+        var kept: Double, cost: Double
+        /// True when it comes from CBH, not the usual line.
+        var measured = true
+
+        init(kept: Double, cost: Double, measured: Bool = true) { self.kept = kept; self.cost = cost; self.measured = measured }
+
+        /// From a product's CBH; nil with no revenue or nothing kept before ads.
+        init?(_ margin: Margin) {
+            guard margin.revenue > 0, margin.beforeAds > 0 else { return nil }
+            kept = margin.beforeAds / margin.revenue
+            let measured = margin.spent > 0 ? (margin.beforeAds - margin.cbh) / margin.spent : 1
+            cost = (0.5 ... 2).contains(measured) ? measured : 1
+        }
+
+        static let usual = Profit(kept: 1 / 1.8, cost: 1, measured: false)
+
+        var breakeven: Double { cost / kept }
+        /// The ROAS where CBH is that share of revenue.
+        func roas(cbh share: Double) -> Double? { kept > share ? cost / (kept - share) : nil }
+        /// The line above which an hour counts as profitable: CBH 5% of revenue (2.0× when breakeven is 1.8×, your old line).
+        var profitable: Double { roas(cbh: 0.05) ?? breakeven * 1.11 }
+        /// The CBH some ads' numbers make: what their revenue keeps, less what their spend takes.
+        func cbh(_ numbers: Numbers) -> Double { kept * numbers.revenue - cost * numbers.spent }
+    }
+
+    /// An hour of the day over the days read, as a media buyer judges it: what it spends a day, its ROAS, its bad-day
+    /// floor and good-day ceiling (the 10th and 90th percentile of its days' ROAS, so one lucky order doesn't count), the
+    /// CBH it makes and a verdict. The rules are the Campaign Breakdown dashboard's, with breakeven from CBH.
+    struct HourRead: Identifiable, Equatable {
+        enum Verdict: String, CaseIterable { case reliable, volatile, thin, losing, costly, dead, few, idle }
+        var hour: Int
+        var id: Int { hour }
+        var numbers = Numbers()
+        /// Days it spent in.
+        var days = 0
+        var floor: Double?
+        var ceiling: Double?
+        var cbh = 0.0
+        var verdict = Verdict.idle
+        var spentPerDay: Double { days > 0 ? numbers.spent / Double(days) : 0 }
+    }
+
+    /// A day's hour counts toward the floor and ceiling when it spent $20, or $3 on a day under $300 (low signal).
+    static func hourReads(_ days: [Day], profit: Profit) -> [HourRead] {
+        var reads = (0 ..< 24).map { HourRead(hour: $0) }
+        var roases = [[Double]](repeating: [], count: 24)
+        for day in days {
+            var hours = [Numbers](repeating: Numbers(), count: 24)
+            for hour in day.hours where hours.indices.contains(hour.hour) { hours[hour.hour] += hour.numbers }
+            let least = hours.reduce(0) { $0 + $1.spent } < 300 ? 3.0 : 20.0
+            for (hour, numbers) in hours.enumerated() where numbers.spent > 0 || numbers.orders > 0 {
+                reads[hour].numbers += numbers
+                if numbers.spent > 0 { reads[hour].days += 1 }
+                if numbers.spent >= least, let roas = numbers.roas { roases[hour].append(roas) }
+            }
+        }
+        for hour in reads.indices {
+            let sorted = roases[hour].sorted()
+            reads[hour].floor = percentile(sorted, 0.1)
+            reads[hour].ceiling = percentile(sorted, 0.9)
+            reads[hour].cbh = profit.cbh(reads[hour].numbers)
+            reads[hour].verdict = verdict(reads[hour], profit: profit)
+        }
+        return reads
+    }
+
+    /// The value a share of the way up sorted values, as the dashboard took it (no interpolation).
+    static func percentile(_ sorted: [Double], _ share: Double) -> Double? {
+        sorted.isEmpty ? nil : sorted[min(sorted.count - 1, Int(share * Double(sorted.count - 1)))]
+    }
+
+    static func verdict(_ read: HourRead, profit: Profit) -> HourRead.Verdict {
+        guard read.days > 0, let roas = read.numbers.roas else { return .idle }
+        if read.days < 3 { return .few }
+        if roas < 1 { return .dead }
+        if roas < profit.breakeven { return read.spentPerDay > 50 ? .costly : .losing }
+        if roas < profit.profitable { return .thin }
+        return (read.floor ?? 0) >= profit.breakeven ? .reliable : .volatile
+    }
+
+    /// Where the budget went: hours below breakeven, thin, and profitable, each with its numbers and CBH.
+    struct Efficiency: Equatable {
+        struct Part: Equatable { var hours: [Int] = []; var numbers = Numbers(); var cbh = 0.0 }
+        var losing = Part(), thin = Part(), profitable = Part()
+        var total: Numbers { losing.numbers + thin.numbers + profitable.numbers }
+    }
+
+    static func efficiency(_ reads: [HourRead], profit: Profit) -> Efficiency {
+        var result = Efficiency()
+        for read in reads where read.numbers.spent > 0 {
+            let roas = read.numbers.roas ?? 0
+            let add = { (part: inout Efficiency.Part) in part.hours.append(read.hour); part.numbers += read.numbers; part.cbh += read.cbh }
+            if roas < profit.breakeven { add(&result.losing) } else if roas < profit.profitable { add(&result.thin) } else { add(&result.profitable) }
+        }
+        return result
+    }
+
     // MARK: Report
 
     /// Penny's read of a product over the days: how it did against the days before, which creatives sell and which
     /// only spend, and the hours that sell. Each finding a line, money in dollars, hours in Alaska time.
-    static func report(_ days: [Day], before: Numbers? = nil) -> [String] {
+    static func report(_ days: [Day], before: Numbers? = nil, profit: Profit = .usual) -> [String] {
         let total = total(days)
         guard total.spent > 0 || total.orders > 0 else { return [L("Nothing ran in these days.")] }
         var lines: [String] = []
@@ -344,14 +532,27 @@ enum Ledger {
         for line in all.filter({ $0.numbers.orders == 0 && $0.numbers.spent >= waste }).prefix(3) {
             lines.append(L("No orders: **%@** spent %@", line.name, money(line.numbers.spent)))
         }
-        // Hours worth naming: at least 3% of the spend.
-        let hours = hours(days).enumerated().filter { $0.element.spent >= total.spent * 0.03 && $0.element.spent > 0 }
-        let ranked = hours.sorted { ($0.element.roas ?? 0) > ($1.element.roas ?? 0) }
-        if ranked.count >= 4 {
-            let best = ranked.prefix(3).map { L("%@ (ROAS %@)", hourName($0.offset), ratio($0.element.roas)) }
-            let worst = ranked.suffix(3).reversed().map { L("%@ (ROAS %@)", hourName($0.offset), ratio($0.element.roas)) }
-            lines.append(L("Best hours: %@", best.joined(separator: ", ")))
-            lines.append(L("Weakest hours: %@", worst.joined(separator: ", ")))
+        // The hours, as a media buyer reads them: breakeven, where the budget went, what to cut and where to put more.
+        let reads = hourReads(days, profit: profit)
+        lines.append(profit.measured
+                     ? L("Breakeven ROAS **%@** from CBH: the product keeps %@ of revenue before ads; profitable from %@ (CBH 5%%)", ratio(profit.breakeven), percent(profit.kept), ratio(profit.profitable))
+                     : L("Breakeven ROAS **%@**, the usual line: no CBH copied for these days yet", ratio(profit.breakeven)))
+        let parts = efficiency(reads, profit: profit), spent = parts.total.spent, revenue = parts.total.revenue
+        if spent > 0, !parts.losing.hours.isEmpty {
+            lines.append(L("**%@** of spend went to hours below breakeven, bringing back %@ of revenue: CBH **%@**", percent(parts.losing.numbers.spent / spent),
+                           percent(revenue > 0 ? parts.losing.numbers.revenue / revenue : 0), money(parts.losing.cbh)))
+        }
+        if spent > 0, !parts.profitable.hours.isEmpty {
+            lines.append(L("**%@** of spend went to profitable hours and made %@ of revenue: CBH **%@**", percent(parts.profitable.numbers.spent / spent),
+                           percent(revenue > 0 ? parts.profitable.numbers.revenue / revenue : 0), money(parts.profitable.cbh)))
+        }
+        let more = reads.filter { $0.verdict == .reliable }.sorted { $0.cbh > $1.cbh }.prefix(3)
+        if !more.isEmpty {
+            lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad days %@)", hourName($0.hour), ratio($0.numbers.roas), ratio($0.floor)) }.joined(separator: ", ")))
+        }
+        let cut = reads.filter { $0.verdict == .costly || $0.verdict == .dead }.sorted { $0.cbh < $1.cbh }.prefix(3)
+        if !cut.isEmpty {
+            lines.append(L("Cut back: %@", cut.map { L("%@ (ROAS %@, CBH %@ a day)", hourName($0.hour), ratio($0.numbers.roas), money($0.cbh / Double(max($0.days, 1)))) }.joined(separator: ", ")))
         }
         return lines
     }
@@ -441,6 +642,11 @@ final class PennyLedger: ObservableObject {
 
     func stop() { loop?.cancel(); loop = nil; copying = nil; next = nil }
 
+    /// What the product keeps over the days, from its CBH; the usual 1.8× line when none is copied for them.
+    func profit(of product: String, on days: [String]) -> Ledger.Profit {
+        Ledger.Profit(summary.margin(of: product, on: days).margin) ?? .usual
+    }
+
     /// Days you picked: the ones not yet copied are copied now, newest first.
     func ask(for days: [String]) {
         let missing = days.filter { summary.copied[$0] == nil }
@@ -469,7 +675,35 @@ final class PennyLedger: ObservableObject {
                 break
             }
         }
+        // CBH after the ads, in its own requests: a day it fails for keeps the ads' copy and is tried again next time.
+        var priced: Set<String> = []
+        while failure == nil, loop != nil, !Task.isCancelled,
+              let day = (Ledger.wanted(now: Date(), copied: summary.margined) + asked.filter { summary.margined[$0] == nil }.sorted(by: >)).first(where: { !priced.contains($0) }) {
+            priced.insert(day)
+            copying = day
+            do {
+                try await copyMargins(day)
+            } catch Grafana.Failure.signedOut {
+                copying = nil; stop(); onSignedOut?(); return
+            } catch {
+                failure = L("Could not read CBH for %@: %@", day, PennyDesk.describe(error))
+            }
+        }
         copying = nil
+    }
+
+    /// One day's CBH by product. An empty answer for a day that had some leaves it as it was.
+    func copyMargins(_ day: String) async throws {
+        guard let bounds = Ledger.bounds(of: day) else { return }
+        let frames = try await PennyBoard.run(Ledger.marginTargets, panel: Ledger.source, variables: [], dates: bounds, sources: [Ledger.source], points: 1000)
+        let margins = Ledger.margins(from: frames)
+        let had = summary.margins.contains { $0.value[day] != nil }
+        if !margins.isEmpty || !had {
+            for product in summary.margins.keys where margins[product] == nil { summary.margins[product]?[day] = nil }
+            for (product, margin) in margins { summary.margins[product, default: [:]][day] = margin }
+        }
+        summary.margined[day] = Date()
+        saveSummary()
     }
 
     /// One day from Grafana, written by product.
