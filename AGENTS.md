@@ -135,7 +135,7 @@ fallback for a caption that cannot be placed, and then only for phrases near the
 tabs wait in `otherScripts` with their own progress (`Project.scriptTabs`, `openScript`, `addScript`, `removeScript`).
 Tabs cannot change during a run (a paused run still counts). Removing a script with text backs up projects.json first.
 
-**Helpers** (sidebar, under Functions; never part of a highlight run): **Amir** lists the files of a folder you choose
+**Helpers** (sidebar, under Functions; never part of a highlight run; their pages show the run bar only while a function runs): **Amir** lists the files of a folder you choose
 (`AmirWatcher`) and moves for a few seconds when one arrives; nothing is renamed or moved yet, and when it is, only after
 you agree to each one. **Tala** (voice-overs with ElevenLabs, music that suits them) connects
 to ElevenLabs with your API key (`TalaVoice`, `ElevenLabs` in `Sources/ElevenLabs.swift`; the key lives in the Keychain,
@@ -190,7 +190,13 @@ works on a batch per project that starts empty: he reads only the files you drop
 named by shot code go into their shot as they come in (K1, K1.1 and K1.2 into shot K1's one prompt, each under its own tag,
 @K1.1); any file can be dragged into any shot, and one picture can be in many shots under a tag of each (K2.3). Each file
 has a role (look, start or end frame, camera and motion, video to edit, sound, left out), and the roles decide the model's
-endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out.
+endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out;
+a shot's first picture is its start frame unless you give a role or the shot has a video. The shots are cards in one list,
+as the Forge shows its jobs, with the shot's files and one + box (the boxes for other roles show while files are dragged
+over it). Files dropped on a shot's files go into it; dropped anywhere else in the list they make a new shot, and while
+files are dragged each shot's files are outlined to show it. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
+place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
+are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
 shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
 projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.
@@ -200,7 +206,7 @@ How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-1
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401
 asks `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once) before
 counting you signed out. He reads the dashboards you can see and saves the ones you use (Retail Operations V3.5 first, the one you read: it
-gathers every team's sales and ads; then PMKT's and the Facebook breakdown; and your starred ones) as
+gathers every team's sales and ads; then Facebook Ads Manager Campaign V1.0, PMKT's and the Facebook breakdown; and your starred ones) as
 Grafana sent them in penny/ beside projects.json, never in git. His page draws the one you pick as Grafana draws it
 (`PennyBoard`, the `Grafana` dashboard model in `Sources/GrafanaBoard.swift`; views in `Sources/PennyPanels.swift`): its
 filters, its rows and panels on the 24-column grid, each panel's own queries run through `/api/ds/query` with the
@@ -208,7 +214,7 @@ filters written in as Grafana writes them for SQL (quoted, All as every value or
 other macros left to Grafana), then the panel's transformations (calculateField, organize, concatenate) and its units,
 decimals, thresholds and cell colours. A closed row reads its panels when opened. Your filters and time are kept per
 dashboard; what each panel last answered (columns, rows, a stat's values or the error) is written to penny/answers/.
-He only reads, never changes anything in Grafana, and runs no query of his own beyond the dashboards'. Each helper has a colour, their body's, for their sidebar button and page.
+His page has two tabs: **Products**, his own dashboard, and **Grafana**, the dashboard drawn as above. Products reads his own copy of the Facebook ads' numbers (`PennyLedger`, `Ledger` in `Sources/PennyLedger.swift`; views in `Sources/PennyProducts.swift`). While you are signed in, from launch and every half hour, he copies each ad's numbers hour by hour from ad_stats_ad on cms-replica2, the table Facebook Ads Manager Campaign V1.0 sums up. These are his only queries of his own: two read-only SELECTs a day. The copy is kept by product (pbase_code) in penny/history/<product>/<day>.json.gz (gzipped: a tenth of the size), with each day's totals in summary.json. Days are Alaska time, the company's. He covers the last 30 days, newest first, and copies a day again until it has been over for 12 hours. An empty answer for a day he already has never replaces it, because Grafana keeps little history. The Data section at the top of Products says whether the copy is up to date (when he last copied and copies next, the last hour Grafana has today) and marks each day in the range with a green check when it is final or was copied in the last hour, else behind or not copied. From the copy he shows each product's totals, his written read (against the days before, the creatives that sell and the ones that only spend, the best and weakest hours), the product by day and by hour, each creative's orders hour by hour, and its creatives and campaigns. A creative is the ad's name, so the same creative in several campaigns is one line. He only reads, never changes anything in Grafana. Each helper has a colour, their body's, for their sidebar button and page.
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 

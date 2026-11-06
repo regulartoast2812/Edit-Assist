@@ -118,8 +118,11 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                footer
-                Divider()
+                // The run bar belongs to functions: a helper's page shows it only while a function runs, to pause or stop it.
+                if !Self.helpers.contains(where: { $0.tab == s.tab }) || s.busy {
+                    footer
+                    Divider()
+                }
                 if !s.permissionsReady { permissionBanner; Divider() }
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 18) {

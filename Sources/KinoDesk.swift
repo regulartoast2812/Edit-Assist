@@ -18,6 +18,11 @@ final class KinoDesk: ObservableObject {
     /// Files of the batch no longer where they were put in (moved, renamed or deleted in Finder).
     @Published private(set) var missing: Set<String> = []
     @Published var selected: String?
+    /// The take playing in the outputs.
+    @Published private(set) var watching: String?
+    /// Files are dragged over the shots: each shot's files show they take a drop, the space around them makes a new shot.
+    @Published private(set) var dragging = false
+    private var drags = 0
     @Published private(set) var hasKling = KinoKeys.kling != nil
     @Published private(set) var hasHiggsfield = KinoKeys.higgsfield != nil
     private var project: UUID?
@@ -27,6 +32,23 @@ final class KinoDesk: ObservableObject {
         batch.media.compactMap { path in
             let url = URL(fileURLWithPath: path)
             return KinoKind(url).map { KinoFile(url: url, kind: $0, shot: nil, handle: url.deletingPathExtension().lastPathComponent) }
+        }
+    }
+    /// The media in the order you pick: by name as a person reads it, by the first shot each is in (those in none last),
+    /// or the newest first.
+    func media(sorted sort: KinoSort) -> [KinoFile] {
+        switch sort {
+        case .added:
+            return media.reversed()
+        case .name:
+            return media.sorted { KinoCode.nameOrder($0.name, $1.name) }
+        case .shot:
+            var first: [String: Int] = [:]
+            for (index, code) in batch.order.enumerated().reversed() { for input in shot(code).inputs { first[input.path] = index } }
+            return media.sorted { a, b in
+                let one = first[a.id] ?? .max, two = first[b.id] ?? .max
+                return one != two ? one < two : KinoCode.nameOrder(a.name, b.name)
+            }
         }
     }
     var shots: [String] { batch.order }
@@ -42,9 +64,11 @@ final class KinoDesk: ObservableObject {
     func shot(_ code: String) -> KinoShot { batch.shots[code] ?? KinoShot() }
     /// The shot's own settings, or the batch's when it has none.
     func settings(_ code: String) -> KinoSettings { shot(code).settings ?? batch.settings }
-    func role(of file: KinoFile, in code: String) -> KinoRole { KinoRole.of(file, shot(code).roles) }
+    /// Every file's role in the shot: the ones you gave, the usual for the rest (the first picture opens the shot).
+    func roles(_ code: String) -> [String: KinoRole] { KinoRole.all(files(in: code), set: shot(code).roles, model: settings(code).model) }
+    func role(of file: KinoFile, in code: String) -> KinoRole { roles(code)[file.handle] ?? KinoRole.of(file, shot(code).roles) }
     func plan(_ code: String) -> KinoPlan {
-        var plan = KinoRequest.plan(files: files(in: code), roles: shot(code).roles, prompt: shot(code).prompt, shared: batch.shared,
+        var plan = KinoRequest.plan(files: files(in: code), roles: roles(code), prompt: shot(code).prompt, shared: batch.shared,
                                     settings: settings(code), durations: durations)
         for file in files(in: code) where missing.contains(file.id) { plan.problems.insert(L("@%@ is no longer on this Mac", file.handle), at: 0) }
         return plan
@@ -66,31 +90,80 @@ final class KinoDesk: ObservableObject {
     }
     func missingKey(_ codes: [String]) -> Bool { !missingKeys(codes).isEmpty }
 
+    /// The takes, the newest first.
+    var takes: [KinoTake] { batch.takes.reversed() }
+    /// A shot's takes in the order they were made: take 1 first.
+    func takes(of code: String) -> [KinoTake] { batch.takes.filter { $0.shot == code } }
+    /// Take 1, 2… of its shot.
+    func number(of take: KinoTake) -> Int? { take.shot.flatMap { code in takes(of: code).firstIndex(of: take).map { $0 + 1 } } }
+
+    /// Finished videos you drop on the outputs, until Kino makes his own: each goes with the shot it is dropped on, or the
+    /// shot its name has (K3.1 O1 with K3) when there is one. A video already there keeps its place.
+    func addTakes(_ urls: [URL], to shot: String? = nil) {
+        for url in urls.flatMap(Self.expand) where KinoKind(url) == .video {
+            let path = url.standardizedFileURL.path
+            let code = shot ?? KinoCode.parse(url.deletingPathExtension().lastPathComponent).map(\.shot).flatMap { batch.order.contains($0) ? $0 : nil }
+            if let index = batch.takes.firstIndex(where: { $0.path == path }) {
+                if let shot { batch.takes[index].shot = shot }
+                continue
+            }
+            batch.takes.append(KinoTake(path: path, shot: code, model: code.map { settings($0).model }))
+        }
+        save()
+        refresh()
+    }
+    /// A drag came over a part of the shots that takes it, or left it. Still dragging a moment after leaving one, so moving
+    /// from one part to the next does not flicker.
+    func dragged(_ inside: Bool) {
+        drags = max(0, drags + (inside ? 1 : -1))
+        if drags > 0 { dragging = true; return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            if drags == 0 { dragging = false }
+        }
+    }
+
+    /// Plays a take in the outputs; it counts as watched.
+    func watch(_ path: String?) {
+        watching = path
+        guard let path, let index = batch.takes.firstIndex(where: { $0.path == path }), !batch.takes[index].seen else { return }
+        batch.takes[index].seen = true
+        save()
+    }
+    /// Takes a video out of the outputs; the file itself is not touched.
+    func removeTake(_ path: String) {
+        batch.takes.removeAll { $0.path == path }
+        if watching == path { watching = nil }
+        save()
+    }
+
     /// The project's batch, when the page opens or the project changes.
     func open(project id: UUID) {
         if id != project {
             project = id
             batch = (try? JSONDecoder().decode(KinoBatch.self, from: Data(contentsOf: Self.file(id)))) ?? KinoBatch()
             selected = batch.order.first
+            watching = nil
         }
         refresh()
     }
 
     /// Which files are still there, then the lengths of the videos and sounds not read yet.
     func refresh() {
-        missing = Set(batch.media.filter { !FileManager.default.fileExists(atPath: $0) })
+        missing = Set((batch.media + batch.takes.map(\.path)).filter { !FileManager.default.fileExists(atPath: $0) })
         if selected.map(batch.order.contains) != true { selected = batch.order.first }
         Task {
-            for file in media where file.kind != .image && durations[file.id] == nil && !missing.contains(file.id) {
-                if let time = try? await AVURLAsset(url: file.url).load(.duration), time.isNumeric { durations[file.id] = time.seconds }
+            let timed = media.filter { $0.kind != .image }.map(\.url) + batch.takes.map { URL(fileURLWithPath: $0.path) }
+            for url in timed where durations[url.path] == nil && !missing.contains(url.path) {
+                if let time = try? await AVURLAsset(url: url).load(.duration), time.isNumeric { durations[url.path] = time.seconds }
             }
         }
     }
 
     /// Files you drop or add (a folder brings the media in it, three folders deep). Into `shot` when dropped on one;
     /// otherwise a file whose name has a shot code goes into that shot, made if new (K1.1 into K1). A bare number ("7")
-    /// is not taken as a code here: too many files are named like that. Dropped on a shot's empty place, `role` is that
-    /// place's role, for the files that can have it.
+    /// is not taken as a code here: too many files are named like that. Dropped on a shot's place, `role` is that place's
+    /// role, for the files that can have it; a new start or end frame takes the place of the one before, which becomes a look.
     func add(_ urls: [URL], into shot: String? = nil, as role: KinoRole? = nil) {
         var codes: [String] = []
         for url in urls.flatMap(Self.expand) {
@@ -100,9 +173,7 @@ final class KinoDesk: ObservableObject {
             let code = shot ?? KinoCode.parse(name).flatMap { $0.code.first?.isLetter == true || $0.code.contains(".") ? $0.shot : nil }
             if let code {
                 let tag = put(path, into: code)
-                if let role, let kind = KinoKind(url), KinoRole.choices(kind).contains(role) {
-                    edit(code) { $0.roles[tag] = role == .usual(kind) ? nil : role }
-                }
+                if let role, let kind = KinoKind(url), KinoRole.choices(kind).contains(role) { give(role, to: tag, in: code) }
                 codes.append(code)
             }
         }
@@ -121,13 +192,18 @@ final class KinoDesk: ObservableObject {
         add(panel.urls, into: shot, as: role)
     }
 
-    /// A new shot after the last one with the same letters (K7 after K6; K1 when there is none), with these files.
-    @discardableResult
-    func newShot(with urls: [URL] = []) -> String {
+    /// The code a new shot gets: after the last one with the same letters (K7 after K6; K1 when there is none).
+    var nextShot: String {
         let letters = batch.order.last.map { String($0.prefix { $0.isLetter }) } ?? "K"
         let used = batch.order.compactMap { KinoCode.parse($0) }.filter { $0.shot.hasPrefix(letters) && $0.shot.dropFirst(letters.count).allSatisfy(\.isNumber) }
             .compactMap { Int($0.shot.dropFirst(letters.count)) }
-        let code = letters + String((used.max() ?? 0) + 1)
+        return letters + String((used.max() ?? 0) + 1)
+    }
+
+    /// A new shot (`nextShot`) with these files.
+    @discardableResult
+    func newShot(with urls: [URL] = []) -> String {
+        let code = nextShot
         batch.order.append(code)
         selected = code
         if urls.isEmpty { save() } else { add(urls, into: code) }
@@ -137,6 +213,7 @@ final class KinoDesk: ObservableObject {
     func removeShot(_ code: String) {
         batch.order.removeAll { $0 == code }
         batch.shots[code] = nil
+        for index in batch.takes.indices where batch.takes[index].shot == code { batch.takes[index].shot = nil }
         if selected == code { selected = batch.order.first }
         save()
     }
@@ -193,8 +270,16 @@ final class KinoDesk: ObservableObject {
     }
 
     func setPrompt(_ text: String, for code: String) { edit(code) { $0.prompt = text } }
-    func setRole(_ role: KinoRole, of file: KinoFile, in code: String) {
-        edit(code) { $0.roles[file.handle] = role == .usual(file.kind) ? nil : role }
+    func setRole(_ role: KinoRole, of file: KinoFile, in code: String) { give(role, to: file.handle, in: code) }
+    /// A role you give is kept as given, even the usual one, so the first picture can be made a look. A shot has one start
+    /// frame and one end frame: the one it had becomes a look.
+    private func give(_ role: KinoRole, to tag: String, in code: String) {
+        edit(code) { shot in
+            if role == .start || role == .end {
+                for (other, had) in shot.roles where had == role && other != tag { shot.roles[other] = .look }
+            }
+            shot.roles[tag] = role
+        }
     }
     /// A shot's own settings; the batch's again when they are the same.
     func setSettings(_ settings: KinoSettings?, for code: String) {
@@ -273,7 +358,8 @@ enum KinoSlot: Equatable {
             room = [.start: starts.isEmpty, .end: ends.isEmpty, .look: looks.count < 10, .motion: videos < 5, .edit: edits.isEmpty && videos < 5]
         default:
             let most = videos == 0 ? 7 : 4
-            room = [.start: starts.isEmpty && pictures < most, .end: ends.isEmpty && pictures < most, .look: pictures < most,
+            // With its video, Kling O3 takes pictures only as looks: no place for a frame.
+            room = [.start: starts.isEmpty && videos == 0 && pictures < most, .end: ends.isEmpty && videos == 0 && pictures < most, .look: pictures < most,
                     .motion: videos == 0, .edit: videos == 0]
         }
         var slots: [KinoSlot] = []
@@ -306,15 +392,28 @@ enum KinoSlot: Equatable {
     }
 }
 
+/// How the media is ordered: by name as a person reads it (K2 before K10), by the shot each is in, or newest first.
+enum KinoSort: String, CaseIterable {
+    case name, shot, added
+    var title: String {
+        switch self {
+        case .name: "Name"
+        case .shot: "Shot"
+        case .added: "Newest first"
+        }
+    }
+}
+
 /// One project's batch: the media you put in, the shots in order, the words said in every shot (the product's facts, the
-/// look), the settings every shot starts from, and each shot's files, prompt and changes. Batches saved before
-/// 2026-11-05 had a folder instead of media; they open empty.
+/// look), the settings every shot starts from, each shot's files, prompt and changes, and the takes in the order they
+/// came. Batches saved before 2026-11-05 had a folder instead of media; they open empty.
 struct KinoBatch: Codable, Equatable {
     var media: [String] = []
     var order: [String] = []
     var shared = ""
     var settings = KinoSettings()
     var shots: [String: KinoShot] = [:]
+    var takes: [KinoTake] = []
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -323,7 +422,18 @@ struct KinoBatch: Codable, Equatable {
         shared = try values.decodeIfPresent(String.self, forKey: .shared) ?? ""
         settings = try values.decodeIfPresent(KinoSettings.self, forKey: .settings) ?? KinoSettings()
         shots = try values.decodeIfPresent([String: KinoShot].self, forKey: .shots) ?? [:]
+        takes = try values.decodeIfPresent([KinoTake].self, forKey: .takes) ?? []
     }
+}
+
+/// A video a shot made, to watch in the outputs: the shot (nil when it is in none, or its shot was removed), the model
+/// it was made with, and whether you have watched it.
+struct KinoTake: Codable, Equatable, Identifiable {
+    var path: String
+    var shot: String?
+    var model: String?
+    var seen = false
+    var id: String { path }
 }
 
 struct KinoShot: Codable, Equatable {
@@ -446,6 +556,20 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         let role = roles[file.handle] ?? usual(file.kind)
         return choices(file.kind).contains(role) ? role : usual(file.kind)
     }
+    /// Every file's role in a shot: the one you gave it, else the usual one for its kind, except that the shot's first
+    /// picture with no role given is its start frame while no file is and no video is in the shot, as a shot made from a
+    /// picture opens on it (image-to-video, the Forge's usual job). Motion Control takes a person, not frames; with a
+    /// video, Kling O3 and Seedance take no frames.
+    static func all(_ files: [KinoFile], set: [String: KinoRole], model: String) -> [String: KinoRole] {
+        var roles: [String: KinoRole] = [:]
+        for file in files { roles[file.handle] = of(file, set) }
+        if model != "kling-motion", !roles.values.contains(.start),
+           !files.contains(where: { $0.kind == .video && roles[$0.handle] != .unused }),
+           let first = files.first(where: { $0.kind == .image && set[$0.handle] == nil }) {
+            roles[first.handle] = .start
+        }
+        return roles
+    }
 }
 
 struct KinoFile: Identifiable, Equatable {
@@ -474,6 +598,16 @@ enum KinoCode {
 
     /// K2 before K10, K1 before K1.1 before K1.2.
     static func before(_ a: String, _ b: String) -> Bool { a.localizedStandardCompare(b) == .orderedAscending }
+
+    /// File names as a person reads them: by shot code (K2 before K10, K4 before K4.1), a name with words after its code
+    /// after the plain one (K4, K4 Size, K4.1), names with no code by their letters.
+    static func nameOrder(_ a: String, _ b: String) -> Bool {
+        let one = parse(a), two = parse(b)
+        let first = one?.code ?? a, second = two?.code ?? b
+        if first.caseInsensitiveCompare(second) != .orderedSame { return before(first, second) }
+        if (one?.label.isEmpty ?? true) != (two?.label.isEmpty ?? true) { return one?.label.isEmpty ?? true }
+        return before(a, b)
+    }
 
     /// The batch's files with their shots and tags. A code two files share goes to the one without words after it;
     /// the other is told apart by its words ("K9 ref" → K9-ref) or its kind (K1-video), so a tag names one file.
@@ -756,7 +890,8 @@ enum KinoRequest {
         }
         let lines = sent.map { line($0.role, $0.tag, motionControl: model.id == "kling-motion") }
         let written = [shared, prompt].map { KinoPrompt.replacing($0, { tags[$0.lowercased()] }).trimmingCharacters(in: .whitespacesAndNewlines) }
-        if needsPrompt, written.allSatisfy(\.isEmpty) { plan.problems.append(L("Write what happens in the shot")) }
+        // The words every shot shares say what the product is, not what happens in this shot.
+        if needsPrompt, written[1].isEmpty { plan.problems.append(L("Write what happens in the shot")) }
         plan.prompt = ([lines.joined(separator: "\n")] + written + [exclusions]).filter { !$0.isEmpty }.joined(separator: "\n\n")
         if let limit = model.promptLimit, plan.prompt.count > limit {
             plan.problems.append(L("The prompt is %@ characters; %@ reads %@", plan.prompt.count.formatted(), model.name, limit.formatted()))
