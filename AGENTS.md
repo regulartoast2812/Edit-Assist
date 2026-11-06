@@ -204,7 +204,8 @@ are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
 shows what Kino would send and what stops it, before anything is spent. Batches are kept in `kino/<project>.json` beside
 projects.json; the Kling and Higgsfield keys live in the Keychain. Nothing is sent yet: sending comes with the keys.
-How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`.
+How both services work is mapped in `docs/kino/README.md`, sourced, as of 2026-11-04; the team's KlingDom Forge in `forge.md`. How to prompt in Kino (@, /, what each model takes, the services' prompt
+advice), for the team, is `prompting.md`, opened from How to prompt on his page; keep it in step with the commands.
 **Penny** (the numbers of the products you run, from the company's Grafana) signs in to grafana.selless.com (Grafana
 11.2; Google sign-in only, its login form is off) in a private web view and keeps only the `grafana_session` cookie, in
 the Keychain (`Grafana`, `PennyDesk` in `Sources/Grafana.swift`). Grafana rotates that session every few minutes: a 401

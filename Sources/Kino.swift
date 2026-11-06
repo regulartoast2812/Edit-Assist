@@ -164,6 +164,8 @@ struct KinoPage: View {
             Button { showingEveryShot.toggle() } label: { Label(L("Every shot"), systemImage: "slider.horizontal.3") }
                 .help(L("What every shot's prompt says, and the settings every shot starts from"))
                 .popover(isPresented: $showingEveryShot, arrowEdge: .bottom) { KinoEveryShot(desk: desk).padding(18).frame(width: 440) }
+            Button { reading = .prompting } label: { Label(L("How to prompt"), systemImage: "text.bubble") }
+                .help(L("@ and / in the prompt, what each model takes, and how to write a shot"))
             Button { showingResearch.toggle() } label: { Label(L("Research"), systemImage: "books.vertical") }
                 .popover(isPresented: $showingResearch, arrowEdge: .bottom) { research.padding(6).frame(width: 340) }
             Button { showingAccounts.toggle() } label: {
@@ -1974,11 +1976,14 @@ struct KinoTagList: View {
 /// The research in docs/kino, which build.sh copies into the app's Resources/Kino: the map is a page (the same file
 /// as its web version), the notes on each service are Markdown.
 enum KinoResearch: String, CaseIterable, Identifiable {
-    case map, kling, higgsfield, forge
+    case prompting, map, kling, higgsfield, forge
     static let asOf = DateComponents(calendar: .current, year: 2026, month: 11, day: 4).date ?? .now
+    /// When the note was last brought up to date.
+    var date: Date { self == .prompting ? DateComponents(calendar: .current, year: 2026, month: 11, day: 6).date ?? .now : Self.asOf }
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .prompting: "How to prompt in Kino"
         case .map: "Kling and Higgsfield side by side"
         case .kling: "Kling"
         case .higgsfield: "Higgsfield"
@@ -1987,6 +1992,7 @@ enum KinoResearch: String, CaseIterable, Identifiable {
     }
     var summary: String {
         switch self {
+        case .prompting: "@ and / in the prompt, what each model takes, and how to write a shot: a reminder for anyone prompting"
         case .map: "What a file can be in a shot, how each names it in the prompt, what each can make, a job's life"
         case .kling: "Models, modes, limits, prompt structure and the API"
         case .higgsfield: "Its models and tools, the API, and every endpoint's fields"
@@ -1995,6 +2001,7 @@ enum KinoResearch: String, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
+        case .prompting: "text.bubble"
         case .map: "map"
         case .kling, .higgsfield: "doc.text"
         case .forge: "hammer"
@@ -2024,7 +2031,7 @@ struct KinoResearchSheet: View {
                 PixelKino(pixel: 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L(doc.title)).font(.system(size: 15, weight: .semibold))
-                    Text("docs/kino/\(doc.file) · " + L("As of %@", KinoResearch.asOf.formatted(date: .abbreviated, time: .omitted)))
+                    Text("docs/kino/\(doc.file) · " + L("As of %@", doc.date.formatted(date: .abbreviated, time: .omitted)))
                         .font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 Spacer()
