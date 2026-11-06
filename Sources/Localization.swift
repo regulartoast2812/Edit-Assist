@@ -576,7 +576,6 @@ enum Vietnamese {
         "Fold %@": "Thu gọn %@",
         "Unfold %@": "Mở %@",
         "How long each take is": "Mỗi take dài bao lâu",
-        "Name": "Tên",
         "Newest first": "Mới nhất trước",
         "Shot": "Shot",
         "No shot or file has “%@”": "Không shot hay file nào có “%@”",
