@@ -1763,8 +1763,8 @@ struct Checks {
                 desk.setSettings(nil, for: "K12")
                 check(desk.plan("K12").notes.contains { $0.hasPrefix(L("Only Kling 4.0 takes middle keyframes: %@ goes as a look", "").prefix(20)) },
                       "Other models take a middle keyframe as a look, and say so")
-                check(KinoPrompt.written(.middle, "K3", seconds: 2) == "/mid 2s @K3" && KinoRole.choices(.image, model: "kling-o3").contains(.middle) == false,
-                      "/mid is offered only on Kling 4.0, and written with its time")
+                check(KinoPrompt.written(.middle, "K3", seconds: 2) == "/mid 2s @K3" && KinoRole.middle.title(on: "kling-o3") == L("%@ (Kling 4.0 only)", L("Middle keyframe")),
+                      "/mid is written with its time, and on another model says it is Kling 4.0's")
                 desk.setPrompt("She turns.", for: "K12")
                 check(KinoPrompt.withoutCommands("/start @K1 She walks. /out @K2") == "She walks. " && KinoPrompt.commands(in: "and/or @K1").isEmpty
                       && KinoPrompt.commands(in: "/hello @K1").isEmpty, "Only a / starting a word with a role's name is a command")

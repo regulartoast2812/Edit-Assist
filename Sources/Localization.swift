@@ -558,6 +558,7 @@ enum Vietnamese {
         "Give each file a **role**, write what happens, and Kino shows what he would send": "Chọn **vai trò** cho từng file, viết chuyện gì xảy ra, và Kino cho thấy sẽ gửi gì",
         "In %@": "Trong %@",
         "Kino": "Kino",
+        "%@ (Kling 4.0 only)": "%@ (chỉ Kling 4.0)",
         "Middle keyframe": "Khung giữa",
         "Mid": "Giữa",
         "The video passes through this exact picture at the time you give: /mid 2s (Kling 4.0)": "Video đi qua đúng bức ảnh này ở thời điểm bạn ghi: /mid 2s (Kling 4.0)",

@@ -1112,9 +1112,9 @@ struct KinoFileTile: View {
                 .overlay(alignment: .bottom) {
                     // Its role when you gave one; else, on hover, a way to give one (or type /start @ in the prompt).
                     if given || hovering { Menu {
-                        ForEach(KinoRole.choices(file.kind, model: model)) { option in
+                        ForEach(KinoRole.choices(file.kind)) { option in
                             Button { choose(option) } label: {
-                                if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
+                                if given && option == role { Label(option.title(on: model), systemImage: "checkmark") } else { Text(option.title(on: model)) }
                             }
                         }
                         if given { Divider(); Button(L("No role")) { choose(nil) } }
@@ -1142,9 +1142,9 @@ struct KinoFileTile: View {
         .onChange(of: targeted) { _, inside in hovered(inside) }
         .help(file.url.lastPathComponent)
         .contextMenu {
-            ForEach(KinoRole.choices(file.kind, model: model)) { option in
+            ForEach(KinoRole.choices(file.kind)) { option in
                 Button { choose(option) } label: {
-                    if given && option == role { Label(L(option.title), systemImage: "checkmark") } else { Text(L(option.title)) }
+                    if given && option == role { Label(option.title(on: model), systemImage: "checkmark") } else { Text(option.title(on: model)) }
                 }
             }
             if given { Button(L("No role")) { choose(nil) } }
@@ -1788,9 +1788,10 @@ struct KinoPromptView: NSViewRepresentable {
                 let words = query.text.lowercased()
                 let kinds = Set(parent.tags.map(\.kind))
                 let found = KinoRole.allCases.filter { role in
-                    kinds.contains { KinoRole.choices($0, model: parent.model).contains(role) } && (words.isEmpty || role.commandWords.contains { $0.hasPrefix(words) })
+                    kinds.contains { KinoRole.choices($0).contains(role) } && (words.isEmpty || role.commandWords.contains { $0.hasPrefix(words) })
                 }
-                show(found.map { KinoTagPicker.Item(id: "/" + $0.command, title: L($0.title), detail: $0 == .middle ? "/mid 2s @…" : "/" + $0.command,
+                // Every role is listed; /mid says it is Kling 4.0's on another model, where its picture goes as a look.
+                show(found.map { KinoTagPicker.Item(id: "/" + $0.command, title: $0.title(on: parent.model), detail: $0 == .middle ? "/mid 2s @…" : "/" + $0.command,
                                                     tint: $0.tint, icon: $0.icon) }, at: query.range, in: view)
             } else {
                 dismissed = nil

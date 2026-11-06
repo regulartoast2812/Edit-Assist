@@ -40,8 +40,9 @@ a file is for, type **/**, pick the role, then pick the file. `/start` **Return*
 - The / list only shows roles the shot's files can take: with only pictures, there is no /motion or /edit.
 - Other words work too: `/startframe`, `/first`, `/middle`, `/keyframe`, `/endframe`, `/last`, `/ref`, `/camera`, `/follow`, `/skip`.
 - **Keyframes take their time first:** `/mid` **Return**, type `2s @`, pick the picture: `[Mid 2s · K3]`. Kling's API has no
-  time field for a middle frame, so Kino writes the time into the prompt it sends. Only Kling 4.0 has keyframes, so
-  /mid is offered only there; on another model the picture goes as a look and the card says so.
+  time field for a middle frame, so Kino writes the time into the prompt it sends. Only Kling 4.0 has keyframes: on
+  another model /mid is listed as "Middle keyframe (Kling 4.0 only)", and its picture goes as a look (the card says
+  so). Switch the shot to Kling 4.0 for a real keyframe.
 
 **Start frame or look?** This is the choice people get wrong most often. A start or end frame is pixels on the timeline:
 the video begins or ends on exactly that picture. A look only lends its traits. Use a start frame when the shot must open

@@ -618,8 +618,8 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
     }
     /// The role a command calls, by any of its words.
     static func commanded(_ word: String) -> KinoRole? { allCases.first { $0.commandWords.contains(word.lowercased()) } }
-    /// The roles a file can have with this model: only Kling 4.0 takes middle keyframes.
-    static func choices(_ kind: KinoKind, model: String) -> [KinoRole] { choices(kind).filter { $0 != .middle || model == "kling-4.0" } }
+    /// The role's name, with what holds it back on this model: only Kling 4.0 takes middle keyframes.
+    func title(on model: String) -> String { self == .middle && model != "kling-4.0" ? L("%@ (Kling 4.0 only)", L(title)) : L(title) }
     static func choices(_ kind: KinoKind) -> [KinoRole] {
         switch kind {
         case .image: [.look, .start, .middle, .end, .unused]
