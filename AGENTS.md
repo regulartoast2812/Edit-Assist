@@ -183,7 +183,7 @@ chat are proposals you queue with a press, since GPT Image costs credit. The CTA
 product pictures go in as `PICTUREn` placeholders Pix swaps for the picture. Schematics and pictures come from GPT Image
 (`OpenAIImages`; the OpenAI key lives in the Keychain; the newest full gpt-image model the key lists). Made files go to
 Downloads, named after the project and script, never over an earlier one. Briefs and Pix's jobs and chat are kept per
-script in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
+script (each script's chat with a history: New chat keeps the one before in `PixBoard.past`, reopened or deleted from the list; his chat is a column on the side of his page, as Basil's is) in `don/` and `pix/` beside projects.json, never in it. Don and Pix think with `HelperBrain`: the Claude CLI by
 default, Codex as the backup you pick in Pix's chat, one call with no tools and a strict JSON schema each; the highlight
 runs keep their own Assistant CLI. A job cut off by quitting is marked failed, never made again by itself. **Kino** (AI videos with Kling and Higgsfield, from your media and prompts; `KinoDesk`, `Sources/KinoDesk.swift`)
 works on a batch per project that starts empty: he reads only the files you drop or add, never a folder by himself. Files
