@@ -18,6 +18,8 @@ final class KinoDesk: ObservableObject {
     /// Files of the batch no longer where they were put in (moved, renamed or deleted in Finder).
     @Published private(set) var missing: Set<String> = []
     @Published var selected: String?
+    /// The take playing in the outputs.
+    @Published private(set) var watching: String?
     @Published private(set) var hasKling = KinoKeys.kling != nil
     @Published private(set) var hasHiggsfield = KinoKeys.higgsfield != nil
     private var project: UUID?
@@ -85,23 +87,61 @@ final class KinoDesk: ObservableObject {
     }
     func missingKey(_ codes: [String]) -> Bool { !missingKeys(codes).isEmpty }
 
+    /// The takes, the newest first.
+    var takes: [KinoTake] { batch.takes.reversed() }
+    /// A shot's takes in the order they were made: take 1 first.
+    func takes(of code: String) -> [KinoTake] { batch.takes.filter { $0.shot == code } }
+    /// Take 1, 2… of its shot.
+    func number(of take: KinoTake) -> Int? { take.shot.flatMap { code in takes(of: code).firstIndex(of: take).map { $0 + 1 } } }
+
+    /// Finished videos you drop on the outputs, until Kino makes his own: each goes with the shot it is dropped on, or the
+    /// shot its name has (K3.1 O1 with K3) when there is one. A video already there keeps its place.
+    func addTakes(_ urls: [URL], to shot: String? = nil) {
+        for url in urls.flatMap(Self.expand) where KinoKind(url) == .video {
+            let path = url.standardizedFileURL.path
+            let code = shot ?? KinoCode.parse(url.deletingPathExtension().lastPathComponent).map(\.shot).flatMap { batch.order.contains($0) ? $0 : nil }
+            if let index = batch.takes.firstIndex(where: { $0.path == path }) {
+                if let shot { batch.takes[index].shot = shot }
+                continue
+            }
+            batch.takes.append(KinoTake(path: path, shot: code, model: code.map { settings($0).model }))
+        }
+        save()
+        refresh()
+    }
+    /// Plays a take in the outputs; it counts as watched.
+    func watch(_ path: String?) {
+        watching = path
+        guard let path, let index = batch.takes.firstIndex(where: { $0.path == path }), !batch.takes[index].seen else { return }
+        batch.takes[index].seen = true
+        save()
+    }
+    /// Takes a video out of the outputs; the file itself is not touched.
+    func removeTake(_ path: String) {
+        batch.takes.removeAll { $0.path == path }
+        if watching == path { watching = nil }
+        save()
+    }
+
     /// The project's batch, when the page opens or the project changes.
     func open(project id: UUID) {
         if id != project {
             project = id
             batch = (try? JSONDecoder().decode(KinoBatch.self, from: Data(contentsOf: Self.file(id)))) ?? KinoBatch()
             selected = batch.order.first
+            watching = nil
         }
         refresh()
     }
 
     /// Which files are still there, then the lengths of the videos and sounds not read yet.
     func refresh() {
-        missing = Set(batch.media.filter { !FileManager.default.fileExists(atPath: $0) })
+        missing = Set((batch.media + batch.takes.map(\.path)).filter { !FileManager.default.fileExists(atPath: $0) })
         if selected.map(batch.order.contains) != true { selected = batch.order.first }
         Task {
-            for file in media where file.kind != .image && durations[file.id] == nil && !missing.contains(file.id) {
-                if let time = try? await AVURLAsset(url: file.url).load(.duration), time.isNumeric { durations[file.id] = time.seconds }
+            let timed = media.filter { $0.kind != .image }.map(\.url) + batch.takes.map { URL(fileURLWithPath: $0.path) }
+            for url in timed where durations[url.path] == nil && !missing.contains(url.path) {
+                if let time = try? await AVURLAsset(url: url).load(.duration), time.isNumeric { durations[url.path] = time.seconds }
             }
         }
     }
@@ -154,6 +194,7 @@ final class KinoDesk: ObservableObject {
     func removeShot(_ code: String) {
         batch.order.removeAll { $0 == code }
         batch.shots[code] = nil
+        for index in batch.takes.indices where batch.takes[index].shot == code { batch.takes[index].shot = nil }
         if selected == code { selected = batch.order.first }
         save()
     }
@@ -345,14 +386,15 @@ enum KinoSort: String, CaseIterable {
 }
 
 /// One project's batch: the media you put in, the shots in order, the words said in every shot (the product's facts, the
-/// look), the settings every shot starts from, and each shot's files, prompt and changes. Batches saved before
-/// 2026-11-05 had a folder instead of media; they open empty.
+/// look), the settings every shot starts from, each shot's files, prompt and changes, and the takes in the order they
+/// came. Batches saved before 2026-11-05 had a folder instead of media; they open empty.
 struct KinoBatch: Codable, Equatable {
     var media: [String] = []
     var order: [String] = []
     var shared = ""
     var settings = KinoSettings()
     var shots: [String: KinoShot] = [:]
+    var takes: [KinoTake] = []
     init() {}
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -361,7 +403,18 @@ struct KinoBatch: Codable, Equatable {
         shared = try values.decodeIfPresent(String.self, forKey: .shared) ?? ""
         settings = try values.decodeIfPresent(KinoSettings.self, forKey: .settings) ?? KinoSettings()
         shots = try values.decodeIfPresent([String: KinoShot].self, forKey: .shots) ?? [:]
+        takes = try values.decodeIfPresent([KinoTake].self, forKey: .takes) ?? []
     }
+}
+
+/// A video a shot made, to watch in the outputs: the shot (nil when it is in none, or its shot was removed), the model
+/// it was made with, and whether you have watched it.
+struct KinoTake: Codable, Equatable, Identifiable {
+    var path: String
+    var shot: String?
+    var model: String?
+    var seen = false
+    var id: String { path }
 }
 
 struct KinoShot: Codable, Equatable {

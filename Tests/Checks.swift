@@ -1475,6 +1475,15 @@ struct Checks {
                       && desk.media(sorted: .added).first?.name == "K4.1"
                       && desk.media(sorted: .shot).map(\.name).prefix(3) == ["clip", "hero", "K1.1"],
                       "The media sorts by name as a person reads it (K2 before K10, K12 before K12 Size and K12.1), by shot, or newest first")
+                let inMedia = desk.media.count
+                desk.addTakes([at("K12.1 O1.mp4"), at("K12 O2.mp4"), at("K77 O1.mp4"), at("still.png")])
+                desk.addTakes([at("final.mp4")], to: "K4")
+                let outputs = desk.takes(of: "K12")
+                check(outputs.map { desk.number(of: $0) } == [1, 2] && desk.takes.first?.shot == "K4" && desk.takes.count == 4
+                      && desk.takes.first { $0.path.hasSuffix("K77 O1.mp4") }?.shot == nil && desk.media.count == inMedia,
+                      "Videos dropped on the outputs go with the shot their name has (K12.1 O1 with K12) or the one dropped on, numbered in order; they stay out of the media")
+                desk.watch(outputs[1].path)
+                check(desk.takes(of: "K12")[1].seen && !desk.takes(of: "K12")[0].seen, "A take played counts as watched")
             }
             func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
                 KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
