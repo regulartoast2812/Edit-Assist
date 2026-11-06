@@ -733,6 +733,8 @@ final class Store: ObservableObject {
     let studio = Studio()
     /// Penny: the company's Grafana, read with your sign-in.
     let penny = PennyDesk()
+    /// Basil: your recipes (personal, not Crossian's), from YouTube into your Obsidian vault.
+    let basil = BasilDesk()
     var task: Task<Void, Never>?
     private var detectTimer: Timer?
     private var detecting = false
