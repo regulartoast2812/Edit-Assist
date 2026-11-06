@@ -24,6 +24,7 @@ a file is for, type **/**, pick the role, then pick the file. `/start` **Return*
 | Command | Role | What the model does with the file | Files |
 |---|---|---|---|
 | `/start` | Start frame | The video opens on these exact pixels | picture |
+| `/mid 2s` | Middle keyframe | The video passes through these exact pixels at that time (Kling 4.0 only) | picture |
 | `/end` | End frame | The video lands on these exact pixels | picture |
 | `/look` | Look | Takes its look (the product, a person, a place, a style), not its exact picture | picture |
 | `/motion` | Camera and motion | Follows its camera path and pacing; its people, talking and place are not copied | video |
@@ -37,7 +38,10 @@ a file is for, type **/**, pick the role, then pick the file. `/start` **Return*
 - Commands are Kino's, not words for the model: they are never sent.
 - A shot has one start frame and one end frame. Giving the role to another picture takes it from the first.
 - The / list only shows roles the shot's files can take: with only pictures, there is no /motion or /edit.
-- Other words work too: `/startframe`, `/first`, `/endframe`, `/last`, `/ref`, `/camera`, `/follow`, `/skip`.
+- Other words work too: `/startframe`, `/first`, `/middle`, `/keyframe`, `/endframe`, `/last`, `/ref`, `/camera`, `/follow`, `/skip`.
+- **Keyframes take their time first:** `/mid` **Return**, type `2s @`, pick the picture: `[Mid 2s · K3]`. Kling's API has no
+  time field for a middle frame, so Kino writes the time into the prompt it sends. Only Kling 4.0 has keyframes, so
+  /mid is offered only there; on another model the picture goes as a look and the card says so.
 
 **Start frame or look?** This is the choice people get wrong most often. A start or end frame is pixels on the timeline:
 the video begins or ends on exactly that picture. A look only lends its traits. Use a start frame when the shot must open
@@ -49,7 +53,7 @@ on your photo; use a look when the product or person should appear but the frami
 |---|---|---|---|---|
 | Start frame | ✓ | ✓ (no video in the shot) | ✓ | `/start` |
 | End frame | ✓ | ✓ (no video in the shot) | ✓ | `/end` |
-| Middle keyframes, at set times | ✓ up to 10 | – | – | not yet |
+| Middle keyframes, at set times | ✓ (10 frames in all) | – | – | `/mid 2s` |
 | Look pictures | ✓ up to 10 | ✓ up to 7 (4 with a video) | ✓ up to 30 | `/look` |
 | Motion or camera video | ✓ up to 5 (30 s in all) | ✓ 1 | ✓ up to 10 | `/motion` |
 | Video to edit | ✓ 1 | ✓ 1 | ✓ 1 | `/edit` |

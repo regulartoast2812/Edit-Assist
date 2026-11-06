@@ -80,11 +80,21 @@ final class KinoDesk: ObservableObject {
         }
         return given
     }
+    /// When each keyframe comes, by tag, as its command says (/mid 2s @K3).
+    func keyframes(_ code: String) -> [String: Double] {
+        var times: [String: Double] = [:]
+        let files = files(in: code)
+        for command in KinoPrompt.commands(in: shot(code).prompt) where command.role == .middle {
+            if let file = files.first(where: { $0.handle.lowercased() == command.handle.lowercased() }) { times[file.handle] = command.seconds }
+        }
+        return times
+    }
     /// Every file's role in the shot: the one you gave, else the usual for its kind (a picture or a video is a reference).
     func roles(_ code: String) -> [String: KinoRole] { KinoRole.all(files(in: code), set: given(code), model: settings(code).model) }
     func role(of file: KinoFile, in code: String) -> KinoRole { roles(code)[file.handle] ?? KinoRole.of(file, shot(code).roles) }
     func plan(_ code: String) -> KinoPlan {
-        var plan = KinoRequest.plan(files: files(in: code), roles: roles(code), prompt: KinoPrompt.withoutCommands(shot(code).prompt), shared: batch.shared,
+        var plan = KinoRequest.plan(files: files(in: code), roles: roles(code), keyframes: keyframes(code),
+                                    prompt: KinoPrompt.withoutCommands(shot(code).prompt), shared: batch.shared,
                                     settings: settings(code), durations: durations)
         for file in files(in: code) where missing.contains(file.id) { plan.problems.insert(L("@%@ is no longer on this Mac", file.handle), at: 0) }
         return plan
@@ -317,7 +327,7 @@ final class KinoDesk: ObservableObject {
             shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, was in
                 handle.lowercased() == tag.lowercased() ? role : role != nil && (role == .start || role == .end) && was == role ? nil : was
             }
-            if let role, !had { shot.prompt = "/" + role.command + " @" + tag + " " + shot.prompt }
+            if let role, !had { shot.prompt = KinoPrompt.written(role, tag) + " " + shot.prompt }
             shot.roles = [:]
         }
     }
@@ -385,8 +395,8 @@ enum KinoSlot: Equatable {
 
     static func all(model: String, files: [KinoFile], roles: [String: KinoRole]) -> [KinoSlot] {
         func of(_ role: KinoRole) -> [KinoFile] { files.filter { KinoRole.of($0, roles) == role } }
-        let starts = of(.start), ends = of(.end), looks = of(.look), motions = of(.motion), edits = of(.edit), sounds = of(.sound)
-        let pictures = starts.count + ends.count + looks.count, videos = motions.count + edits.count
+        let starts = of(.start), middles = of(.middle), ends = of(.end), looks = of(.look), motions = of(.motion), edits = of(.edit), sounds = of(.sound)
+        let pictures = starts.count + middles.count + ends.count + looks.count, videos = motions.count + edits.count
         var room: [KinoRole: Bool]
         switch model {
         case "kling-motion":
@@ -395,7 +405,8 @@ enum KinoSlot: Equatable {
             room = [.start: starts.isEmpty, .end: ends.isEmpty, .look: pictures < 30, .motion: videos < 10, .edit: edits.isEmpty && videos < 10,
                     .sound: sounds.count < 10]
         case "kling-4.0":
-            room = [.start: starts.isEmpty, .end: ends.isEmpty, .look: looks.count < 10, .motion: videos < 5, .edit: edits.isEmpty && videos < 5]
+            room = [.start: starts.isEmpty, .middle: starts.count + middles.count + ends.count < 10, .end: ends.isEmpty, .look: looks.count < 10,
+                    .motion: videos < 5, .edit: edits.isEmpty && videos < 5]
         default:
             let most = videos == 0 ? 7 : 4
             // With its video, Kling O3 takes pictures only as looks: no place for a frame.
@@ -403,7 +414,7 @@ enum KinoSlot: Equatable {
                     .motion: videos == 0, .edit: videos == 0]
         }
         var slots: [KinoSlot] = []
-        let order: [KinoRole] = [.start, .end, .look, .motion, .edit, .sound]
+        let order: [KinoRole] = [.start, .middle, .end, .look, .motion, .edit, .sound]
         for role in order where room[role] != nil {
             slots += of(role).map { .file($0) }
             if room[role] == true { slots.append(.empty(role)) }
@@ -542,12 +553,13 @@ enum KinoKind: String, Codable {
 /// What a file does in its shot. Both services decide from the slot a file is sent in, then from the prompt
 /// (docs/kino/README.md §2); unsaid, "the model will infer how to use it".
 enum KinoRole: String, Codable, CaseIterable, Identifiable {
-    case look, start, end, motion, edit, sound, unused
+    case look, start, middle, end, motion, edit, sound, unused
     var id: String { rawValue }
     var title: String {
         switch self {
         case .look: "Look"
         case .start: "Start frame"
+        case .middle: "Middle keyframe"
         case .end: "End frame"
         case .motion: "Camera and motion"
         case .edit: "Video to edit"
@@ -559,6 +571,7 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .look: "Lends its look (the product, a person, a place, a style), not its exact picture"
         case .start: "The video opens on this exact picture"
+        case .middle: "The video passes through this exact picture at the time you give: /mid 2s (Kling 4.0)"
         case .end: "The video ends on this exact picture"
         case .motion: "Its camera path and pacing are followed; its people, talking and place are not"
         case .edit: "Changed as the prompt says; everything else is kept"
@@ -570,6 +583,7 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .look: "eye"
         case .start: "backward.end.fill"
+        case .middle: "smallcircle.filled.circle"
         case .end: "forward.end.fill"
         case .motion: "camera.fill"
         case .edit: "wand.and.stars"
@@ -582,6 +596,7 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .look: "look"
         case .start: "start"
+        case .middle: "mid"
         case .end: "end"
         case .motion: "motion"
         case .edit: "edit"
@@ -593,6 +608,7 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .look: ["look", "ref", "reference"]
         case .start: ["start", "startframe", "first", "firstframe"]
+        case .middle: ["mid", "middle", "midframe", "keyframe", "key"]
         case .end: ["end", "endframe", "last", "lastframe"]
         case .motion: ["motion", "camera", "follow"]
         case .edit: ["edit"]
@@ -602,9 +618,11 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
     }
     /// The role a command calls, by any of its words.
     static func commanded(_ word: String) -> KinoRole? { allCases.first { $0.commandWords.contains(word.lowercased()) } }
+    /// The roles a file can have with this model: only Kling 4.0 takes middle keyframes.
+    static func choices(_ kind: KinoKind, model: String) -> [KinoRole] { choices(kind).filter { $0 != .middle || model == "kling-4.0" } }
     static func choices(_ kind: KinoKind) -> [KinoRole] {
         switch kind {
-        case .image: [.look, .start, .end, .unused]
+        case .image: [.look, .start, .middle, .end, .unused]
         case .video: [.motion, .edit, .unused]
         case .audio: [.sound, .unused]
         }
@@ -715,15 +733,23 @@ enum KinoPrompt {
         }
     }
 
-    private static let command = try! NSRegularExpression(pattern: #"(?<![^\s])/([A-Za-z]+)[ \t]*@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"#)
+    private static let command = try! NSRegularExpression(
+        pattern: #"(?<![^\s])/([A-Za-z]+)(?:[ \t]+(\d{1,3}(?:[.,]\d)?)[ \t]?s)?[ \t]*@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"#)
 
-    /// The roles the prompt gives, in order: "/start @K2" makes K2 the start frame. A word that is no command is text.
-    static func commands(in text: String) -> [(range: Range<String.Index>, role: KinoRole, handle: String)] {
+    /// The roles the prompt gives, in order: "/start @K2" makes K2 the start frame; "/mid 2s @K3" makes K3 a keyframe
+    /// 2 s in (the time is kept only for a keyframe). A word that is no command is text.
+    static func commands(in text: String) -> [(range: Range<String.Index>, role: KinoRole, handle: String, seconds: Double?)] {
         command.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
             guard let whole = Range(match.range, in: text), let word = Range(match.range(at: 1), in: text),
-                  let name = Range(match.range(at: 2), in: text), let role = KinoRole.commanded(String(text[word])) else { return nil }
-            return (whole, role, String(text[name]))
+                  let name = Range(match.range(at: 3), in: text), let role = KinoRole.commanded(String(text[word])) else { return nil }
+            let time = Range(match.range(at: 2), in: text).flatMap { Double(text[$0].replacingOccurrences(of: ",", with: ".")) }
+            return (whole, role, String(text[name]), role == .middle ? time : nil)
         }
+    }
+    /// A command as written: "/mid 2s @K3".
+    static func written(_ role: KinoRole, _ handle: String, seconds: Double? = nil) -> String {
+        "/" + role.command + (seconds.map { " " + $0.formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US_POSIX"))) + "s" } ?? "")
+            + " @" + handle
     }
     /// The prompt as the model gets it: the commands are Kino's, not words for the model, so they go (with a space after).
     static func withoutCommands(_ text: String) -> String {
@@ -742,7 +768,7 @@ enum KinoPrompt {
             let role = change(command.handle, command.role)
             guard role != command.role else { continue }
             if let role {
-                result.replaceSubrange(command.range, with: "/" + role.command + " @" + command.handle)
+                result.replaceSubrange(command.range, with: written(role, command.handle, seconds: role == .middle ? command.seconds : nil))
             } else {
                 var range = command.range
                 if range.upperBound < result.endIndex, result[range.upperBound] == " " { range = range.lowerBound..<result.index(after: range.upperBound) }
@@ -825,15 +851,21 @@ struct KinoPlan: Equatable {
 }
 
 enum KinoRequest {
-    static func plan(files: [KinoFile], roles: [String: KinoRole], prompt: String, shared: String, settings: KinoSettings,
-                     durations: [String: Double]) -> KinoPlan {
+    static func plan(files: [KinoFile], roles: [String: KinoRole], keyframes: [String: Double] = [:], prompt: String, shared: String,
+                     settings: KinoSettings, durations: [String: Double]) -> KinoPlan {
         let model = KinoModel.named(settings.model)
         let settings = settings.fitted(to: model)
         var plan = KinoPlan()
         let used = files.filter { KinoRole.of($0, roles) != .unused }
         func with(_ role: KinoRole) -> [KinoFile] { used.filter { KinoRole.of($0, roles) == role } }
-        let looks = with(.look), starts = with(.start), ends = with(.end), motions = with(.motion), edits = with(.edit), sounds = with(.sound)
+        var looks = with(.look)
+        let starts = with(.start), middles = with(.middle), ends = with(.end), motions = with(.motion), edits = with(.edit), sounds = with(.sound)
         func names(_ list: [KinoFile]) -> String { list.map(\.handle).joined(separator: ", ") }
+        // Only Kling 4.0 takes middle keyframes; elsewhere they lend their look.
+        if model.id != "kling-4.0", !middles.isEmpty {
+            plan.notes.append(L("Only Kling 4.0 takes middle keyframes: %@ goes as a look", names(middles)))
+            looks += middles
+        }
         func length(_ file: KinoFile) -> Double? { durations[file.id] }
         func seconds(_ value: Double) -> String { value.formatted(.number.precision(.fractionLength(0...1))) }
         func checkLength(_ list: [KinoFile], _ range: ClosedRange<Double>, _ said: String) {
@@ -870,7 +902,14 @@ enum KinoRequest {
             plan.endpoint = "Kling · /omni-video/kling-4.0"
             let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
             send(starts, as: .start, slot: "first_frame") { _ in "@start" }
+            send(middles, as: .middle, slot: "middle_frame") { "@key" + String($0 + 1) }
             send(ends, as: .end, slot: "last_frame") { _ in "@end" }
+            for file in middles where keyframes[file.handle] == nil {
+                plan.problems.append(L("Say when @%@ comes, as /mid 2s @%@", file.handle, file.handle))
+            }
+            if starts.count + middles.count + ends.count > 10 {
+                plan.problems.append(L("Kling 4.0 takes up to 10 frames (start, middle and end); this shot has %@", starts.count + middles.count + ends.count))
+            }
             send(looks, as: .look, slot: "refer_image") { "@ref" + String(letters[min($0, 25)]) }
             send(motions, as: .motion, slot: "feature_video") { "@motion" + String(letters[min($0, 25)]) }
             send(edits, as: .edit, slot: "base_video") { _ in "@edit" }
@@ -983,7 +1022,7 @@ enum KinoRequest {
                                                                     : L("@%@ is not a file in this shot", tag.handle)
             if !plan.problems.contains(problem) { plan.problems.append(problem) }
         }
-        let lines = sent.map { line($0.role, $0.tag, motionControl: model.id == "kling-motion") }
+        let lines = sent.map { line($0.role, $0.tag, motionControl: model.id == "kling-motion", at: keyframes[$0.file.handle]) }
         let written = [shared, prompt].map { KinoPrompt.replacing($0, { tags[$0.lowercased()] }).trimmingCharacters(in: .whitespacesAndNewlines) }
         // The words every shot shares say what the product is, not what happens in this shot.
         if needsPrompt, written[1].isEmpty { plan.problems.append(L("Write what happens in the shot")) }
@@ -996,9 +1035,13 @@ enum KinoRequest {
 
     /// The line that tells the model what a file is for. A reference video lends its camera and pacing only, so the
     /// talking in most reference clips is not copied (forge.md, job 4).
-    static func line(_ role: KinoRole, _ tag: String, motionControl: Bool = false) -> String {
+    static func line(_ role: KinoRole, _ tag: String, motionControl: Bool = false, at seconds: Double? = nil) -> String {
         let text: String
         switch role {
+        case .middle:
+            // Kling 4.0 has no time field for a middle frame: its guide writes the time in the prompt.
+            let time = seconds.map { $0.formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US_POSIX"))) + " s" }
+            text = "\(tag) is a keyframe: at \(time ?? "its point") the video shows exactly this picture."
         case .look: text = motionControl ? "\(tag) is the person who performs." : "\(tag) is a look reference: keep the appearance of what it shows."
         case .start: text = "\(tag) is the first frame: the video opens on it."
         case .end: text = "\(tag) is the last frame: the video ends on it."

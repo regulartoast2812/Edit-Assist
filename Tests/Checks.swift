@@ -1751,6 +1751,21 @@ struct Checks {
                 check(desk.shot("K12").prompt == "She turns.", "A file taken out of a shot takes its command with it")
                 var old = KinoShot(); old.roles = ["K12.1": .start]
                 check(old.roles.count == 1 && desk.given("K12")["K12.1"] == nil, "Roles kept beside the prompt before are not read: a role is only a command you can see")
+                var four = KinoSettings(); four.model = "kling-4.0"
+                desk.setSettings(four, for: "K12")
+                desk.setPrompt("/start @K12.1 /mid 2.5s @K12.2 /mid @K12-size She turns.", for: "K12")
+                let keyed = desk.plan("K12")
+                check(desk.keyframes("K12") == ["K12.2": 2.5] && desk.given("K12")["K12-size"] == .middle
+                      && keyed.inputs.contains { $0.handle == "K12.2" && $0.slot == "middle_frame" }
+                      && keyed.prompt.contains("at 2.5 s the video shows exactly this picture") && !keyed.prompt.contains("/mid")
+                      && keyed.problems.contains(L("Say when @%@ comes, as /mid 2s @%@", "K12-size", "K12-size")),
+                      "/mid 2.5s @K12.2 sends a Kling 4.0 middle frame with its time written in the prompt; one with no time is asked for it")
+                desk.setSettings(nil, for: "K12")
+                check(desk.plan("K12").notes.contains { $0.hasPrefix(L("Only Kling 4.0 takes middle keyframes: %@ goes as a look", "").prefix(20)) },
+                      "Other models take a middle keyframe as a look, and say so")
+                check(KinoPrompt.written(.middle, "K3", seconds: 2) == "/mid 2s @K3" && KinoRole.choices(.image, model: "kling-o3").contains(.middle) == false,
+                      "/mid is offered only on Kling 4.0, and written with its time")
+                desk.setPrompt("She turns.", for: "K12")
                 check(KinoPrompt.withoutCommands("/start @K1 She walks. /out @K2") == "She walks. " && KinoPrompt.commands(in: "and/or @K1").isEmpty
                       && KinoPrompt.commands(in: "/hello @K1").isEmpty, "Only a / starting a word with a role's name is a command")
                 desk.add([at("K4.png"), at("K4.1.mp4")])
