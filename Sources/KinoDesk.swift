@@ -537,6 +537,31 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         case .unused: "minus.circle"
         }
     }
+    /// Its command in the prompt (/start @K2 makes K2 the start frame), and the other words that call it.
+    var command: String {
+        switch self {
+        case .look: "look"
+        case .start: "start"
+        case .end: "end"
+        case .motion: "motion"
+        case .edit: "edit"
+        case .sound: "sound"
+        case .unused: "out"
+        }
+    }
+    var commandWords: [String] {
+        switch self {
+        case .look: ["look", "ref", "reference"]
+        case .start: ["start", "startframe", "first", "firstframe"]
+        case .end: ["end", "endframe", "last", "lastframe"]
+        case .motion: ["motion", "camera", "follow"]
+        case .edit: ["edit"]
+        case .sound: ["sound", "voice"]
+        case .unused: ["out", "leaveout", "skip"]
+        }
+    }
+    /// The role a command calls, by any of its words.
+    static func commanded(_ word: String) -> KinoRole? { allCases.first { $0.commandWords.contains(word.lowercased()) } }
     static func choices(_ kind: KinoKind) -> [KinoRole] {
         switch kind {
         case .image: [.look, .start, .end, .unused]

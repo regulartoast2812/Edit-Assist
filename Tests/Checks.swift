@@ -1582,6 +1582,9 @@ struct Checks {
                 check(outputs.map { desk.number(of: $0) } == [1, 2] && desk.takes.first?.shot == "K4" && desk.takes.count == 4
                       && desk.takes.first { $0.path.hasSuffix("K77 O1.mp4") }?.shot == nil && desk.media.count == inMedia,
                       "Videos dropped on the outputs go with the shot their name has (K12.1 O1 with K12) or the one dropped on, numbered in order; they stay out of the media")
+                check(KinoRole.commanded("StartFrame") == .start && KinoRole.commanded("last") == .end && KinoRole.commanded("out") == .unused
+                      && KinoRole.commanded("startx") == nil && Set(KinoRole.allCases.map(\.command)).count == KinoRole.allCases.count,
+                      "Each role has its own / command in the prompt, called by its usual words (/startframe is /start)")
                 desk.watch(outputs[1].path)
                 check(desk.takes(of: "K12")[1].seen && !desk.takes(of: "K12")[0].seen, "A take played counts as watched")
             }
