@@ -9,9 +9,9 @@ enum Grafana {
     static let base = URL(string: "https://grafana.selless.com/")!
     private static let service = "Edit Assist Grafana"
     /// The dashboards Penny reads besides your starred ones. Retail Operations V3.5 first, the one you read: it gathers
-    /// every team's sales and ads (Facebook, Google, Pinterest…). Then PMKT's operations and daily report and the Facebook
-    /// campaign breakdown.
-    static let known = ["NCvK5_rVz", "H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
+    /// every team's sales and ads (Facebook, Google, Pinterest…). Then the Facebook campaigns (each campaign's sales and
+    /// spend, and by hour), PMKT's operations and daily report and the Facebook campaign breakdown.
+    static let known = ["NCvK5_rVz", "aevqvkupwlkowe", "H08d5_r4k", "de9g9h30i79xcb", "IiWe9FSIz"]
 
     /// The grafana_session cookie's value in the login Keychain; nil removes it.
     static var session: String? {
@@ -169,6 +169,8 @@ final class PennyDesk: ObservableObject {
     @Published private(set) var exploring = false
     @Published private(set) var reading = false
     @Published private(set) var failure: String?
+    /// Penny's own copy of the ads' numbers by product, kept up to date while you are signed in.
+    let ledger = PennyLedger()
     private var sources: [Grafana.Source]
     /// Your, your team's and the company's timezone in Grafana, in that order (nil when not set).
     private var zones: [String?]
@@ -181,6 +183,8 @@ final class PennyDesk: ObservableObject {
         zones = Self.zones(in: Self.folder)
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.folder.appendingPathComponent("dashboards"), includingPropertiesForKeys: nil)) ?? []
         boards = Self.ordered(files.filter { $0.pathExtension == "json" }.compactMap { (try? Data(contentsOf: $0)).flatMap(Grafana.dashboard(from:)) })
+        ledger.onSignedOut = { [weak self] in self?.signOut() }
+        if Grafana.session != nil { ledger.start() }
     }
 
     /// The timezone Grafana settled on for you first (what its own page starts with), then yours, your team's, the
@@ -226,10 +230,12 @@ final class PennyDesk: ObservableObject {
     func signedIn(session: String) {
         Grafana.session = session
         check()
+        ledger.start()
     }
 
     func signOut() {
         Grafana.session = nil
+        ledger.stop()
         state = .signedOut; dashboards = []; board = nil
     }
 
