@@ -1412,6 +1412,17 @@ struct Checks {
             let back = try? JSONDecoder().decode([Kitchen.Saved].self, from: JSONEncoder().encode([kept]))
             check(back?.first?.video.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
                   "A saved video is kept in the app, unwritten until you ask")
+            let old = Date(timeIntervalSince1970: 1_000_000)
+            let first = Kitchen.Conversation(messages: [Kitchen.Message(fromBasil: true, text: "Hi"), Kitchen.Message(fromBasil: false, text: "Quick pho for two\nwith beef")], updated: old)
+            let second = Kitchen.Conversation(messages: [Kitchen.Message(fromBasil: false, text: String(repeating: "adobo ", count: 20))], updated: old.addingTimeInterval(60))
+            check(first.title == "Quick pho for two" && second.title.count == 58 && second.title.hasSuffix("…") && Kitchen.Conversation().title == "",
+                  "A chat is titled by your first message")
+            check(Kitchen.find("", in: [first, second]).map(\.id) == [second.id, first.id] && Kitchen.find("BEEF", in: [first, second]).map(\.id) == [first.id],
+                  "Chats list newest first and are found by any message's words")
+            check(Kitchen.ago(old, now: old.addingTimeInterval(30)) == "now" && Kitchen.ago(old, now: old.addingTimeInterval(8 * 60)) == "8m"
+                  && Kitchen.ago(old, now: old.addingTimeInterval(3 * 3600)) == "3h" && Kitchen.ago(old, now: old.addingTimeInterval(2 * 86_400)) == "2d"
+                  && Kitchen.ago(old, now: old.addingTimeInterval(15 * 86_400)) == "2w",
+                  "Each chat shows how long ago it was")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).

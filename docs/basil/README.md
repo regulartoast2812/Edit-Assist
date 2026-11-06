@@ -38,7 +38,8 @@ touches projects, Premiere, Grafana or any Crossian account.
    (`Kitchen.named`, at most 5), which the desk does and hands back in the next call (`Kitchen.chatPrompt`); the last
    call must answer. Videos it lists in `show` appear with the answer as cards (Write recipe, watch). The prompt carries
    the notes list (title, status, cuisine, tags), the last 20 messages and the videos shown last. Saved in
-   `basil/chat.json`. Search, chat and saving videos need no folder; it is asked for when a recipe is first written.
+   `basil/chats.json` as a history of conversations (`Kitchen.Conversation`: titled by the first message, listed
+   newest first with `Kitchen.ago`, searched with `Kitchen.find`; New chat keeps the old one). Search, chat and saving videos need no folder; it is asked for when a recipe is first written.
 7. **Saving and picks.** Searches add "recipe" unless the words already ask for cooking (`Kitchen.recipeSearch`).
    Saving a video (its Save button, or dragging it onto the save area right of the results) keeps it in the app to
    review (`Kitchen.Saved`, `basil/saved.json`): nothing is written and no vault is needed. **Pick for me** searches,

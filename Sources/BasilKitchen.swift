@@ -360,6 +360,41 @@ enum Kitchen {
         var date = Date()
     }
 
+    /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
+    struct Conversation: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var messages: [Message] = []
+        var created = Date()
+        var updated = Date()
+
+        var title: String {
+            let first = messages.first { !$0.fromBasil }?.text ?? ""
+            let line = first.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !line.isEmpty else { return "" }
+            return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line
+        }
+    }
+
+    /// The conversations with your words in their title or any message, newest first.
+    static func find(_ words: String, in conversations: [Conversation]) -> [Conversation] {
+        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        return conversations.filter { words.isEmpty || $0.title.localizedCaseInsensitiveContains(words) || $0.messages.contains { $0.text.localizedCaseInsensitiveContains(words) } }
+            .sorted { $0.updated > $1.updated }
+    }
+
+    /// How long ago, as the list shows it: now, 8m, 1h, 3d, 2w, then the date.
+    static func ago(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60: return "now"
+        case ..<3600: return "\(Int(seconds / 60))m"
+        case ..<86_400: return "\(Int(seconds / 3600))h"
+        case ..<(7 * 86_400): return "\(Int(seconds / 86_400))d"
+        case ..<(35 * 86_400): return "\(Int(seconds / (7 * 86_400)))w"
+        default: return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+
     struct Reply: Equatable {
         var text = "", youtube = ""
         var notes: [String] = [], show: [String] = []

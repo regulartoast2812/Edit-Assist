@@ -703,6 +703,12 @@ enum Vietnamese {
         // Basil, the recipe helper.
         "Recipe helper": "Trợ lý công thức nấu ăn",
         "Chat": "Trò chuyện",
+        "New chat": "Cuộc trò chuyện mới",
+        "Search chats": "Tìm cuộc trò chuyện",
+        "Delete chat": "Xóa cuộc trò chuyện",
+        "Your chats with Basil are kept here.": "Các cuộc trò chuyện với Basil được lưu ở đây.",
+        "No chat has these words.": "Không có cuộc trò chuyện nào chứa những từ này.",
+        "now": "vừa xong",
         "Basil searches recipes for your words and saves the real recipe videos worth reviewing (up to 5)": "Basil tìm công thức theo từ khóa của bạn và lưu những video công thức đáng xem (tối đa 5)",
         "Write all (%@)": "Viết tất cả (%@)",
         "Written: %@": "Đã viết: %@",

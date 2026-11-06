@@ -51,6 +51,7 @@ struct BasilPage: View {
     @AppStorage("basilTab") private var tab = "chat"
     @State private var draft = ""
     @State private var dropping = false
+    @State private var findChat = ""
     @State private var words = ""
     @State private var search = ""
     @State private var filter = ""
@@ -97,19 +98,63 @@ struct BasilPage: View {
 
     // MARK: Chat
 
-    @ViewBuilder var chat: some View {
-        HStack(spacing: 6) {
-            Text(md: L("Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to."))
-                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            if !desk.chat.isEmpty { Button(L("Clear the chat")) { desk.clearChat() }.buttonStyle(.link).font(.system(size: 10)).disabled(desk.thinking) }
+    var chat: some View {
+        HStack(alignment: .top, spacing: 14) {
+            history.frame(width: 230)
+            VStack(alignment: .leading, spacing: 10) { conversation }.frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Past conversations, newest first, as Claude Code lists its sessions: titled by your first message, with how long ago.
+    var history: some View {
+        let shown = Kitchen.find(findChat, in: desk.conversations)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button { desk.newChat() } label: { Label(L("New chat"), systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading) }
+                .controlSize(.small).disabled(desk.current == nil)
+            TextField(L("Search chats"), text: $findChat).textFieldStyle(.roundedBorder).controlSize(.small)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(shown) { conversation in
+                        let open = conversation.id == desk.current
+                        Button { desk.current = conversation.id } label: {
+                            HStack(spacing: 6) {
+                                Text(conversation.title.isEmpty ? L("New chat") : conversation.title)
+                                    .font(.system(size: 11, weight: open ? .semibold : .regular)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                if desk.thinkingIn == conversation.id { ProgressView().controlSize(.mini) }
+                                Text(L(Kitchen.ago(conversation.updated))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(open ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(L("Delete chat"), role: .destructive) { desk.delete(conversation.id) }.disabled(desk.thinkingIn == conversation.id)
+                        }
+                    }
+                }
+            }.frame(maxHeight: 560)
+            if desk.conversations.isEmpty {
+                Text(L("Your chats with Basil are kept here.")).font(.system(size: 10)).foregroundStyle(.secondary)
+            } else if shown.isEmpty {
+                Text(L("No chat has these words.")).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    @ViewBuilder var conversation: some View {
+        Text(md: L("Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to."))
+            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         if HelperBrain.provider.executable == nil { status(false, L("%@ CLI is not installed on this Mac.", HelperBrain.provider.rawValue)) }
+        let answering = desk.thinkingIn != nil && desk.thinkingIn == desk.current
         ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(desk.chat) { message($0) }
-                    if desk.thinking {
+                    if answering {
                         HStack(spacing: 8) {
                             PixelBasil(pixel: 1.25, busyUntil: .distantFuture).frame(width: 22)
                             Text(L("Basil is thinking…")).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -119,8 +164,9 @@ struct BasilPage: View {
             }
             .frame(minHeight: desk.chat.isEmpty ? 0 : 220, maxHeight: 560)
             .onAppear { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
+            .onChange(of: desk.current) { _, _ in reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
-            .onChange(of: desk.thinking) { _, thinking in if thinking { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
+            .onChange(of: answering) { _, answering in if answering { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
         }
         HStack(alignment: .bottom, spacing: 8) {
             TextField(L("Message Basil"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)

@@ -16,9 +16,15 @@ import Security
     @Published var failure: String?
     /// The last note written, to open.
     @Published private(set) var written: URL?
-    /// The chat with him, kept in basil/chat.json beside projects.json.
-    @Published private(set) var chat: [Kitchen.Message] = []
-    @Published private(set) var thinking = false
+    /// Every conversation with him, kept in basil/chats.json beside projects.json.
+    @Published private(set) var conversations: [Kitchen.Conversation] = []
+    /// The one open; nil is a new chat, made when you send its first message.
+    @Published var current: UUID?
+    /// The conversation he is answering in.
+    @Published private(set) var thinkingIn: UUID?
+    var thinking: Bool { thinkingIn != nil }
+    /// The open conversation's messages.
+    var chat: [Kitchen.Message] { conversations.first { $0.id == current }?.messages ?? [] }
     /// The videos you saved to review (dropped on the save area, or Basil's picks), newest first; kept in basil/saved.json.
     @Published private(set) var saved: [Kitchen.Saved] = []
     /// Why writing a saved video's recipe failed, by video.
@@ -32,13 +38,21 @@ import Security
 
     init() {
         folder = UserDefaults.standard.string(forKey: "basilFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
-        chat = (try? Data(contentsOf: Self.chatFile)).flatMap { try? JSONDecoder().decode([Kitchen.Message].self, from: $0) } ?? []
+        conversations = (try? Data(contentsOf: Self.chatsFile)).flatMap { try? JSONDecoder().decode([Kitchen.Conversation].self, from: $0) } ?? []
+        // The single chat kept before there was a history becomes its first conversation.
+        if conversations.isEmpty, let old = (try? Data(contentsOf: Self.oldChatFile)).flatMap({ try? JSONDecoder().decode([Kitchen.Message].self, from: $0) }), !old.isEmpty {
+            conversations = [Kitchen.Conversation(messages: old, created: old.first?.date ?? Date(), updated: old.last?.date ?? Date())]
+            saveChats()
+            try? FileManager.default.removeItem(at: Self.oldChatFile)
+        }
+        current = conversations.max { $0.updated < $1.updated }?.id
         saved = (try? Data(contentsOf: Self.savedFile)).flatMap { try? JSONDecoder().decode([Kitchen.Saved].self, from: $0) } ?? []
     }
 
     nonisolated static var savedFile: URL { Studio.folder.appendingPathComponent("basil/saved.json") }
 
-    nonisolated static var chatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
+    nonisolated static var chatsFile: URL { Studio.folder.appendingPathComponent("basil/chats.json") }
+    nonisolated static var oldChatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
 
     // MARK: Key and folder
 
@@ -105,10 +119,14 @@ import Security
     func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !thinking else { return }
-        chat.append(Kitchen.Message(fromBasil: false, text: text)); saveChat()
-        thinking = true; failure = nil
+        let id = current ?? UUID()
+        if current == nil { conversations.append(Kitchen.Conversation(id: id)); current = id }
+        append(Kitchen.Message(fromBasil: false, text: text), to: id)
+        thinkingIn = id; failure = nil
         Task {
-            defer { thinking = false; saveChat() }
+            defer { thinkingIn = nil }
+            // The conversation asked in, even if you open another meanwhile.
+            var chat: [Kitchen.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Kitchen.Video]?, searched = "", read: [Kitchen.Entry] = [], texts: [(title: String, text: String)] = []
             do {
                 for round in 0 ..< 3 {
@@ -129,20 +147,35 @@ import Security
                     }
                     if looked { continue }
                     let shown = reply.show.compactMap { id in found?.first { $0.id == id } ?? chat.last { $0.fromBasil && !$0.videos.isEmpty }?.videos.first { $0.id == id } }
-                    chat.append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
-                                                videos: Array(shown.prefix(6)), notes: read.map(\.file.path)))
+                    append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
+                                           videos: Array(shown.prefix(6)), notes: read.map(\.file.path)), to: id)
                     return
                 }
             } catch { failure = describe(error) }
         }
     }
 
-    func clearChat() { chat = []; saveChat() }
+    /// A new, empty chat; the one you were in stays in the history.
+    func newChat() { current = nil }
 
-    private func saveChat() {
-        let file = Self.chatFile
+    func delete(_ id: UUID) {
+        guard thinkingIn != id else { return }
+        conversations.removeAll { $0.id == id }
+        if current == id { current = conversations.max { $0.updated < $1.updated }?.id }
+        saveChats()
+    }
+
+    private func append(_ message: Kitchen.Message, to id: UUID) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].messages.append(message)
+        conversations[index].updated = message.date
+        saveChats()
+    }
+
+    private func saveChats() {
+        let file = Self.chatsFile
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(chat).write(to: file, options: .atomic)
+        try? JSONEncoder().encode(conversations).write(to: file, options: .atomic)
     }
 
     // MARK: YouTube
@@ -179,7 +212,7 @@ import Security
 
     /// A video dragged onto the save area, by its id: from the results or the chat.
     func save(id: String) {
-        guard let video = results.first(where: { $0.id == id }) ?? chat.lazy.flatMap(\.videos).first(where: { $0.id == id }) else { return }
+        guard let video = results.first(where: { $0.id == id }) ?? conversations.lazy.flatMap(\.messages).flatMap(\.videos).first(where: { $0.id == id }) else { return }
         save(video)
     }
 
