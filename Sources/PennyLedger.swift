@@ -619,7 +619,7 @@ enum Ledger {
         // The hours, as a media buyer reads them: breakeven, where the budget went, what to cut and where to put more.
         let reads = hourReads(days, profit: profit)
         lines.append(profit.measured
-                     ? L("Breakeven ROAS **%@** from CBH: the product keeps %@ of revenue before ads; profitable from %@ (CBH 5%%)", ratio(profit.breakeven), percent(profit.kept), ratio(profit.profitable))
+                     ? L("Breakeven ROAS **%@** from CBH: the product keeps %@ of revenue before ads; profitable from %@ (CBH 5%)", ratio(profit.breakeven), percent(profit.kept), ratio(profit.profitable))
                      : L("Breakeven ROAS **%@**, the usual line: no CBH copied for these days yet", ratio(profit.breakeven)))
         let parts = efficiency(reads, profit: profit), spent = parts.total.spent, revenue = parts.total.revenue
         if spent > 0, !parts.losing.hours.isEmpty {

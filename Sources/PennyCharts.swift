@@ -34,10 +34,10 @@ enum PennyStyle {
 
     /// Dollars as an axis writes them: $950, $1.2K, $3.4M.
     static func short(_ value: Double) -> String {
-        let size = abs(value)
-        if size >= 1_000_000 { return String(format: "$%.1fM", value / 1_000_000) }
-        if size >= 1000 { return String(format: size >= 10000 ? "$%.0fK" : "$%.1fK", value / 1000) }
-        return String(format: "$%.0f", value)
+        let size = abs(value), sign = value < 0 ? "-" : ""
+        if size >= 1_000_000 { return sign + String(format: "$%.1fM", size / 1_000_000) }
+        if size >= 1000 { return sign + String(format: size >= 10000 ? "$%.0fK" : "$%.1fK", size / 1000) }
+        return sign + String(format: "$%.0f", size)
     }
 
     static func times(_ value: Double?) -> String { value.map { String(format: "%.2f×", $0) } ?? "–" }
@@ -54,7 +54,7 @@ enum PennyStyle {
     /// The ROAS axis beside dollars: its top, and what one ROAS is worth in dollars on the chart.
     static func scale(dollars: Double, roas: [Double]) -> (top: Double, roasTop: Double, perRoas: Double) {
         let top = max(dollars * 1.12, 1)
-        let roasTop = min(8, max(3, ((roas.max() ?? 0) * 1.1).rounded(.up)))
+        let roasTop = min(6, max(3, ((roas.max() ?? 0) * 1.1).rounded(.up)))
         return (top, roasTop, top / roasTop)
     }
 }
@@ -172,12 +172,12 @@ struct TrendChart: View {
                 LineMark(x: .value("Day", day.day), y: .value("Dead", day.dead * scale.top), series: .value("", "dead"))
                     .foregroundStyle(PennyStyle.muted.opacity(0.8))
                     .lineStyle(StrokeStyle(lineWidth: 1.4, dash: [4, 3]))
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.monotone)
             }
             ForEach(days.filter { $0.numbers.roas != nil }) { day in
                 let roas = min(day.numbers.roas ?? 0, scale.roasTop)
                 LineMark(x: .value("Day", day.day), y: .value("ROAS", roas * k), series: .value("", "roas"))
-                    .foregroundStyle(PennyStyle.orange).lineStyle(StrokeStyle(lineWidth: 2.4)).interpolationMethod(.catmullRom)
+                    .foregroundStyle(PennyStyle.orange).lineStyle(StrokeStyle(lineWidth: 2.4)).interpolationMethod(.monotone)
                 PointMark(x: .value("Day", day.day), y: .value("ROAS", roas * k))
                     .foregroundStyle(PennyStyle.roas(day.numbers.roas, profit)).symbolSize(hovered == day.day ? 90 : 45)
             }
@@ -242,39 +242,31 @@ struct DaysCalendar: View {
 
     var body: some View {
         let byDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
-        let months = Array(Set(days.map { String($0.day.prefix(7)) })).sorted()
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(months, id: \.self) { month in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(Ledger.start(of: month + "-01").map { $0.formatted(Date.FormatStyle(timeZone: Ledger.zone).month(.wide).year()) } ?? month)
-                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
-                        ForEach(Self.weekdays, id: \.self) { name in
-                            Text(L(name)).font(.system(size: 9, weight: .semibold)).foregroundStyle(PennyStyle.muted)
-                        }
-                        ForEach(Self.cells(month), id: \.self) { day in
-                            if day.hasPrefix("blank") { Color.clear.frame(height: 58) } else { cell(day, byDay[day]) }
-                        }
-                    }
-                }
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
+            ForEach(Self.weekdays, id: \.self) { name in
+                Text(L(name)).font(.system(size: 9, weight: .semibold)).foregroundStyle(PennyStyle.muted)
             }
+            ForEach(Self.cells(days.map(\.day)), id: \.self) { day in cell(day, byDay[day]) }
         }
     }
 
     static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-    /// A month's days on a Sunday-first grid, with blanks before the first.
-    static func cells(_ month: String) -> [String] {
-        guard let first = Ledger.start(of: month + "-01"), let range = Ledger.calendar.range(of: .day, in: .month, for: first) else { return [] }
-        let blanks = Ledger.calendar.component(.weekday, from: first) - 1
-        return (0 ..< blanks).map { "blank-\($0)" } + range.map { String(format: "%@-%02d", month, $0) }
+    /// Every day of the weeks the days fall in, Sunday to Saturday.
+    static func cells(_ days: [String]) -> [String] {
+        guard let first = days.min().flatMap(Ledger.start(of:)), let last = days.max().flatMap(Ledger.start(of:)),
+              let start = Ledger.calendar.date(byAdding: .day, value: 1 - Ledger.calendar.component(.weekday, from: first), to: first),
+              let end = Ledger.calendar.date(byAdding: .day, value: 7 - Ledger.calendar.component(.weekday, from: last), to: last) else { return [] }
+        let count = (Ledger.calendar.dateComponents([.day], from: start, to: end).day ?? 0) + 1
+        return (0 ..< count).compactMap { Ledger.calendar.date(byAdding: .day, value: $0, to: start).map(Ledger.name(of:)) }
     }
 
     func cell(_ day: String, _ read: Ledger.DayRead?) -> some View {
         let color = read.map { PennyStyle.roas($0.numbers.roas, profit) } ?? .clear
         let chosen = selected == day
         return VStack(alignment: .leading, spacing: 1) {
-            Text(String(Int(day.suffix(2)) ?? 0)).font(.system(size: 9, weight: .semibold)).foregroundStyle(read == nil ? PennyStyle.muted.opacity(0.5) : .secondary)
+            Text(day.hasSuffix("-01") || read?.day == days.first?.day ? PennyStyle.day(day) : String(Int(day.suffix(2)) ?? 0))
+                .font(.system(size: 9, weight: .semibold)).foregroundStyle(read == nil ? PennyStyle.muted.opacity(0.5) : .secondary)
             if let read, read.numbers.spent > 0 {
                 Text(PennyStyle.times(read.numbers.roas)).font(.system(size: 13, weight: .bold).monospacedDigit()).foregroundStyle(color)
                 Text("\(PennyStyle.short(read.numbers.spent)) → \(PennyStyle.short(read.numbers.revenue))").font(.system(size: 8.5).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
@@ -293,7 +285,7 @@ struct DaysCalendar: View {
 struct DayDrill: View {
     let day: Ledger.DayRead
     let profit: Ledger.Profit
-    let close: () -> Void
+    var close: (() -> Void)? = nil
     @State private var hovered: Int?
 
     var body: some View {
@@ -308,17 +300,17 @@ struct DayDrill: View {
                 stat(L("CBH"), Ledger.money(day.cbh), day.cbh < 0 ? PennyStyle.red : PennyStyle.green)
                 stat(L("Orders"), Ledger.whole(day.numbers.orders), nil)
                 Spacer()
-                Button { close() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain).help(L("Close"))
+                if let close { Button { close() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain).help(L("Close")) }
             }
             Chart {
                 ForEach(0 ..< 24, id: \.self) { hour in
                     let numbers = day.hours[hour]
-                    BarMark(x: .value("Hour", hour), y: .value("Spent", numbers.spent), width: .ratio(0.7))
+                    BarMark(x: .value("Hour", hour), y: .value("Spent", numbers.spent), width: .fixed(18))
                         .foregroundStyle(PennyStyle.roas(numbers.spent > 0 ? numbers.roas : nil, profit).opacity(0.6)).cornerRadius(3)
                 }
                 ForEach((0 ..< 24).filter { day.hours[$0].spent > 0 }, id: \.self) { hour in
                     let roas = min(day.hours[hour].roas ?? 0, scale.roasTop)
-                    LineMark(x: .value("Hour", hour), y: .value("ROAS", roas * k)).foregroundStyle(PennyStyle.orange).interpolationMethod(.catmullRom)
+                    LineMark(x: .value("Hour", hour), y: .value("ROAS", roas * k)).foregroundStyle(PennyStyle.orange).interpolationMethod(.monotone)
                     PointMark(x: .value("Hour", hour), y: .value("ROAS", roas * k)).foregroundStyle(PennyStyle.roas(day.hours[hour].roas, profit)).symbolSize(35)
                 }
                 RuleMark(y: .value("Breakeven", profit.breakeven * k)).foregroundStyle(PennyStyle.red.opacity(0.7)).lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
@@ -389,7 +381,7 @@ struct HoursRangeChart: View {
         let k = scale.perRoas, cap = scale.roasTop
         Chart {
             ForEach(ran) { read in
-                BarMark(x: .value("Hour", read.hour), y: .value("Spent a day", read.spentPerDay), width: .ratio(0.72))
+                BarMark(x: .value("Hour", read.hour), y: .value("Spent a day", read.spentPerDay), width: .fixed(20))
                     .foregroundStyle(PennyStyle.verdict(read.verdict).opacity(hovered == nil || hovered == read.hour ? 0.42 : 0.2)).cornerRadius(3)
             }
             ForEach(ran.filter { $0.floor != nil && $0.ceiling != nil }) { read in
@@ -401,7 +393,7 @@ struct HoursRangeChart: View {
             ForEach(ran.filter { $0.numbers.roas != nil }) { read in
                 let roas = min(read.numbers.roas ?? 0, cap)
                 LineMark(x: .value("Hour", read.hour), y: .value("ROAS", roas * k)).foregroundStyle(PennyStyle.orange)
-                    .lineStyle(StrokeStyle(lineWidth: 2.4)).interpolationMethod(.catmullRom)
+                    .lineStyle(StrokeStyle(lineWidth: 2.4)).interpolationMethod(.monotone)
                 PointMark(x: .value("Hour", read.hour), y: .value("ROAS", roas * k))
                     .foregroundStyle(PennyStyle.verdict(read.verdict)).symbolSize(hovered == read.hour ? 110 : 55)
             }
@@ -691,6 +683,8 @@ struct PennyFigure: View {
     /// The change against the days before, and whether up is good.
     var change: Double? = nil
     var upIsGood = true
+    /// A change that is neither good nor bad by itself (spend), shown grey.
+    var neutral = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -699,7 +693,7 @@ struct PennyFigure: View {
             if let change, change.isFinite, abs(change) >= 0.005 {
                 let good = (change > 0) == upIsGood
                 Text((change > 0 ? "▲ " : "▼ ") + Ledger.percent(abs(change))).font(.system(size: 9.5, weight: .medium).monospacedDigit())
-                    .foregroundStyle(good ? PennyStyle.green : PennyStyle.red)
+                    .foregroundStyle(neutral ? PennyStyle.muted : good ? PennyStyle.green : PennyStyle.red)
             } else {
                 Text(" ").font(.system(size: 9.5))
             }

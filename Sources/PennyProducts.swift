@@ -54,7 +54,7 @@ struct ProductsView: View {
             guard let product else { loaded = []; return }
             let wanted = days.now
             let read = await Task.detached { PennyLedger.days(of: product, wanted) }.value
-            loaded = read; loadedKey = product
+            loaded = read; loadedKey = product + "|" + wanted.joined()
         }
     }
 
@@ -116,7 +116,7 @@ struct ProductsView: View {
     }
 
     @ViewBuilder func detail(_ product: String, days: (now: [String], before: [String])) -> some View {
-        let ready = loadedKey == product
+        let ready = loadedKey == product + "|" + days.now.joined()
         let total = Ledger.total(loaded)
         let before = ledger.summary.numbers(of: product, on: days.before)
         let profit = ledger.profit(of: product, on: days.now)
@@ -128,8 +128,9 @@ struct ProductsView: View {
         }
         VStack(alignment: .leading, spacing: 14) {
             header(product, days: days.now, profit: profit)
+            if ready {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 8)], spacing: 8) {
-                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent))
+                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent), neutral: true)
                 PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue))
                 PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas))
                 if margin.days > 0 {
@@ -145,7 +146,6 @@ struct ProductsView: View {
                 PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr))
                 PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm), upIsGood: false)
             }
-            if ready {
                 let dayReads = Ledger.dayReads(loaded, profit: profit)
                 let reads = Ledger.hourReads(loaded, profit: profit)
                 PennyPanel(title: L("Penny's read")) {
@@ -170,11 +170,15 @@ struct ProductsView: View {
                         LegendKey(name: L("breakeven"), color: PennyStyle.red, shape: .dashed)
                     }
                 } content: {
-                    TrendChart(days: dayReads, profit: profit, selected: $openDay)
-                    if let open = openDay, let day = dayReads.first(where: { $0.day == open }) {
-                        DayDrill(day: day, profit: profit) { openDay = nil }
+                    if dayReads.count == 1, let day = dayReads.first {
+                        DayDrill(day: day, profit: profit)
+                    } else {
+                        TrendChart(days: dayReads, profit: profit, selected: $openDay)
+                        if let open = openDay, let day = dayReads.first(where: { $0.day == open }) {
+                            DayDrill(day: day, profit: profit) { openDay = nil }
+                        }
+                        DaysCalendar(days: dayReads, profit: profit, selected: $openDay)
                     }
-                    DaysCalendar(days: dayReads, profit: profit, selected: $openDay)
                 }
                 PennyPanel(title: L("Hours: ROAS, bad and good days, spend a day"),
                            note: L("Each hour over the days read, Alaska time. Bars: spend a day, coloured by verdict · line: average ROAS · whisker: its bad day to its good day (10th to 90th percentile of its days)")) {
@@ -210,7 +214,8 @@ struct ProductsView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(product).font(.system(size: 22, weight: .bold)).textSelection(.enabled)
-                Text(L("%@ days · %@ – %@ · Alaska time", days.count, PennyStyle.day(days.last ?? ""), PennyStyle.day(days.first ?? "")))
+                Text(days.count == 1 ? L("%@ · Alaska time", PennyStyle.day(days.first ?? ""))
+                     : L("%@ days · %@ – %@ · Alaska time", days.count, PennyStyle.day(days.last ?? ""), PennyStyle.day(days.first ?? "")))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer()
@@ -374,7 +379,7 @@ struct HoursEfficiency: View {
         if shows == .table { table } else {
         VStack(alignment: .leading, spacing: 10) {
             Text(md: profit.measured
-                 ? L("Breakeven **%@** (CBH 0), profitable from **%@** (CBH 5%%): from this product's CBH, it keeps %@ of revenue before ads.",
+                 ? L("Breakeven **%@** (CBH 0), profitable from **%@** (CBH 5%): from this product's CBH, it keeps %@ of revenue before ads.",
                      Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable), Ledger.percent(profit.kept))
                  : L("Breakeven **%@**, profitable from **%@**: the usual lines, until Penny has this product's CBH for these days.",
                      Ledger.ratio(profit.breakeven), Ledger.ratio(profit.profitable)))
