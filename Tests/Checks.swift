@@ -4,6 +4,8 @@ import AppKit
 @main
 struct Checks {
     static func main() async throws {
+        // A run stopped inside the language checks leaves Vietnamese saved; every run starts in the Mac's language.
+        UserDefaults.standard.removeObject(forKey: "appLanguage")
         var count = 0
         func check(_ condition: @autoclosure () -> Bool, _ name: String) {
             guard condition() else { fatalError("FAIL: \(name)") }
@@ -1288,6 +1290,66 @@ struct Checks {
             let rotated = HTTPURLResponse(url: Grafana.base, statusCode: 200, httpVersion: nil,
                                           headerFields: ["Set-Cookie": "grafana_session=abc123; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax"])!
             check(Grafana.sessionCookie(in: rotated) == "abc123", "Penny takes the renewed session Grafana sends")
+            // Penny's own copy of the ads' numbers, by product (2026-11-05).
+            let day = Ledger.bounds(of: "2026-11-04")
+            check(day?.from == Date(timeIntervalSince1970: 1_793_782_800) && abs((day?.to.timeIntervalSince1970 ?? 0) - (1_793_869_200 - 0.001)) < 0.000_01,
+                  "Penny's copy counts the company's Alaska-time day, first millisecond to last")
+            let nov5 = Date(timeIntervalSince1970: 1_793_869_200 + 3 * 3600)  // Nov 5, 3 AM in Alaska
+            var copied = Ledger.Summary()
+            copied.copied["2026-11-03"] = Date(timeIntervalSince1970: 1_793_869_200 - 3600)   // long after Nov 3 ended: settled
+            copied.copied["2026-11-04"] = Date(timeIntervalSince1970: 1_793_869_200 - 3600)   // before Nov 4 ended: copied again
+            copied.copied["2026-11-05"] = nov5.addingTimeInterval(-10)                        // just copied: not yet
+            check(Ledger.wanted(now: nov5, summary: copied, kept: 4) == ["2026-11-04", "2026-11-02"],
+                  "Penny copies the days he hasn't and the ones not yet settled, newest first")
+            check(Ledger.state(of: "2026-11-03", in: copied) == .final(copied: copied.copied["2026-11-03"]!)
+                  && Ledger.state(of: "2026-11-04", in: copied) == .live(copied: copied.copied["2026-11-04"]!, until: Ledger.bounds(of: "2026-11-04")!.to.addingTimeInterval(Ledger.settles))
+                  && Ledger.state(of: "2026-11-02", in: copied) == .missing,
+                  "Penny's data shows each day as final, still coming in, or not copied")
+            let old = try JSONDecoder().decode(Ledger.Summary.self, from: Data(#"{"copied":{},"products":{"P":{"2026-11-04":[1,0,0,0,0,0,0,0,0]}}}"#.utf8))
+            check(old.products["P"]?["2026-11-04"]?.spent == 1 && old.latest.isEmpty, "A summary saved before the last hour was kept still reads")
+            let ads = Grafana.Frame(columns: [Grafana.Column(name: "product", kind: "string", cells: [.text("ComfyJeans"), .text("")]),
+                                              Grafana.Column(name: "ad_id", kind: "string", cells: [.text("a1"), .text("a2")]),
+                                              Grafana.Column(name: "campaign_id", kind: "string", cells: [.text("c1"), .text("c2")]),
+                                              Grafana.Column(name: "campaign", kind: "string", cells: [.text("1_X_ComfyJeans"), .text("2_Y")]),
+                                              Grafana.Column(name: "ad", kind: "string", cells: [.text("X_v1.1"), .text("Y_v1")]),
+                                              numbers("budget", [500, nil])])
+            let hours = Grafana.Frame(columns: [Grafana.Column(name: "product", kind: "string", cells: [.text("ComfyJeans"), .text("ComfyJeans"), .text("ComfyJeans"), .text("")]),
+                                                Grafana.Column(name: "ad_id", kind: "string", cells: [.text("a1"), .text("a1"), .text("a3"), .text("a2")]),
+                                                numbers("hour", [19, 20, 19, 1]), numbers("spent", [10, 30, 5, 2]), numbers("views", [20, 10, 4, 1]),
+                                                numbers("orders", [2, 0, 1, 0]), numbers("revenue", [60, 0, 25, 0])])
+            let products = Ledger.products(from: [ads, hours], day: "2026-11-04", copied: nov5)
+            let chapter = products["ComfyJeans"]
+            check(Set(products.keys) == ["ComfyJeans", "NA"] && chapter?.ads.map { $0.id } == ["a1", "a3"] && chapter?.ads.first?.budget == 500
+                  && chapter?.numbers == Ledger.Numbers([45, 0, 0, 0, 34, 0, 0, 3, 85]),
+                  "Penny sorts each ad and its hours under its product; an ad seen only in the hours keeps its id")
+            check(Ledger.latest(products) == 20, "Penny knows the last hour Grafana has numbers for")
+            let saved = try JSONEncoder().encode(Ledger.Numbers([1, 2, 3, 4, 5, 6, 7, 8, 9]))
+            check(String(decoding: saved, as: UTF8.self) == "[1,2,3,4,5,6,7,8,9]" && (try? JSONDecoder().decode(Ledger.Numbers.self, from: saved))?.orders == 8,
+                  "An hour's numbers are saved as a plain list")
+            let text = Data(String(repeating: "Penny's copy ", count: 200).utf8)
+            check((try? Ledger.gunzip(Ledger.gzip(text))) == text && Ledger.crc32(Data("123456789".utf8)) == 0xcbf4_3926,
+                  "A day's file is gzip, read back as written")
+            var second = chapter!
+            second.ads = [Ledger.Ad(id: "b1", campaignID: "c9", name: "X_v1.1")]
+            second.hours = [Ledger.Hour(ad: "b1", hour: 19, numbers: Ledger.Numbers([5, 0, 0, 0, 2, 0, 0, 1, 30]))]
+            let creatives = Ledger.creatives([chapter!, second])
+            check(creatives.map { $0.name } == ["X_v1.1", "a3"] && creatives[0].count == 2 && creatives[0].numbers.orders == 3 && creatives[0].bestHours() == [19],
+                  "The same creative in two campaigns is one line, with the hours it sold in")
+            check(Ledger.hours([chapter!])[19].spent == 15 && Ledger.campaigns([chapter!]).map { $0.name } == ["1_X_ComfyJeans", "a3"],
+                  "Penny adds a product's numbers up by hour and by campaign")
+            check(Ledger.days(from: "2026-11-04", to: "2026-11-02") == ["2026-11-04", "2026-11-03", "2026-11-02"] && Ledger.days(from: "2026-11-02", to: "2026-11-02") == ["2026-11-02"]
+                  && Ledger.days(from: "2026-10-31", to: "2026-11-01") == ["2026-11-01", "2026-10-31"] && Ledger.days(from: "x", to: "2026-11-01").isEmpty,
+                  "Picked dates are every day from one to the other, either way round")
+            check(Ledger.hourName(23) == "11 PM-12 AM" && Ledger.hourName(11) == "11 AM-12 PM" && Ledger.hourName(0) == "12 AM-1 AM",
+                  "Hours are written as the dashboards write them")
+            check(Ledger.folder(of: "Activa Bra 2.0") == "Activa Bra 2.0" && Ledger.folder(of: "A/B") == "A-B" && Ledger.folder(of: " ") == "NA",
+                  "Each product gets a folder of its own name")
+            var waste = chapter!
+            waste.ads = [Ledger.Ad(id: "z1", campaignID: "c8", name: "Z_v1")]
+            waste.hours = [Ledger.Hour(ad: "z1", hour: 3, numbers: Ledger.Numbers([100, 0, 0, 0, 9, 0, 0, 0, 0]))]
+            let read = Ledger.report([chapter!, waste], before: Ledger.Numbers([40, 0, 0, 0, 0, 0, 0, 1, 80]))
+            check(read.first?.contains("$145.00") == true && read.contains { $0.contains("down") } && read.contains { $0.contains("No orders: **Z_v1**") },
+                  "Penny's read gives the totals, the change on the days before and the creatives that spend without selling")
         }
         // Don's brief and Pix's jobs (2026-11-04).
         do {
@@ -1453,6 +1515,37 @@ struct Checks {
                 check(desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "clip.mp4" }!, in: "K1") == .edit
                       && desk.role(of: desk.files(in: "K1").first { $0.url.lastPathComponent == "hero.png" }!, in: "K1") == .start,
                       "A file dropped on a shot's empty place takes that place's role")
+                desk.add([at("K12.png"), at("K12.1.png")])
+                let twelve = desk.files(in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .start && desk.role(of: twelve[1], in: "K12") == .look,
+                      "A shot's first picture opens it (its start frame); the others are looks")
+                desk.setRole(.start, of: twelve[1], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .look && desk.role(of: twelve[1], in: "K12") == .start,
+                      "A picture made the start frame takes the place of the one before")
+                desk.add([at("K12 Size.png")], into: "K12", as: .end)
+                desk.add([at("K12.2.png")], into: "K12", as: .end)
+                check(desk.files(in: "K12").filter { desk.role(of: $0, in: "K12") == .end }.map(\.name) == ["K12.2"], "A shot keeps one end frame")
+                desk.setRole(.look, of: twelve[1], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .start, "With no start frame given, the first picture opens the shot again")
+                desk.setRole(.look, of: twelve[0], in: "K12")
+                check(desk.role(of: twelve[0], in: "K12") == .look && !desk.roles("K12").values.contains(.start),
+                      "A first picture made a look stays a look")
+                desk.add([at("K4.png"), at("K4.1.mp4")])
+                check(desk.role(of: desk.files(in: "K4")[0], in: "K4") == .look, "With a video in the shot, its picture is a look, not a start frame")
+                check(desk.media(sorted: .name).map(\.name).prefix(4) == ["7", "clip", "hero", "IMG_1234"]
+                      && desk.media(sorted: .name).map(\.name).suffix(5) == ["K9 ref", "K12", "K12 Size", "K12.1", "K12.2"]
+                      && desk.media(sorted: .added).first?.name == "K4.1"
+                      && desk.media(sorted: .shot).map(\.name).prefix(3) == ["clip", "hero", "K1.1"],
+                      "The media sorts by name as a person reads it (K2 before K10, K12 before K12 Size and K12.1), by shot, or newest first")
+                let inMedia = desk.media.count
+                desk.addTakes([at("K12.1 O1.mp4"), at("K12 O2.mp4"), at("K77 O1.mp4"), at("still.png")])
+                desk.addTakes([at("final.mp4")], to: "K4")
+                let outputs = desk.takes(of: "K12")
+                check(outputs.map { desk.number(of: $0) } == [1, 2] && desk.takes.first?.shot == "K4" && desk.takes.count == 4
+                      && desk.takes.first { $0.path.hasSuffix("K77 O1.mp4") }?.shot == nil && desk.media.count == inMedia,
+                      "Videos dropped on the outputs go with the shot their name has (K12.1 O1 with K12) or the one dropped on, numbered in order; they stay out of the media")
+                desk.watch(outputs[1].path)
+                check(desk.takes(of: "K12")[1].seen && !desk.takes(of: "K12")[0].seen, "A take played counts as watched")
             }
             func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
                 KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
@@ -1460,8 +1553,9 @@ struct Checks {
                 }
             }
             check(slots("kling-o3", []) == ["+start", "+end", "+look", "+motion", "+edit"]
-                  && slots("kling-o3", ["K1.png", "K1.1.png", "K1.2.png", "K1.3.png", "K1.4.mp4"]) == ["K1", "K1.1", "K1.2", "K1.3", "K1.4"],
-                  "An empty Kling O3 shot shows a place for each role; with its video and 4 pictures it has no room left")
+                  && slots("kling-o3", ["K1.png", "K1.1.png", "K1.2.png", "K1.3.png", "K1.4.mp4"]) == ["K1", "K1.1", "K1.2", "K1.3", "K1.4"]
+                  && slots("kling-o3", ["K1.png", "K1.1.mp4"]) == ["K1", "+look", "K1.1"],
+                  "An empty Kling O3 shot shows a place for each role; with its video it has no place for frames, and with 4 pictures no room left")
             check(slots("kling-motion", ["K2.png"]) == ["K2", "+motion"] && slots("seedance-2.5", ["K3.mp3"]) .suffix(2) == ["K3", "+sound"],
                   "Motion Control has a place for the person and the performance; Seedance has places for sounds")
         }

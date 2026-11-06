@@ -55,6 +55,8 @@ struct PennyIcon: View {
 struct PennyPage: View {
     @ObservedObject var desk: PennyDesk
     @State private var signingIn = false
+    /// His own dashboard (products) or Grafana's; the one you looked at last.
+    @AppStorage("pennyTab") private var tab = "products"
     private let accent = PixelPenny.theme
 
     var body: some View {
@@ -86,7 +88,13 @@ struct PennyPage: View {
     }
 
     @ViewBuilder func signedIn(_ user: Grafana.User) -> some View {
-        if let board = desk.board {
+        Picker("", selection: $tab) {
+            Text(L("Products")).tag("products")
+            Text(L("Grafana")).tag("grafana")
+        }.pickerStyle(.segmented).labelsHidden().fixedSize()
+        if tab == "products" {
+            ProductsView(ledger: desk.ledger)
+        } else if let board = desk.board {
             BoardView(board: board, desk: desk, user: user)
         } else if desk.exploring {
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Reading your dashboards…")).font(.system(size: 12)) }
