@@ -741,6 +741,8 @@ enum Vietnamese {
         "Final": "Chốt",
         "Copied %@, after its numbers had settled": "Đã chép lúc %@, sau khi số liệu đã chốt",
         // Basil, the recipe helper.
+        "Pictures only": "Chỉ có hình",
+        "Earlier chats on %@": "Các cuộc trò chuyện trước về %@",
         "Recipe helper": "Trợ lý công thức nấu ăn",
         "Read it in Notes": "Đọc trong Ghi chú",
         "Notes": "Ghi chú",

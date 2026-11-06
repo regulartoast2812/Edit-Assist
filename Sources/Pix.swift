@@ -58,6 +58,8 @@ struct PixPage: View {
     @State private var draft = ""
     @State private var attached: [URL] = []
     @State private var keyDraft = ""
+    @State private var history = false
+    @State private var width: CGFloat = 1400
     private let accent = PixelPix.theme
 
     var body: some View {
@@ -72,14 +74,70 @@ struct PixPage: View {
                              "Makes product **schematics** and pictures with **GPT Image** when you queue them"], size: 11)
                 }
             }
-            if don.brief == nil { briefMissing }
-            section(L("JOBS"), trailing: project.openScript.name) { jobs }
-            section(L("CHAT WITH PIX")) { chat }
-            section(L("GPT IMAGE")) { openAI }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+            // The chat on the side, as Basil's is (you asked for it, 2026-11-06); narrow windows put it under the jobs.
+            if width >= 900 {
+                HStack(alignment: .top, spacing: 14) {
+                    chatColumn.frame(width: width >= 1300 ? 380 : 330)
+                    work.frame(maxWidth: .infinity)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 18) { work; chatColumn }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GeometryReader { proxy in Color.clear.onAppear { width = proxy.size.width }.onChange(of: proxy.size.width) { _, new in width = new } })
         }.scrollIndicators(.automatic)
         .onAppear { open(project.openScript.id); desk.checkKey() }
         .onChange(of: project.openScript.id) { _, id in open(id) }
+    }
+
+    var work: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if don.brief == nil { briefMissing }
+            section(L("JOBS"), trailing: project.openScript.name) { jobs }
+            section(L("GPT IMAGE")) { openAI }
+        }
+    }
+
+    /// The chat in a column of its own: this script's chat, its earlier ones in a list (newest first), and New chat.
+    var chatColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(L("CHAT WITH PIX")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Spacer()
+                Button { history.toggle() } label: { Image(systemName: "clock.arrow.circlepath") }.buttonStyle(.plain).help(L("Past chats"))
+                    .disabled(desk.board.past.isEmpty)
+                    .popover(isPresented: $history, arrowEdge: .bottom) { pastChats.padding(10).frame(width: 300) }
+                Button { desk.newChat() } label: { Image(systemName: "square.and.pencil") }.buttonStyle(.plain).help(L("New chat"))
+                    .disabled(desk.board.chat.isEmpty || desk.thinking)
+            }.foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) { chat }
+                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    /// The script's earlier chats: titled by your first message, with how long ago; one pressed opens to carry on.
+    var pastChats: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("Earlier chats on %@", project.openScript.name)).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(desk.board.past) { chat in
+                        Button { desk.openChat(chat.id); history = false } label: {
+                            HStack(spacing: 6) {
+                                Text(chat.title.isEmpty ? L("Pictures only") : chat.title).font(.system(size: 11)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(L(Kitchen.ago(chat.updated))).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 6).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).disabled(desk.thinking)
+                        .contextMenu { Button(L("Delete chat"), role: .destructive) { desk.deleteChat(chat.id) } }
+                    }
+                }
+            }.frame(maxHeight: 380)
+        }
     }
 
     private func open(_ id: UUID) { desk.load(script: id); don.load(script: id); don.load(project: project.id); attached = [] }
@@ -243,7 +301,7 @@ struct PixPage: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
             }
-            .frame(minHeight: desk.board.chat.isEmpty ? 0 : 160, maxHeight: 380)
+            .frame(height: 520)
             .onAppear { reader.scrollTo(desk.board.chat.last?.id) }
             .onChange(of: desk.board.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.board.chat.last?.id, anchor: .bottom) } }
             .onChange(of: desk.thinking) { _, thinking in if thinking { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
