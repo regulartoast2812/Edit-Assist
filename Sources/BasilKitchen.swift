@@ -297,6 +297,87 @@ enum Kitchen {
         return name
     }
 
+    // MARK: Chat (the brain answers in rounds: it can ask for a YouTube search or notes to read, then answers with them)
+
+    struct Message: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var fromBasil: Bool
+        var text: String
+        /// The videos he shows with his answer.
+        var videos: [Video] = []
+        /// The notes he read for it.
+        var notes: [String] = []
+        var date = Date()
+    }
+
+    struct Reply: Equatable {
+        var text = "", youtube = ""
+        var notes: [String] = [], show: [String] = []
+        var looksUp: Bool { !youtube.isEmpty || !notes.isEmpty }
+    }
+
+    static var chatSchema: [String: Any] {
+        let text: [String: Any] = ["type": "string"], list: [String: Any] = ["type": "array", "items": text]
+        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list]
+        return ["type": "object", "additionalProperties": false, "required": properties.keys.sorted(), "properties": properties]
+    }
+
+    static func reply(from answer: [String: Any]) -> Reply {
+        let text = { (key: String) in (answer[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let list = { (key: String) in (answer[key] as? [Any] ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
+        return Reply(text: text("reply"), youtube: text("youtube"), notes: list("notes"), show: list("show"))
+    }
+
+    /// The notes the brain named, matched by title (case and spacing aside), at most `count`.
+    static func named(_ titles: [String], in recipes: [Entry], count: Int = 5) -> [Entry] {
+        let key = { (text: String) in text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ") }
+        var found: [Entry] = []
+        for title in titles {
+            let wanted = key(title)
+            if let entry = recipes.first(where: { key($0.title) == wanted }) ?? recipes.first(where: { !wanted.isEmpty && key($0.title).contains(wanted) }),
+               !found.contains(entry) { found.append(entry) }
+        }
+        return Array(found.prefix(count))
+    }
+
+    /// One round's question: who Basil is, your recipe notes, the chat so far, and what he looked up this turn.
+    /// `last` is the final round: he answers with what he has.
+    static func chatPrompt(chat: [Message], recipes: [Entry], folder: Bool, canSearch: Bool, found: [Video]?, searched: String,
+                           read: [(title: String, text: String)], last: Bool) -> String {
+        var text = """
+        You are Basil, a friendly cook who helps me with recipes: finding them on YouTube, answering cooking questions, and looking things up in my own recipe notes (an Obsidian vault). Answer my last message in `reply`: plain text, short and practical, no Markdown headings. Use what you know about cooking; for my notes and YouTube, use only what you were given.
+
+        To look something up first, put it in `youtube` (search words for recipe videos, e.g. "chicken adobo recipe") and/or `notes` (titles from my notes list to read in full), with `reply` saying in a few words what you are looking up. You then get the results and answer again. Look up only what the question needs; a cooking question you can answer needs no lookup.
+        To show videos from a search with your answer, put their ids in `show` (at most 6, best first) and say in `reply` why each is worth it. Otherwise leave `show` empty.
+
+        """
+        if last { text += "Answer now with what you have: leave `youtube` and `notes` empty.\n\n" }
+        if !canSearch { text += "YouTube search is not set up (no API key): don't search; if I want videos, tell me to add the key in the YouTube tab.\n\n" }
+        if !folder {
+            text += "My recipes folder is not chosen yet, so there are no notes: if I ask about my notes, tell me to choose it in the Recipes tab.\n\n"
+        } else {
+            text += "My recipe notes (title | status | cuisine | tags), \(recipes.count) in all:\n"
+            text += recipes.prefix(400).map { "- \($0.title) | \($0.status.isEmpty ? "-" : $0.status) | \($0.cuisine.isEmpty ? "-" : $0.cuisine) | \($0.tags.joined(separator: ", "))" }
+                .joined(separator: "\n") + (recipes.isEmpty ? "(none yet)" : "") + "\n\n"
+        }
+        // The videos shown last stay at hand for questions about them.
+        if let shown = chat.last(where: { $0.fromBasil && !$0.videos.isEmpty })?.videos {
+            text += "Videos you showed earlier:\n" + shown.map { video($0, description: 800) }.joined(separator: "\n") + "\n\n"
+        }
+        text += "The chat so far:\n" + chat.suffix(20).map { ($0.fromBasil ? "Basil: " : "Me: ") + String($0.text.prefix(3000)) }.joined(separator: "\n") + "\n"
+        if let found {
+            text += "\nYouTube results for \"\(searched)\":\n" + (found.isEmpty ? "(nothing found)" : found.map { video($0, description: 400) }.joined(separator: "\n")) + "\n"
+        }
+        for note in read { text += "\nMy note \"\(note.title)\":\n" + String(note.text.prefix(6000)) + "\n" }
+        return text
+    }
+
+    private static func video(_ video: Video, description: Int) -> String {
+        let views = video.views.map { " | \($0) views" } ?? ""
+        let about = video.description.prefix(description).replacingOccurrences(of: "\n", with: " ")
+        return "- id \(video.id) | \(video.title) | \(video.channel) | \(video.duration)\(views) | \(about)"
+    }
+
     // MARK: Small parts
 
     static func json(_ data: Data) -> [String: Any]? { (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }

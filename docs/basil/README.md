@@ -33,7 +33,13 @@ touches projects, Premiere, Grafana or any Crossian account.
 5. **Tracking.** The recipes folder you choose (and the folders in it, `.obsidian` and hidden ones left out) is read
    into `Kitchen.Entry` rows. `status` is `to try`, `made` or `favourite`; changing it rewrites only that header line
    (`Kitchen.setting`). A video whose link is already a note's `source` shows "In your vault".
-6. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
+6. **Chat.** The first tab. Each message is answered in up to three brain calls with `Kitchen.chatSchema`
+   (`reply`, `youtube`, `notes`, `show`): a call can ask for a YouTube search (12 videos) or notes to read by title
+   (`Kitchen.named`, at most 5), which the desk does and hands back in the next call (`Kitchen.chatPrompt`); the last
+   call must answer. Videos it lists in `show` appear with the answer as cards (Write recipe, watch). The prompt carries
+   the notes list (title, status, cuisine, tags), the last 20 messages and the videos shown last. Saved in
+   `basil/chat.json`. Search and chat need no folder; the folder is asked for when a recipe is first saved.
+7. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
 
 ## Rules carried from Edit Assist
 

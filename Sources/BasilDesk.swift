@@ -16,14 +16,20 @@ import Security
     @Published var failure: String?
     /// The last note written, to open.
     @Published private(set) var written: URL?
+    /// The chat with him, kept in basil/chat.json beside projects.json.
+    @Published private(set) var chat: [Kitchen.Message] = []
+    @Published private(set) var thinking = false
 
-    var busy: Bool { searching || !writing.isEmpty }
+    var busy: Bool { searching || thinking || !writing.isEmpty }
     /// The videos already in the vault, by their link.
     var sources: Set<String> { Set(recipes.map(\.source).filter { !$0.isEmpty }) }
 
     init() {
         folder = UserDefaults.standard.string(forKey: "basilFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
+        chat = (try? Data(contentsOf: Self.chatFile)).flatMap { try? JSONDecoder().decode([Kitchen.Message].self, from: $0) } ?? []
     }
+
+    nonisolated static var chatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
 
     // MARK: Key and folder
 
@@ -63,15 +69,16 @@ import Security
 
     func forgetKey() { Self.key = nil; hasKey = false; results = [] }
 
-    func chooseFolder() {
+    @discardableResult func chooseFolder() -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
         panel.message = L("Choose the folder in your Obsidian vault for recipes")
         panel.prompt = L("Use this folder")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
         UserDefaults.standard.set(url.path, forKey: "basilFolder")
         folder = url
         reload()
+        return true
     }
 
     /// The notes in the folder, read off the main thread.
@@ -83,7 +90,61 @@ import Security
         }
     }
 
+    // MARK: Chat
+
+    /// Your message, then his answer: up to three rounds, each of which may search YouTube or read notes before he answers.
+    func send(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !thinking else { return }
+        chat.append(Kitchen.Message(fromBasil: false, text: text)); saveChat()
+        thinking = true; failure = nil
+        Task {
+            defer { thinking = false; saveChat() }
+            var found: [Kitchen.Video]?, searched = "", read: [Kitchen.Entry] = [], texts: [(title: String, text: String)] = []
+            do {
+                for round in 0 ..< 3 {
+                    let prompt = Kitchen.chatPrompt(chat: chat, recipes: recipes, folder: folder != nil, canSearch: Self.key != nil, found: found, searched: searched,
+                                                    read: texts, last: round == 2)
+                    let reply = Kitchen.reply(from: try await HelperBrain.ask(prompt, schema: Kitchen.chatSchema))
+                    var looked = false
+                    if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key, round < 2 {
+                        searched = reply.youtube
+                        found = try await videos(for: reply.youtube, key: key, count: 12)
+                        looked = true
+                    }
+                    let wanted = Kitchen.named(reply.notes, in: recipes).filter { !read.contains($0) }
+                    if !wanted.isEmpty, round < 2 {
+                        let more = await Task.detached { wanted.map { (title: $0.title, text: (try? String(contentsOf: $0.file, encoding: .utf8)) ?? "") } }.value
+                        read += wanted; texts += more
+                        looked = true
+                    }
+                    if looked { continue }
+                    let shown = reply.show.compactMap { id in found?.first { $0.id == id } ?? chat.last { $0.fromBasil && !$0.videos.isEmpty }?.videos.first { $0.id == id } }
+                    chat.append(Kitchen.Message(fromBasil: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
+                                                videos: Array(shown.prefix(6)), notes: read.map(\.file.path)))
+                    return
+                }
+            } catch { failure = describe(error) }
+        }
+    }
+
+    func clearChat() { chat = []; saveChat() }
+
+    private func saveChat() {
+        let file = Self.chatFile
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(chat).write(to: file, options: .atomic)
+    }
+
     // MARK: YouTube
+
+    /// Search, then each video's details, in the search's order.
+    private func videos(for words: String, key: String, count: Int = 24) async throws -> [Kitchen.Video] {
+        let ids = Kitchen.ids(inSearch: try await fetch(Kitchen.searchURL(words, key: key, count: count)))
+        guard !ids.isEmpty else { return [] }
+        let videos = Kitchen.videos(in: try await fetch(Kitchen.videosURL(ids, key: key)))
+        return ids.compactMap { id in videos.first { $0.id == id } }
+    }
 
     func search(_ words: String) {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -92,17 +153,14 @@ import Security
         Task {
             defer { searching = false }
             do {
-                let ids = Kitchen.ids(inSearch: try await fetch(Kitchen.searchURL(words, key: key)))
-                guard !ids.isEmpty else { results = []; return }
-                let videos = Kitchen.videos(in: try await fetch(Kitchen.videosURL(ids, key: key)))
-                results = ids.compactMap { id in videos.first { $0.id == id } }
+                results = try await videos(for: words, key: key)
             } catch { failure = describe(error) }
         }
     }
 
     /// The video's recipe as a note: from the recipe page it links to when there is one, else from its description.
     func write(_ video: Kitchen.Video) {
-        guard let folder, !writing.contains(video.id) else { return }
+        guard !writing.contains(video.id), folder != nil || chooseFolder(), let folder else { return }
         writing.insert(video.id); failure = nil
         Task {
             defer { writing.remove(video.id) }
@@ -123,7 +181,7 @@ import Security
     /// A recipe from your own words.
     func write(words: String) {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let folder, !words.isEmpty, !writing.contains("words") else { return }
+        guard !words.isEmpty, !writing.contains("words"), folder != nil || chooseFolder(), let folder else { return }
         writing.insert("words"); failure = nil
         Task {
             defer { writing.remove("words") }

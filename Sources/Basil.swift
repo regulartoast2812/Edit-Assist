@@ -48,7 +48,8 @@ struct BasilIcon: View {
 /// recipe from your own words.
 struct BasilPage: View {
     @ObservedObject var desk: BasilDesk
-    @AppStorage("basilTab") private var tab = "recipes"
+    @AppStorage("basilTab") private var tab = "chat"
+    @State private var draft = ""
     @State private var words = ""
     @State private var search = ""
     @State private var filter = ""
@@ -68,37 +69,105 @@ struct BasilPage: View {
                                  "**Personal**: nothing to do with your work"], size: 11)
                     }
                 }
-                if let folder = desk.folder {
-                    Picker("", selection: $tab) {
-                        Text(L("Recipes")).tag("recipes")
-                        Text(L("YouTube")).tag("youtube")
-                        Text(L("Write")).tag("write")
-                    }.pickerStyle(.segmented).labelsHidden().fixedSize()
-                    if let failure = desk.failure { status(false, failure) }
-                    if let written = desk.written {
-                        HStack(spacing: 8) {
-                            status(true, L("Written: **%@**", written.deletingPathExtension().lastPathComponent))
-                            Button(L("Open in Obsidian")) { open(written) }.controlSize(.small)
-                        }
+                Picker("", selection: $tab) {
+                    Text(L("Chat")).tag("chat")
+                    Text(L("Recipes")).tag("recipes")
+                    Text(L("YouTube")).tag("youtube")
+                    Text(L("Write")).tag("write")
+                }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                if let failure = desk.failure { status(false, failure) }
+                if let written = desk.written {
+                    HStack(spacing: 8) {
+                        status(true, L("Written: **%@**", written.deletingPathExtension().lastPathComponent))
+                        Button(L("Open in Obsidian")) { open(written) }.controlSize(.small)
                     }
-                    switch tab {
-                    case "youtube": youtube
-                    case "write": writePage
-                    default: recipes(folder)
-                    }
-                } else {
-                    section(L("OBSIDIAN")) {
-                        Text(md: L("Choose the folder in your vault where recipes go. Basil reads the notes in it and writes new ones there; he never writes anywhere else."))
-                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        Button(L("Choose your recipes folder…")) { desk.chooseFolder() }
-                    }
+                }
+                switch tab {
+                case "recipes":
+                    if let folder = desk.folder { recipes(folder) } else { chooseFolder }
+                case "youtube": youtube
+                case "write": writePage
+                default: chat
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.scrollIndicators(.automatic)
         .onAppear { desk.reload() }
     }
 
+    // MARK: Chat
+
+    @ViewBuilder var chat: some View {
+        HStack(spacing: 6) {
+            Text(md: L("Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if !desk.chat.isEmpty { Button(L("Clear the chat")) { desk.clearChat() }.buttonStyle(.link).font(.system(size: 10)).disabled(desk.thinking) }
+        }
+        if HelperBrain.provider.executable == nil { status(false, L("%@ CLI is not installed on this Mac.", HelperBrain.provider.rawValue)) }
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(desk.chat) { message($0) }
+                    if desk.thinking {
+                        HStack(spacing: 8) {
+                            PixelBasil(pixel: 1.25, busyUntil: .distantFuture).frame(width: 22)
+                            Text(L("Basil is thinking…")).font(.system(size: 11)).foregroundStyle(.secondary)
+                        }.id("thinking")
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+            }
+            .frame(minHeight: desk.chat.isEmpty ? 0 : 220, maxHeight: 560)
+            .onAppear { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
+            .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
+            .onChange(of: desk.thinking) { _, thinking in if thinking { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
+        }
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField(L("Message Basil"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)
+            Button(L("Send"), action: send).disabled(desk.thinking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func send() {
+        guard !desk.thinking else { return }
+        desk.send(draft); draft = ""
+    }
+
+    func message(_ message: Kitchen.Message) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if message.fromBasil { PixelBasil(pixel: 1.25).frame(width: 22) } else { Spacer(minLength: 60) }
+            VStack(alignment: message.fromBasil ? .leading : .trailing, spacing: 8) {
+                Text(message.text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(message.fromBasil ? accent.opacity(0.12) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                if !message.notes.isEmpty {
+                    HStack(spacing: 6) {
+                        Text(L("Read:")).font(.system(size: 10)).foregroundStyle(.secondary)
+                        ForEach(message.notes, id: \.self) { path in
+                            let file = URL(fileURLWithPath: path)
+                            Button { open(file) } label: { Label(file.deletingPathExtension().lastPathComponent, systemImage: "doc.text") }
+                                .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).help(L("Open in Obsidian"))
+                        }
+                    }
+                }
+                if !message.videos.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 12)], alignment: .leading, spacing: 12) {
+                        ForEach(message.videos) { card($0) }
+                    }
+                }
+            }
+            if message.fromBasil { Spacer(minLength: 40) }
+        }.id(message.id)
+    }
+
     // MARK: Recipes
+
+    var chooseFolder: some View {
+        section(L("OBSIDIAN")) {
+            Text(md: L("Choose the folder in your vault where recipes go. Basil reads the notes in it and writes new ones there; he never writes anywhere else."))
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button(L("Choose your recipes folder…")) { _ = desk.chooseFolder() }
+        }
+    }
 
     func recipes(_ folder: URL) -> some View {
         let shown = desk.recipes.filter { entry in
@@ -116,7 +185,7 @@ struct BasilPage: View {
                 Spacer()
                 Text(folder.lastPathComponent).font(.system(size: 10)).foregroundStyle(.secondary).help(folder.path)
                 Button { NSWorkspace.shared.activateFileViewerSelecting([folder]) } label: { Image(systemName: "folder") }.help(L("Show in Finder"))
-                Button(L("Change…")) { desk.chooseFolder() }
+                Button(L("Change…")) { _ = desk.chooseFolder() }
             }.controlSize(.small)
             if desk.recipes.isEmpty {
                 Text(L("No recipes in this folder yet. Find one on YouTube or write your own.")).font(.system(size: 12)).foregroundStyle(.secondary)

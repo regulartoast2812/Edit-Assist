@@ -702,6 +702,12 @@ enum Vietnamese {
         "Copied %@, after its numbers had settled": "Đã chép lúc %@, sau khi số liệu đã chốt",
         // Basil, the recipe helper.
         "Recipe helper": "Trợ lý công thức nấu ăn",
+        "Chat": "Trò chuyện",
+        "Ask Basil for a recipe, a cooking question, or what's in your notes. He searches YouTube and reads your notes when he needs to.": "Hỏi Basil một công thức, một câu hỏi nấu ăn, hoặc ghi chú của bạn có gì. Khi cần, anh ấy tìm trên YouTube và đọc ghi chú của bạn.",
+        "Basil is thinking…": "Basil đang suy nghĩ…",
+        "Message Basil": "Nhắn cho Basil",
+        "Read:": "Đã đọc:",
+        "I couldn't find an answer to that.": "Mình chưa tìm được câu trả lời cho câu này.",
         "Your recipe helper": "Trợ lý công thức nấu ăn của bạn",
         "Finds **recipes on YouTube** and writes them down for you": "Tìm **công thức trên YouTube** và chép lại cho bạn",
         "Keeps them in your **Obsidian vault**, tracked: to try, made, favourite": "Lưu trong **kho Obsidian** của bạn, theo dõi: sẽ thử, đã nấu, yêu thích",

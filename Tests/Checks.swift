@@ -1392,6 +1392,17 @@ struct Checks {
             let entries = Kitchen.entries(in: vault)
             check(Set(entries.map(\.title)) == ["Adobo", "Pho"] && entries.first { $0.title == "Pho" }?.status == "favourite" && entries.first { $0.title == "Pho" }?.tags == ["soup"],
                   "Basil reads every note in the recipes folder and the folders in it, Obsidian's own left out")
+            let reply = Kitchen.reply(from: ["reply": " Looking ", "youtube": "pho recipe", "notes": ["pho", " "], "show": []])
+            check(reply.text == "Looking" && reply.notes == ["pho"] && reply.looksUp && !Kitchen.reply(from: ["reply": "Hi"]).looksUp, "Basil's chat answer says what he looks up")
+            check(Kitchen.named(["PHO", "adobo!", "Nothing"], in: entries).map(\.title) == ["Pho", "Adobo"], "Notes the chat names are found by title, case and marks aside")
+            let asked = [Kitchen.Message(fromBasil: false, text: "What's in my pho?")]
+            let withNotes = Kitchen.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",
+                                               read: [("Pho", "Pho text")], last: true)
+            check(withNotes.contains("- Pho | favourite | - | soup") && withNotes.contains("Me: What's in my pho?") && withNotes.contains("id v2 | Mac & Cheese")
+                  && withNotes.contains("My note \"Pho\":\nPho text") && withNotes.contains("Answer now") && withNotes.contains("no API key"),
+                  "Basil's chat gets your notes list, the chat, what he looked up, and what he can't do")
+            check(Kitchen.chatPrompt(chat: asked, recipes: [], folder: false, canSearch: true, found: nil, searched: "", read: [], last: false).contains("not chosen yet"),
+                  "Without a recipes folder Basil still chats, and says where to choose one")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).
