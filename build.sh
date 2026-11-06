@@ -45,7 +45,15 @@ cp Resources/Models/NOTICE.md "$STAGE/Contents/Resources/WholeBodyPose-NOTICE.md
 cp Resources/Models/LICENSE-Apache-2.0.txt "$STAGE/Contents/Resources/WholeBodyPose-LICENSE.txt"
 
 # A fixed identity keeps the designated requirement stable, so macOS permissions survive rebuilds.
-if security find-certificate -c "$IDENTITY" "$KC" >/dev/null 2>&1 &&
+# Your free Apple Development certificate first (Xcode → Settings → Accounts): its team ID is the Keychain's partition, so
+# saved keys and sessions are read by every build without a password. The local identity has no team: the Keychain trusts
+# only the exact build that saved an item, and asked for your password after every rebuild (2026-11-06).
+APPLE=$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Apple Development/ {print $2; exit}')
+if [[ -n "$APPLE" ]] &&
+   codesign --force --sign "$APPLE" "$STAGE/Contents/MacOS/CLIWorker" 2>/dev/null &&
+   codesign --force --sign "$APPLE" --identifier "$ID" "$STAGE" 2>/dev/null; then
+  :
+elif security find-certificate -c "$IDENTITY" "$KC" >/dev/null 2>&1 &&
    codesign --force --sign "$IDENTITY" --keychain "$KC" "$STAGE/Contents/MacOS/CLIWorker" 2>/dev/null &&
    codesign --force --sign "$IDENTITY" --keychain "$KC" --identifier "$ID" "$STAGE" 2>/dev/null; then
   :
