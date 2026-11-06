@@ -1408,6 +1408,10 @@ struct Checks {
             let picked = Kitchen.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
             check(picked == [Kitchen.Pick(id: "v2", why: "Clear method")] && Kitchen.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
                   "Basil's picks are only videos he was shown, once each")
+            let kept = Kitchen.Saved(video: video!, why: "Clear method")
+            let back = try? JSONDecoder().decode([Kitchen.Saved].self, from: JSONEncoder().encode([kept]))
+            check(back?.first?.video.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
+                  "A saved video is kept in the app, unwritten until you ask")
             try? FileManager.default.removeItem(at: vault)
         }
         // Don's brief and Pix's jobs (2026-11-04).

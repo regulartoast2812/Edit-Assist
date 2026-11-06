@@ -241,7 +241,7 @@ struct BasilPage: View {
                     Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching || desk.picking)
                     Button { desk.pick(words) } label: { Label(L("Pick for me"), systemImage: "sparkles") }
                         .disabled(words.isEmpty || desk.searching || desk.picking)
-                        .help(L("Basil searches recipes for your words, picks the real recipe videos worth saving (up to 5) and saves them"))
+                        .help(L("Basil searches recipes for your words and saves the real recipe videos worth reviewing (up to 5)"))
                     if desk.searching || desk.picking { ProgressView().controlSize(.small) }
                     if desk.picking { Text(L("Basil is picking…")).font(.system(size: 11)).foregroundStyle(.secondary) }
                     Spacer()
@@ -257,54 +257,62 @@ struct BasilPage: View {
         }
     }
 
-    /// Where videos are saved: drop one here (from the results or the chat) and Basil writes its recipe into your vault;
-    /// his picks land here too.
+    /// Videos saved in the app to review: drop one here (from the results or the chat), and Basil's picks land here too.
+    /// A recipe is written into the vault only when you press Write recipe (or Write all).
     var shelf: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(L("SAVE TO YOUR VAULT")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
+                Text(L("SAVED")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
                 Spacer()
-                if desk.shelf.contains(where: { if case .saving = $0.state { return false }; return true }) {
-                    Button(L("Clear")) { desk.clearShelf() }.buttonStyle(.link).font(.system(size: 10))
+                let waiting = desk.unwritten.filter { !desk.writing.contains($0.id) }.count
+                if waiting > 1 {
+                    Button(L("Write all (%@)", waiting)) { desk.writeAll() }.controlSize(.small)
+                        .help(L("Write the recipe of every saved video not written yet into your vault"))
                 }
             }
             VStack(spacing: 6) {
                 Image(systemName: "tray.and.arrow.down").font(.system(size: 20)).foregroundStyle(dropping ? accent : .secondary)
-                Text(L("Drag videos here to save their recipes")).font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(L("Drag videos here to save them")).font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 18)
             .background(accent.opacity(dropping ? 0.14 : 0.03), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(dropping ? accent : .secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
-            ForEach(desk.shelf) { item in shelved(item) }
+            ForEach(desk.saved) { item in saved(item) }
         }
         .padding(12)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
         .dropDestination(for: String.self) { ids, _ in
-            ids.forEach(desk.shelve(id:))
+            ids.forEach(desk.save(id:))
             return !ids.isEmpty
         } isTargeted: { dropping = $0 }
     }
 
-    func shelved(_ item: BasilDesk.Shelved) -> some View {
+    func saved(_ item: Kitchen.Saved) -> some View {
         HStack(alignment: .top, spacing: 8) {
             AsyncImage(url: item.video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
                 .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4))
-            VStack(alignment: .leading, spacing: 2) {
+                .onTapGesture { NSWorkspace.shared.open(item.video.url) }.help(L("Watch the video"))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.video.title).font(.system(size: 11, weight: .medium)).lineLimit(2)
                 if !item.why.isEmpty {
                     Label(item.why, systemImage: "sparkles").font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(3)
                 }
-                switch item.state {
-                case .saving:
+                if desk.writing.contains(item.id) {
                     HStack(spacing: 4) { ProgressView().controlSize(.mini); Text(L("Writing…")).font(.system(size: 10)).foregroundStyle(.secondary) }
-                case .saved(let file):
-                    Button { open(file) } label: { Label(L("Saved: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
+                } else if !item.written.isEmpty {
+                    let file = URL(fileURLWithPath: item.written)
+                    Button { open(file) } label: { Label(L("Written: %@", file.deletingPathExtension().lastPathComponent), systemImage: "checkmark.circle.fill") }
                         .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).lineLimit(1).help(L("Open in Obsidian"))
-                case .failed(let reason):
-                    Label(reason, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
+                } else {
+                    if let reason = desk.refused[item.id] {
+                        Label(reason, systemImage: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.orange).lineLimit(3)
+                    }
+                    Button(L("Write recipe")) { desk.write(item.video) }.controlSize(.mini)
                 }
             }
             Spacer(minLength: 0)
+            Button { desk.remove(item) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).font(.system(size: 9)).foregroundStyle(.secondary)
+                .help(L("Remove from saved")).disabled(desk.writing.contains(item.id))
         }
     }
 
@@ -328,8 +336,10 @@ struct BasilPage: View {
                     ProgressView().controlSize(.small); Text(L("Writing…")).font(.system(size: 11))
                 } else if kept {
                     Label(L("In your vault"), systemImage: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(accent)
+                } else if desk.saved.contains(where: { $0.id == video.id }) {
+                    Label(L("Saved"), systemImage: "bookmark.fill").font(.system(size: 11)).foregroundStyle(accent)
                 } else {
-                    Button(L("Write recipe")) { desk.write(video) }.controlSize(.small)
+                    Button { desk.save(video) } label: { Label(L("Save"), systemImage: "bookmark") }.controlSize(.small)
                 }
                 Spacer()
                 Button { NSWorkspace.shared.open(video.url) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))

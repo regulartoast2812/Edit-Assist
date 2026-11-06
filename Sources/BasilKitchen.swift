@@ -30,6 +30,17 @@ enum Kitchen {
         url("search", [("part", "snippet"), ("type", "video"), ("maxResults", "\(count)"), ("q", words), ("safeSearch", "none")], key: key)
     }
 
+    /// A video saved in the app to review: dropped on the save area or picked by Basil. Its recipe is written into the vault
+    /// only when you ask (`written` is then the note's path).
+    struct Saved: Codable, Equatable, Identifiable {
+        var video: Video
+        /// Why Basil picked it; empty for one you saved.
+        var why = ""
+        var added = Date()
+        var written = ""
+        var id: String { video.id }
+    }
+
     /// Your words as a recipe search: "chicken" finds songs and farm videos, "chicken recipe" finds cooking.
     static func recipeSearch(_ words: String) -> String {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -19,19 +19,12 @@ import Security
     /// The chat with him, kept in basil/chat.json beside projects.json.
     @Published private(set) var chat: [Kitchen.Message] = []
     @Published private(set) var thinking = false
-    /// The videos saved here (dropped on the save area, or Basil's picks), newest first, with how each went.
-    @Published private(set) var shelf: [Shelved] = []
+    /// The videos you saved to review (dropped on the save area, or Basil's picks), newest first; kept in basil/saved.json.
+    @Published private(set) var saved: [Kitchen.Saved] = []
+    /// Why writing a saved video's recipe failed, by video.
+    @Published private(set) var refused: [String: String] = [:]
     /// Basil choosing recipe videos for you.
     @Published private(set) var picking = false
-
-    struct Shelved: Identifiable, Equatable {
-        enum State: Equatable { case saving, saved(URL), failed(String) }
-        var video: Kitchen.Video
-        var state = State.saving
-        /// Why Basil picked it; empty for one you saved.
-        var why = ""
-        var id: String { video.id }
-    }
 
     var busy: Bool { searching || thinking || picking || !writing.isEmpty }
     /// The videos already in the vault, by their link.
@@ -40,7 +33,10 @@ import Security
     init() {
         folder = UserDefaults.standard.string(forKey: "basilFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
         chat = (try? Data(contentsOf: Self.chatFile)).flatMap { try? JSONDecoder().decode([Kitchen.Message].self, from: $0) } ?? []
+        saved = (try? Data(contentsOf: Self.savedFile)).flatMap { try? JSONDecoder().decode([Kitchen.Saved].self, from: $0) } ?? []
     }
+
+    nonisolated static var savedFile: URL { Studio.folder.appendingPathComponent("basil/saved.json") }
 
     nonisolated static var chatFile: URL { Studio.folder.appendingPathComponent("basil/chat.json") }
 
@@ -172,25 +168,43 @@ import Security
     }
 
     /// The video's recipe as a note: from the recipe page it links to when there is one, else from its description.
-    func write(_ video: Kitchen.Video) {
-        guard !writing.contains(video.id), folder != nil || chooseFolder() else { return }
-        Task { await shelve(video) }
+    // MARK: Saved videos
+
+    /// Kept in the app to review; nothing is written yet, so no vault is needed.
+    func save(_ video: Kitchen.Video, why: String = "") {
+        guard !saved.contains(where: { $0.id == video.id }) else { return }
+        saved.insert(Kitchen.Saved(video: video, why: why), at: 0)
+        saveSaved()
     }
 
-    /// Saves the video's recipe in the vault, shown on the shelf while it goes. Already in the vault or being saved: nothing to do.
-    private func shelve(_ video: Kitchen.Video, why: String = "") async {
+    /// A video dragged onto the save area, by its id: from the results or the chat.
+    func save(id: String) {
+        guard let video = results.first(where: { $0.id == id }) ?? chat.lazy.flatMap(\.videos).first(where: { $0.id == id }) else { return }
+        save(video)
+    }
+
+    func remove(_ item: Kitchen.Saved) { saved.removeAll { $0.id == item.id }; refused[item.id] = nil; saveSaved() }
+
+    /// The saved videos whose recipe isn't written yet.
+    var unwritten: [Kitchen.Saved] { saved.filter { $0.written.isEmpty } }
+
+    /// Writes the video's recipe into the vault (asking for the folder the first time).
+    func write(_ video: Kitchen.Video) {
+        guard !writing.contains(video.id), folder != nil || chooseFolder() else { return }
+        Task { await writeRecipe(video) }
+    }
+
+    /// Writes every saved video not written yet, one after another.
+    func writeAll() {
+        let waiting = unwritten.filter { !writing.contains($0.id) }
+        guard !waiting.isEmpty, folder != nil || chooseFolder() else { return }
+        Task { for item in waiting { await writeRecipe(item.video) } }
+    }
+
+    private func writeRecipe(_ video: Kitchen.Video) async {
         guard let folder, !writing.contains(video.id) else { return }
-        if sources.contains(video.url.absoluteString) {
-            if !shelf.contains(where: { $0.id == video.id }), let entry = recipes.first(where: { $0.source == video.url.absoluteString }) {
-                shelf.insert(Shelved(video: video, state: .saved(entry.file), why: why), at: 0)
-            }
-            return
-        }
-        shelf.removeAll { $0.id == video.id }
-        shelf.insert(Shelved(video: video, why: why), at: 0)
-        writing.insert(video.id)
+        writing.insert(video.id); refused[video.id] = nil; failure = nil
         defer { writing.remove(video.id) }
-        let state: Shelved.State
         do {
             var page: (url: URL, data: [String: Any])?
             for link in Kitchen.links(in: video.description) {
@@ -200,40 +214,41 @@ import Security
             var recipe = Kitchen.recipe(from: answer)
             if recipe.title.isEmpty { recipe.title = video.title }
             recipe.source = video.url.absoluteString; recipe.channel = video.channel; recipe.page = page?.url.absoluteString ?? ""
-            state = .saved(try save(recipe, in: folder))
-        } catch { state = .failed(describe(error)) }
-        if let index = shelf.firstIndex(where: { $0.id == video.id }) { shelf[index].state = state }
+            let file = try save(recipe, in: folder)
+            if let index = saved.firstIndex(where: { $0.id == video.id }) { saved[index].written = file.path; saveSaved() }
+        } catch {
+            if saved.contains(where: { $0.id == video.id }) { refused[video.id] = describe(error) } else { failure = describe(error) }
+        }
     }
 
-    /// A video dragged onto the save area, by its id: from the results or the chat.
-    func shelve(id: String) {
-        guard let video = results.first(where: { $0.id == id }) ?? chat.lazy.flatMap(\.videos).first(where: { $0.id == id }) else { return }
-        write(video)
+    private func saveSaved() {
+        let file = Self.savedFile
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(saved).write(to: file, options: .atomic)
     }
 
-    /// Basil searches recipes for your words, picks the real recipe videos worth saving (at most five), and saves them.
+    /// Basil searches recipes for your words, picks the real recipe videos worth saving (at most five), and saves them here to review.
     func pick(_ words: String) {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let key = Self.key, !picking, !searching, folder != nil || chooseFolder() else { return }
+        guard !words.isEmpty, let key = Self.key, !picking, !searching else { return }
         picking = true; failure = nil
         Task {
             defer { picking = false }
             do {
                 let query = Kitchen.recipeSearch(words)
                 results = try await videos(for: query, key: key)
-                let fresh = results.filter { !sources.contains($0.url.absoluteString) }
+                let kept = Set(saved.map(\.id))
+                let fresh = results.filter { !sources.contains($0.url.absoluteString) && !kept.contains($0.id) }
                 guard !fresh.isEmpty else { return }
                 let answer = try await HelperBrain.ask(Kitchen.pickPrompt(query, videos: fresh, count: 5), schema: Kitchen.pickSchema)
                 let picks = Kitchen.picks(from: answer, among: fresh, count: 5)
                 if picks.isEmpty { failure = L("Basil found no real recipe among these videos. Try other words."); return }
-                for pick in picks {
-                    if let video = fresh.first(where: { $0.id == pick.id }) { await shelve(video, why: pick.why) }
+                for pick in picks.reversed() {
+                    if let video = fresh.first(where: { $0.id == pick.id }) { save(video, why: pick.why) }
                 }
             } catch { failure = describe(error) }
         }
     }
-
-    func clearShelf() { shelf.removeAll { if case .saving = $0.state { return false }; return true } }
 
     /// A recipe from your own words.
     func write(words: String) {
