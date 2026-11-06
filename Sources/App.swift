@@ -141,8 +141,8 @@ struct ContentView: View {
                                     Button { renaming = true } label: { Image(systemName: "pencil") }
                                         .buttonStyle(.plain).foregroundStyle(.secondary).help(L("Rename project")).disabled(s.busy)
                                 }
-                            } else if ["amir", "tala", "bo", "pix", "don", "kino", "penny"].contains(s.tab) {
-                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino", "penny": "Penny"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
+                            } else if ["amir", "tala", "bo", "pix", "don", "kino", "penny", "basil"].contains(s.tab) {
+                                Text(md: L(["amir": "Amir", "tala": "Tala", "bo": "Bo", "pix": "Pix", "don": "Don", "kino": "Kino", "penny": "Penny", "basil": "Basil"][s.tab] ?? "")).font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(theme)
                             } else {
                                 Label(L(s.function.title), systemImage: s.function.icon).font(.system(size: 22, weight: .semibold))
@@ -160,6 +160,7 @@ struct ContentView: View {
                         else if s.tab == "don" { DonPage(don: s.studio.don, project: s.project) }
                         else if s.tab == "kino" { KinoPage(desk: s.kino, project: s.project) }
                         else if s.tab == "penny" { PennyPage(desk: s.penny) }
+                        else if s.tab == "basil" { BasilPage(desk: s.basil) }
                         else { page(for: s.function) }
                     }.padding(24).frame(minWidth: 450, maxWidth: .infinity).tint(theme)
                     if contextOpen {
@@ -726,6 +727,7 @@ struct ContentView: View {
     static let helpers: [(tab: String, name: String, role: String)] = [
         ("amir", "Amir", "File helper"), ("tala", "Tala", "Voice helper"), ("bo", "Bo", "Drive helper"), ("pix", "Pix", "CTA & image helper"),
         ("don", "Don", "Ads expert"), ("kino", "Kino", "AI video helper"), ("penny", "Penny", "Numbers helper"),
+        ("basil", "Basil", "Recipe helper"),
     ]
     @ViewBuilder func helper(_ tab: String) -> some View {
         if let helper = Self.helpers.first(where: { $0.tab == tab }) {
@@ -737,6 +739,7 @@ struct ContentView: View {
                 case "pix": PixIcon(desk: s.studio.pix)
                 case "don": DonIcon(don: s.studio.don)
                 case "kino": PixelKino(pixel: 1.25)
+                case "basil": BasilIcon(desk: s.basil)
                 default: PennyIcon(desk: s.penny)
                 }
             }
@@ -765,7 +768,8 @@ struct ContentView: View {
 
     /// Each helper's colour, the colour of their body: their sidebar button and page take it.
     static let helperThemes: [String: Color] = ["amir": PixelAmir.theme, "tala": PixelTala.theme, "bo": PixelBo.theme,
-                                                "pix": PixelPix.theme, "don": PixelDon.theme, "kino": PixelKino.theme, "penny": PixelPenny.theme]
+                                                "pix": PixelPix.theme, "don": PixelDon.theme, "kino": PixelKino.theme, "penny": PixelPenny.theme,
+                                                "basil": PixelBasil.theme]
     /// The page's colour: the helper's on a helper page, the app's anywhere else.
     var theme: Color { Self.helperThemes[s.tab] ?? accent }
 

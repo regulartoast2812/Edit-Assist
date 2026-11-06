@@ -1351,6 +1351,49 @@ struct Checks {
             check(read.first?.contains("$145.00") == true && read.contains { $0.contains("down") } && read.contains { $0.contains("No orders: **Z_v1**") },
                   "Penny's read gives the totals, the change on the days before and the creatives that spend without selling")
         }
+        // Basil, the recipe helper: YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
+        do {
+            check(Kitchen.duration("PT1M15S") == "1:15" && Kitchen.duration("PT1H2M3S") == "1:02:03" && Kitchen.duration("PT45S") == "0:45" && Kitchen.duration("P0D") == "",
+                  "Basil writes a video's length as a clock")
+            let search = Data(#"{"items":[{"id":{"kind":"youtube#video","videoId":"v1"}},{"id":{"videoId":"v2"}}]}"#.utf8)
+            let details = Data(#"{"items":[{"id":"v2","snippet":{"title":"Mac &amp; Cheese","channelTitle":"Cook","publishedAt":"2026-01-02T03:04:05Z","description":"Recipe: https://example.com/mac https://youtu.be/x https://www.instagram.com/cook","thumbnails":{"medium":{"url":"https://i.ytimg.com/m.jpg"}}},"contentDetails":{"duration":"PT9M"},"statistics":{"viewCount":"1200"}}]}"#.utf8)
+            let video = Kitchen.videos(in: details).first
+            check(Kitchen.ids(inSearch: search) == ["v1", "v2"] && video?.title == "Mac & Cheese" && video?.duration == "9:00" && video?.views == 1200
+                  && video?.published == "2026-01-02" && video?.thumbnail?.lastPathComponent == "m.jpg",
+                  "Basil reads YouTube's search and video answers")
+            check(Kitchen.links(in: video?.description ?? "").map(\.absoluteString) == ["https://example.com/mac"], "Only links that could hold the recipe are read")
+            check(Kitchen.failure(in: Data(#"{"error":{"message":"quota","errors":[{"reason":"quotaExceeded"}]}}"#.utf8)) == "quotaExceeded",
+                  "Basil knows when the day's searches are used up")
+            let html = #"<script type="application/ld+json">{"@type":"WebSite"}</script><script type='application/ld+json'>{"@context":"https://schema.org","@graph":[{"@type":"Person"},{"@type":["Recipe","NewsArticle"],"name":"Adobo","recipeIngredient":["1 kg chicken"]}]}</script>"#
+            check(Kitchen.recipeData(inHTML: html)?["name"] as? String == "Adobo" && Kitchen.recipeData(inHTML: "<p>no recipe</p>") == nil,
+                  "Basil finds the Recipe a page publishes, inside a graph or under several types")
+            var recipe = Kitchen.recipe(from: ["title": " Adobo ", "tags": ["#Filipino Food", "chicken"], "steps": ["1. Brown the chicken", "2) Simmer"], "ingredients": ["1 kg chicken", " "]])
+            check(recipe.title == "Adobo" && recipe.tags == ["filipino-food", "chicken"] && recipe.steps == ["Brown the chicken", "Simmer"] && recipe.ingredients == ["1 kg chicken"],
+                  "Basil's answer is tidied: tags Obsidian takes, steps without their numbers")
+            recipe.source = "https://www.youtube.com/watch?v=v2"; recipe.channel = "Cook \"Pro\""
+            let note = Kitchen.note(recipe, added: "2026-11-06")
+            let header = Kitchen.header(of: note)
+            check(header["title"] == ["Adobo"] && header["status"] == ["to try"] && header["channel"] == ["Cook \"Pro\""] && header["tags"] == ["recipe", "filipino-food", "chicken"]
+                  && note.contains("![](https://www.youtube.com/watch?v=v2)") && note.contains("2. Simmer") && header["servings"] == nil,
+                  "A recipe note has its header, the video, and numbered steps")
+            let made = Kitchen.setting("status", to: "made", in: note)
+            check(Kitchen.header(of: made)["status"] == ["made"] && made.components(separatedBy: "status:").count == 2 && made.contains("## Steps"),
+                  "Changing a recipe's status changes only that line")
+            check(Kitchen.header(of: Kitchen.setting("tags", to: "[a]", in: note))["tags"] == ["a"] && Kitchen.header(of: Kitchen.setting("status", to: "made", in: "Just text"))["status"] == ["made"],
+                  "A list value is replaced whole; a note with no header gets one")
+            check(Kitchen.fileName(for: "Mac & Cheese: The Best?", taken: ["mac & cheese the best.md"]) == "Mac & Cheese The Best 2.md" && Kitchen.fileName(for: " .. ", taken: []) == "Recipe.md",
+                  "A recipe's file name suits Windows too and never takes an existing note's")
+            let vault = FileManager.default.temporaryDirectory.appendingPathComponent("basil-check-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: vault.appendingPathComponent(".obsidian"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: vault.appendingPathComponent("Soups"), withIntermediateDirectories: true)
+            try Data(note.utf8).write(to: vault.appendingPathComponent("Adobo.md"))
+            try Data("---\ntags: [soup]\nstatus: Favourite\n---\nPho".utf8).write(to: vault.appendingPathComponent("Soups/Pho.md"))
+            try Data("{}".utf8).write(to: vault.appendingPathComponent(".obsidian/app.md"))
+            let entries = Kitchen.entries(in: vault)
+            check(Set(entries.map(\.title)) == ["Adobo", "Pho"] && entries.first { $0.title == "Pho" }?.status == "favourite" && entries.first { $0.title == "Pho" }?.tags == ["soup"],
+                  "Basil reads every note in the recipes folder and the folders in it, Obsidian's own left out")
+            try? FileManager.default.removeItem(at: vault)
+        }
         // Don's brief and Pix's jobs (2026-11-04).
         do {
             let brief = try DonBrief(answer: ["product": " Jeans ", "vibe": "Warm", "voice": "", "music": "", "graphicStyle": "Denim blue", "cta": "GET YOURS NOW!",
