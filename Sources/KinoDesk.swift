@@ -20,6 +20,9 @@ final class KinoDesk: ObservableObject {
     @Published var selected: String?
     /// The take playing in the outputs.
     @Published private(set) var watching: String?
+    /// Files are dragged over the shots: each shot's files show they take a drop, the space around them makes a new shot.
+    @Published private(set) var dragging = false
+    private var drags = 0
     @Published private(set) var hasKling = KinoKeys.kling != nil
     @Published private(set) var hasHiggsfield = KinoKeys.higgsfield != nil
     private var project: UUID?
@@ -109,6 +112,17 @@ final class KinoDesk: ObservableObject {
         save()
         refresh()
     }
+    /// A drag came over a part of the shots that takes it, or left it. Still dragging a moment after leaving one, so moving
+    /// from one part to the next does not flicker.
+    func dragged(_ inside: Bool) {
+        drags = max(0, drags + (inside ? 1 : -1))
+        if drags > 0 { dragging = true; return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            if drags == 0 { dragging = false }
+        }
+    }
+
     /// Plays a take in the outputs; it counts as watched.
     func watch(_ path: String?) {
         watching = path
@@ -178,13 +192,18 @@ final class KinoDesk: ObservableObject {
         add(panel.urls, into: shot, as: role)
     }
 
-    /// A new shot after the last one with the same letters (K7 after K6; K1 when there is none), with these files.
-    @discardableResult
-    func newShot(with urls: [URL] = []) -> String {
+    /// The code a new shot gets: after the last one with the same letters (K7 after K6; K1 when there is none).
+    var nextShot: String {
         let letters = batch.order.last.map { String($0.prefix { $0.isLetter }) } ?? "K"
         let used = batch.order.compactMap { KinoCode.parse($0) }.filter { $0.shot.hasPrefix(letters) && $0.shot.dropFirst(letters.count).allSatisfy(\.isNumber) }
             .compactMap { Int($0.shot.dropFirst(letters.count)) }
-        let code = letters + String((used.max() ?? 0) + 1)
+        return letters + String((used.max() ?? 0) + 1)
+    }
+
+    /// A new shot (`nextShot`) with these files.
+    @discardableResult
+    func newShot(with urls: [URL] = []) -> String {
+        let code = nextShot
         batch.order.append(code)
         selected = code
         if urls.isEmpty { save() } else { add(urls, into: code) }

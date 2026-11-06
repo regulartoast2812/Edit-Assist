@@ -62,6 +62,8 @@ struct KinoPage: View {
     @State private var showingEveryShot = false
     @State private var search = ""
     @State private var folded: Set<String> = []
+    /// Files dragged over the shots' list, outside any shot's files: dropped, they make a new shot.
+    @State private var newTargeted = false
     private let accent = PixelKino.theme
 
     var body: some View {
@@ -90,7 +92,22 @@ struct KinoPage: View {
                                     KinoNewShot(desk: desk)
                                 }
                                 .padding(.bottom, 24)
+                                // Files dropped anywhere but on a shot's files make a new shot of them.
+                                .frame(minHeight: size.size.height, alignment: .top)
+                                .contentShape(Rectangle())
+                                .kinoDrop($newTargeted) { desk.newShot(with: $0) }
                             }
+                            .overlay(alignment: .bottom) {
+                                if newTargeted {
+                                    Label(L("Drop for a new shot, %@", desk.nextShot), systemImage: "plus")
+                                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.black)
+                                        .padding(.horizontal, 14).frame(height: 32).background(accent, in: Capsule())
+                                        .shadow(color: .black.opacity(0.4), radius: 10, y: 3).padding(.bottom, 16)
+                                        .allowsHitTesting(false).transition(.opacity)
+                                }
+                            }
+                            .animation(.easeOut(duration: 0.12), value: newTargeted)
+                            .onChange(of: newTargeted) { _, inside in desk.dragged(inside) }
                             // A shot made by a drop or by New shot is scrolled to.
                             .onChange(of: desk.shots.count) { old, new in
                                 if new > old, let code = desk.selected { withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(code, anchor: .top) } }
@@ -181,7 +198,7 @@ struct KinoPage: View {
             Text(L("Drop pictures, videos and sounds on the left, or onto New shot below."))
                 .font(.system(size: 12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Bullets(["Files named **K1**, **K1.1** and **K1.2** go straight into shot K1, each under its own **@tag**",
-                     "Drag any file onto a shot to use it there; one picture can be in many shots",
+                     "Drag a file onto a shot's files to use it there, or onto the space around the shots for a new one; one picture can be in many shots",
                      "Give each file a **role**, write what happens, and Kino shows what he would send"], numbered: true, size: 11.5)
                 .frame(maxWidth: 440, alignment: .leading)
         }
@@ -748,12 +765,13 @@ struct KinoShotCard: View {
             if !folded {
                 if width >= 780 {
                     HStack(alignment: .top, spacing: 20) {
-                        inputs(plan, files).frame(width: inputsWidth, alignment: .leading)
+                        drops(inputs(plan, files).frame(width: inputsWidth, alignment: .leading).frame(maxHeight: .infinity, alignment: .top))
                         middle(plan, files).frame(maxWidth: .infinity, alignment: .leading)
                         if width >= 1080 { KinoTakeList(desk: desk, code: code).frame(width: 148) }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    VStack(alignment: .leading, spacing: 16) { inputs(plan, files); middle(plan, files) }
+                    VStack(alignment: .leading, spacing: 16) { drops(inputs(plan, files).frame(maxWidth: .infinity, alignment: .leading)); middle(plan, files) }
                 }
             }
         }
@@ -763,10 +781,9 @@ struct KinoShotCard: View {
             RoundedRectangle(cornerRadius: 12).fill(chosen ? accent.opacity(0.05) : Color.white.opacity(0.032))
                 .contentShape(Rectangle()).onTapGesture { desk.selected = code }
         }
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(targeted ? accent : chosen ? accent.opacity(0.45) : .white.opacity(0.07),
-                                                                lineWidth: targeted ? 2 : 1))
-        .kinoDrop($targeted) { desk.add($0, into: code); desk.selected = code }
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(chosen ? accent.opacity(0.45) : .white.opacity(0.07), lineWidth: 1))
         .onChange(of: targeted || over > 0) { _, dragging in
+            desk.dragged(dragging)
             if dragging { withAnimation(.easeOut(duration: 0.15)) { places = true }; return }
             Task {
                 try? await Task.sleep(for: .milliseconds(400))
@@ -849,7 +866,11 @@ struct KinoShotCard: View {
         }
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(L("IN THIS SHOT")).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
+                if desk.dragging {
+                    Text(L("DROP TO ADD TO %@", code)).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(accent)
+                } else {
+                    Text(L("IN THIS SHOT")).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
+                }
                 Text(room.joined(separator: " · ")).font(.system(size: 9.5, weight: .medium).monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1)
             }
             let empty = slots.filter { if case .empty = $0 { true } else { false } }
@@ -880,6 +901,20 @@ struct KinoShotCard: View {
     }
 
     func hovered(_ inside: Bool) { over = max(0, over + (inside ? 1 : -1)) }
+
+    /// The shot's files take a drop, into this shot; while files are dragged over the shots, they are outlined to show it.
+    func drops(_ content: some View) -> some View {
+        let inside = targeted || over > 0
+        return content
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(accent.opacity(inside ? 0.08 : 0)))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(accent.opacity(inside ? 1 : desk.dragging ? 0.45 : 0),
+                                                                   style: StrokeStyle(lineWidth: inside ? 2 : 1.2, dash: inside ? [] : [6, 4])))
+            .contentShape(Rectangle())
+            .kinoDrop($targeted) { desk.add($0, into: code); desk.selected = code }
+            .padding(-8)
+            .animation(.easeOut(duration: 0.12), value: desk.dragging)
+    }
 
     /// The prompt, what stops the shot or what Kino changes on the way, then the settings and Run.
     func middle(_ plan: KinoPlan, _ files: [KinoFile]) -> some View {

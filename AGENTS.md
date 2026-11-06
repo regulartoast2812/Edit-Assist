@@ -193,7 +193,8 @@ has a role (look, start or end frame, camera and motion, video to edit, sound, l
 endpoint, so an edit is never sent as a reference by chance; a video follows by default, its people and talking left out;
 a shot's first picture is its start frame unless you give a role or the shot has a video. The shots are cards in one list,
 as the Forge shows its jobs, with the shot's files and one + box (the boxes for other roles show while files are dragged
-over it); the media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
+over it). Files dropped on a shot's files go into it; dropped anywhere else in the list they make a new shot, and while
+files are dragged each shot's files are outlined to show it. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
 place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
 are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot
