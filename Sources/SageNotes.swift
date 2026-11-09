@@ -918,6 +918,7 @@ extension Study {
         var queued = false, next = 0;
         function say(m) { try { webkit.messageHandlers.sage.postMessage(m); } catch (_) {} }
         function videoId(href) { var m = /(?:[?&]v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/.exec(href || ''); return m ? m[1] : null; }
+        var said = '';
         function report() {
           var cards = [], tall = window.innerHeight;
           document.querySelectorAll('.video-embed').forEach(function (card) {
@@ -929,9 +930,17 @@ extension Study {
             card.classList.add('sage-playing');
             cards.push({ key: card.dataset.sageCard, id: id, x: r.left, y: r.top, w: r.width, h: r.height });
           });
+          // Only when something moved: typing changes the page all the time without moving a card.
+          var now = JSON.stringify(cards);
+          if (now === said) return;
+          said = now;
           say({ type: 'inline-cards', cards: cards });
         }
-        function soon() { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; report(); }); }
+        // Nothing to do in a note without YouTube cards (once its last card has gone, Sage is told once).
+        function soon() {
+          if (queued || (!said.length || said === '[]') && !document.querySelector('.video-embed')) return;
+          queued = true; requestAnimationFrame(function () { queued = false; report(); });
+        }
         // A click that reaches the card (its player still loading) waits for the player instead of leaving the note.
         document.addEventListener('click', function (e) {
           var card = e.target && e.target.closest ? e.target.closest('.video-embed') : null;

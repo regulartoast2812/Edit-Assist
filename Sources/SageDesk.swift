@@ -34,11 +34,11 @@ import Security
     /// The last note written, to open.
     @Published private(set) var written: URL?
     /// Every conversation with him, kept in sage/chats.json.
-    @Published private(set) var conversations: [Study.Conversation] = []
+    @Published var conversations: [Study.Conversation] = []
     /// The one open; nil is a new chat, made when you send its first message.
     @Published var current: UUID?
     /// The conversation he is answering in.
-    @Published private(set) var thinkingIn: UUID?
+    @Published var thinkingIn: UUID?
     var thinking: Bool { thinkingIn != nil }
     /// The open conversation's messages.
     var chat: [Study.Message] { conversations.first { $0.id == current }?.messages ?? [] }
@@ -61,6 +61,16 @@ import Security
 
     /// What he did for each of his messages, to undo it (this run only).
     @Published var undos: [UUID: [SageUndo]] = [:]
+    /// The agent's run going on (SageAgentDesk.swift), to stop it; and the step it's on, by its message.
+    @Published var agentRun: SageAgentProcess?
+    @Published var agentMessage: UUID?
+    /// The models each CLI offers the agent (read when the menu or the first run needs them), by provider.
+    @Published var agentModels: [String: [Study.AgentModel]] = [:]
+    /// Vault Agent's settings in the vault (its data.json: model and effort to start the question on, permission mode,
+    /// memory folder), read with the models.
+    @Published var vaultAgentSettings = Study.AgentSettings()
+    /// Bumped when you choose the agent's model, so the menu shows it.
+    @Published var agentChoice = 0
     var busy: Bool { searching || thinking || picking || adding || !writing.isEmpty }
     var topic: Study.Topic { topics.first { $0.id == topicID } ?? topics.first ?? Study.Topic(name: "Research") }
     var folder: URL? { topic.folder.isEmpty ? nil : URL(fileURLWithPath: topic.folder, isDirectory: true) }
@@ -214,8 +224,10 @@ import Security
     // MARK: Chat
 
     /// Your message, then his answer: up to four rounds, each of which may search YouTube, read notes, look in the whole
-    /// vault or do what you asked (SageActions.swift) before he answers.
-    func send(_ text: String) {
+    /// vault or do what you asked (SageActions.swift) before he answers. One of Vault Agent's commands ("/process …"), or
+    /// a quick action from the note bar (`quick`), goes to the agent or the media tools instead (SageAgentDesk.swift), and
+    /// so does work he hands over (an `agent` action).
+    func send(_ text: String, quick: String? = nil) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !thinking else { return }
         let id = current ?? UUID()
@@ -224,6 +236,8 @@ import Security
         thinkingIn = id; failure = nil
         Task {
             defer { thinkingIn = nil }
+            if let quick { await self.quick(quick, extra: "", in: id); return }
+            if let (name, extra) = Study.slash(text) { await self.quick(name, extra: extra, in: id); return }
             // The conversation asked in, even if you open another meanwhile.
             var chat: [Study.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Study.Video]?, searched = "", read: [Study.Entry] = [], texts: [(title: String, text: String)] = []
@@ -273,7 +287,17 @@ import Security
                                 looked = true
                             }
                         }
-                        let actions = Study.actions(from: answer)
+                        let all = Study.actions(from: answer)
+                        // Work only the agent can do: his words (and what he did so far), then the agent's run.
+                        if let handoff = all.first(where: { $0.kind == "agent" && !$0.text.isEmpty }) {
+                            var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? L("I'll hand this to the agent.") : reply.text)
+                            message.done = shownDone.isEmpty ? nil : shownDone
+                            if !steps.isEmpty { undos[message.id] = steps }
+                            append(message, to: id)
+                            await runAgent(handoff.text, in: id)
+                            return
+                        }
+                        let actions = all.filter { $0.kind != "agent" }
                         if !actions.isEmpty {
                             let outcome = await perform(actions)
                             shownDone += outcome.shown; toldDone += outcome.told; steps += outcome.undo
@@ -323,7 +347,7 @@ import Security
         saveChats()
     }
 
-    private func saveChats() {
+    func saveChats() {
         try? FileManager.default.createDirectory(at: Self.place, withIntermediateDirectories: true)
         try? JSONEncoder().encode(conversations).write(to: Self.chatsFile, options: .atomic)
     }

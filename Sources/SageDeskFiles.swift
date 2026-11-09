@@ -124,9 +124,19 @@ extension SageVaultDesk {
 
     /// The vault's templates folder (Templates' core plugin settings, templates.json), when it has one.
     var templatesFolder: String? {
-        guard let vault, let data = try? Data(contentsOf: vault.appendingPathComponent(".obsidian/templates.json")),
-              let folder = Study.json(data)?["folder"] as? String, !folder.isEmpty else { return nil }
+        guard let vault, let folder = Study.settingsFile(vault.appendingPathComponent(".obsidian/templates.json"))?["folder"] as? String, !folder.isEmpty else { return nil }
         return folder.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// The notes in the templates folder, sorted, worked out once per change of the vault (every folder's menu offers them).
+    func templateNotes() -> [Study.VaultItem] {
+        let folder = templatesFolder
+        if let kept = templatesKept, kept.version == version, kept.folder == folder { return kept.notes }
+        let notes = folder.map { folder in
+            items.filter { !$0.folder && $0.ext == ".md" && $0.path.lowercased().hasPrefix(folder.lowercased() + "/") }.sorted { Study.natural($0.title, $1.title) < 0 }
+        } ?? []
+        templatesKept = (version, folder, notes)
+        return notes
     }
 
     /// Where app.json puts new notes (newFileLocation "folder" with newFileFolderPath, "current" beside the open note,

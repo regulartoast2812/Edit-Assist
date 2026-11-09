@@ -368,6 +368,8 @@ struct FileChange: Identifiable {
     /// The recent notes as the tree shows them: taken when you come to the Notes stage and kept while you move from note
     /// to note, so the list above the tree doesn't reorder (and the tree jump down a row) on every click (2026-11-09).
     @Published private(set) var shownRecent: [String] = []
+    /// The templates folder's notes as last worked out (`templateNotes`).
+    var templatesKept: (version: Int, folder: String?, notes: [Study.VaultItem])?
     func refreshRecent() { if shownRecent != settings.recent { shownRecent = settings.recent } }
 
     /// A file you opened, first among the recent ones (eight kept).

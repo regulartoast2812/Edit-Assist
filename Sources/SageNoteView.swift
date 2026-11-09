@@ -628,6 +628,8 @@ struct SageViewer: View {
                 Text(Self.title(file)).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             }
             Spacer(minLength: 6)
+            // Vault Agent's quick actions on this note (2026-11-09); they run in Sage's chat, the stage staying here.
+            if vault.inVault(file) != nil { SageQuickBar(desk: desk) }
             if let entry {
                 Menu {
                     ForEach(desk.topic.statuses, id: \.self) { status in Button(L(SagePage.statusName(status))) { desk.set(status, for: entry) } }
