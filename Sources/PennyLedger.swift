@@ -606,7 +606,10 @@ enum Ledger {
 
     /// Penny's read of a product over the days: how it did against the days before, which creatives sell and which
     /// only spend, and the hours that sell. Each finding a line, money in dollars, hours in Alaska time.
-    static func report(_ days: [Day], before: Numbers? = nil, profit: Profit = .usual, against: Against? = nil) -> [String] {
+    /// `hours`: the hours judged over every day copied (2026-11-09: on a short range each hour had one day and nothing
+    /// could be judged), with how many days those were; the range's own hours when not given.
+    static func report(_ days: [Day], before: Numbers? = nil, profit: Profit = .usual, against: Against? = nil,
+                       hours: (reads: [HourRead], days: Int)? = nil) -> [String] {
         let total = total(days)
         guard total.spent > 0 || total.orders > 0 else { return [L("Nothing ran in these days.")] }
         var lines: [String] = []
@@ -652,11 +655,15 @@ enum Ledger {
             lines.append(L("**%@** of spend went to profitable hours and made %@ of revenue: CBH **%@**", tone(percent(parts.profitable.numbers.spent / spent), .good),
                            percent(revenue > 0 ? parts.profitable.numbers.revenue / revenue : 0), tone(money(parts.profitable.cbh), tone(money: parts.profitable.cbh))))
         }
-        let more = reads.filter { $0.verdict == .reliable }.sorted { $0.cbh > $1.cbh }.prefix(3)
+        let judged = hours?.reads ?? reads
+        let more = judged.filter { $0.verdict == .reliable }.sorted { $0.cbh > $1.cbh }.prefix(3)
+        let cut = judged.filter { $0.verdict == .costly || $0.verdict == .dead }.sorted { $0.cbh < $1.cbh }.prefix(3)
+        if let hours, hours.days > days.count, !more.isEmpty || !cut.isEmpty {
+            lines.append(L("Hours judged over all **%@** days copied:", String(hours.days)))
+        }
         if !more.isEmpty {
             lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad days %@)", tone(hourName($0.hour), .good), tone(ratio($0.numbers.roas), .good), ratio($0.floor)) }.joined(separator: ", ")))
         }
-        let cut = reads.filter { $0.verdict == .costly || $0.verdict == .dead }.sorted { $0.cbh < $1.cbh }.prefix(3)
         if !cut.isEmpty {
             lines.append(L("Cut back: %@", cut.map { L("%@ (ROAS %@, CBH %@ a day)", tone(hourName($0.hour), .bad), tone(ratio($0.numbers.roas), .bad), tone(money($0.cbh / Double(max($0.days, 1))), .bad)) }.joined(separator: ", ")))
         }
@@ -768,7 +775,8 @@ enum Ledger {
         return "\(written(hour))-\(written(hour + 1))"
     }
 
-    static func money(_ value: Double) -> String { Grafana.show(value, unit: "currencyUSD", decimals: 2).full }
+    /// Under half a cent is $0.00, never "-$0.00".
+    static func money(_ value: Double) -> String { Grafana.show(abs(value) < 0.005 ? 0 : value, unit: "currencyUSD", decimals: 2).full }
     static func whole(_ value: Double) -> String { Grafana.show(value, unit: "locale", decimals: 0).full }
     static func ratio(_ value: Double?) -> String { value.map { String(format: "%.2f", $0) } ?? "–" }
     static func percent(_ value: Double?) -> String { value.map { String(format: "%.1f%%", $0 * 100) } ?? "–" }

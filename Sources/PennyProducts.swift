@@ -120,7 +120,13 @@ final class PennyAnalysis {
     let marginBefore: (margin: Ledger.Margin, days: Int)
     let report: [String]
     let dayReads: [Ledger.DayRead]
+    /// The hours over every day copied for the product, not just the range (2026-11-09: on Today each hour had one day
+    /// and every verdict was "too few days"), judged against those days' own breakeven.
+    let history: [String]
+    let hourProfit: Ledger.Profit
     let hourReads: [Ledger.HourRead]
+    /// The range's own hours, for where its budget went.
+    let rangeHours: [Ledger.HourRead]
     let daySlots: [PennySlot]
     let hourSlots: [PennySlot]
     let efficiency: Ledger.Efficiency
@@ -142,12 +148,17 @@ final class PennyAnalysis {
         margin = summary.margin(of: product, on: days.now)
         marginBefore = summary.margin(of: product, on: days.before)
         profit = Ledger.Profit(margin.margin) ?? .usual
-        report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit, against: against)
         dayReads = Ledger.dayReads(loaded, profit: profit)
-        hourReads = Ledger.hourReads(loaded, profit: profit)
+        history = (summary.products[product] ?? [:]).filter { $0.value.spent > 0 }.keys.sorted(by: >)
+        let past = Set(days.now) == Set(history) ? loaded : PennyLedger.days(of: product, history)
+        hourProfit = Ledger.Profit(summary.margin(of: product, on: history).margin) ?? .usual
+        hourReads = Ledger.hourReads(past, profit: hourProfit)
+        hourSlots = PennySlot.hours(hourReads, days: Ledger.dayReads(past, profit: hourProfit), profit: hourProfit)
+        report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit, against: against,
+                               hours: (hourReads, history.count))
         daySlots = PennySlot.days(dayReads, profit: profit)
-        hourSlots = PennySlot.hours(hourReads, days: dayReads, profit: profit)
-        efficiency = Ledger.efficiency(hourReads, profit: profit)
+        rangeHours = Ledger.hourReads(loaded, profit: profit)
+        efficiency = Ledger.efficiency(rangeHours, profit: profit)
         bands = Ledger.bands(loaded, profit: profit)
         weeks = Ledger.weekReads(dayReads)
         creatives = Ledger.creatives(loaded)
@@ -214,6 +225,9 @@ struct ProductDetail: View, Equatable {
     /// Two to a row when the window is wide enough (`PanelFlow`); in this order one under the other when it isn't.
     var panels: some View {
         let a = analysis, profit = a.profit
+        // The hours are judged over every day copied, not the range; their notes say which days and which breakeven.
+        let hoursOver = L(a.hourProfit.measured ? "All %@ days copied, %@ – %@, against breakeven %@ from their CBH" : "All %@ days copied, %@ – %@, against the usual breakeven %@",
+                          String(a.history.count), PennyStyle.day(a.history.last ?? ""), PennyStyle.day(a.history.first ?? ""), PennyStyle.times(a.hourProfit.breakeven)) + ". "
         return PanelFlow {
             PennyPanel(title: L("Penny's read")) {
                 VStack(alignment: .leading, spacing: 7) {
@@ -226,13 +240,13 @@ struct ProductDetail: View, Equatable {
                 }.textSelection(.enabled)
             }
             PennyPanel(title: L("Where the budget went"), note: L("Each hour's average against breakeven, then every hour of every day by the ROAS it brought back")) {
-                HoursEfficiency(reads: a.hourReads, profit: profit, shows: .budget)
+                HoursEfficiency(reads: a.rangeHours, profit: profit, shows: .budget)
                 Divider().opacity(0.4)
                 BandsView(bands: a.bands, profit: profit)
             }
             PennyPanel(title: L("Days"), note: L("Press a day, on the charts or the calendar, to see it hour by hour")) {
                 if a.dayReads.count == 1, let day = a.dayReads.first {
-                    DayDrill(day: day, profit: profit)
+                    DayDrill(day: day, profit: profit, overall: a.hourReads, days: a.history.count)
                 } else {
                     PennyColumns(slots: a.daySlots, profit: profit, selected: $openDay, grow: true, hover: dayHover)
                     DaysCalendar(days: a.dayReads, profit: profit, selected: $openDay, hover: dayHover)
@@ -240,16 +254,16 @@ struct ProductDetail: View, Equatable {
             }
             // The day opened hour by hour: the whole width, under the row the Days panel is in.
             if a.dayReads.count > 1, let open = openDay, let day = a.dayReads.first(where: { $0.day == open }) {
-                DayDrill(day: day, profit: profit, overall: a.hourReads, days: a.dayReads.count) { openDay = nil }
+                DayDrill(day: day, profit: profit, overall: a.hourReads, days: a.history.count) { openDay = nil }
                     .id(open)
                     .layoutValue(key: PanelFull.self, value: true)
             }
             PennyPanel(title: L("Hours of the day"),
-                       note: L("Each hour over the days read, Alaska time: its average ROAS (the dot) and its bad to good day (the band, 10th to 90th percentile of its days, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
-                PennyColumns(slots: a.hourSlots, profit: profit, ranges: true, perDay: true, height: 170, grow: true)
+                       note: hoursOver + L("Each hour over the days read, Alaska time: its average ROAS (the dot) and its bad to good day (the band, 10th to 90th percentile of its days, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
+                PennyColumns(slots: a.hourSlots, profit: a.hourProfit, ranges: true, perDay: true, height: 170, grow: true)
             }
-            PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
-                HoursEfficiency(reads: a.hourReads, profit: profit, shows: .table)
+            PennyPanel(title: L("Hour by hour"), note: hoursOver + L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
+                HoursEfficiency(reads: a.hourReads, profit: a.hourProfit, shows: .table)
                 VerdictLegend().padding(.top, 6)
             }
             if a.weeks.count >= 2 {
