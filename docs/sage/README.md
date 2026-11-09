@@ -18,6 +18,7 @@ touches projects, Premiere, Grafana or any Crossian account.
 | `Sources/SageDeskPick.swift`, `SagePickView.swift` | The desk's Pick and player, and their page parts (steps, outcome, playable pictures, the column lines, motion). | Windows: `SageDesk.cs`, `Sage.cs`. |
 | `Sources/SageVault.swift`, `SageFiles.swift`, `SageObsidian.swift`, `SageBases.swift`, `SageNotes.swift` | The vault as Obsidian shows it, link updating, Obsidian's own look, Bases and canvases, the note page and its editing script. Foundation only. | Built first in Creative Assist (`SageVault.cs`, `SageFiles.cs`, `SageObsidian.cs`, `SageBases.cs`, `SageNotes.cs`) and brought back 2026-11-09, function for function; checked in `Tests/SageVaultChecks.swift`, `SageNotesChecks.swift`, `SageBasesChecks.swift`. |
 | `Sources/SageVaultDesk.swift`, `SageDeskFiles.swift` | The notes stage's state (vault, tabs, tree settings in `sage/notes.json`, FSEvents) and the tree's changes to the vault with Undo. | Creative Assist's `SageDesk.cs` (vault and tabs parts) and `SageDeskFiles.cs`. |
+| `Sources/SageMediaText.swift`, `SageMedia.swift` | Fetch media and Transcribe, ported from the Vault Agent plugin (`view.ts`): the note logic and what the tools print (Foundation only, checked in `Tests/SageMediaChecks.swift`), and the runner for yt-dlp, ffmpeg and WhisperX (Foundation `Process`). | Windows: the same tools as `.exe` (yt-dlp.exe, WhisperX's `Scripts\python.exe`), `Process` → `System.Diagnostics.Process`. |
 | `Sources/SageExplorer.swift`, `SageColors.swift`, `SageNoteView.swift` | The tree, quick switcher, path bar and preview; the WKWebView note view (one per tab, served by a `WKURLSchemeHandler` under `sage://sage/`), the tab row and the bar. | Creative Assist's `SageExplorer.cs`, `SageColors.cs` and `Sage.cs` (`NoteView`, tabs). |
 
 ## How he works
@@ -95,7 +96,23 @@ touches projects, Premiere, Grafana or any Crossian account.
    changed it since. Keys: Cmd+O quick switcher, Cmd+W, Cmd+Shift+T, Ctrl+Tab, Cmd+[ and ], Cmd+E edit or read; Cmd+click
    or the middle button opens in a new tab. The topic's folder is still where Sage writes: right-click a folder, "Write …
    notes here". The chat's answer can also carry `save` (video ids to keep in Saved).
-9. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
+9. **Media tools** (2026-11-09, ported from Vault Agent, the user's Obsidian plugin). `SageMedia.fetch`: the note's
+   social-video links (YouTube, Facebook, Instagram, TikTok, X/Twitter, Reddit, Vimeo, Twitch, Dailymotion, Streamable;
+   frontmatter included) are downloaded with yt-dlp into the attachments folder (app.json `attachmentFolderPath`, read
+   as Obsidian reads it, `./` included) as "<note> <n>.mp4"; a link is replaced by `![[file]]` only when a new video
+   file is really there (the folder is listed before and after), a failed download's leftovers go and the link stays.
+   A login or bot gate retries with a browser's cookies (your default browser first, then Chrome, Brave, Opera, Firefox,
+   Safari, only those installed; Chrome's may ask for the Keychain). The first thumbnail becomes `banner:` only when the note has none. Then
+   picture links are downloaded under a free name (an error or a web page is refused). `SageMedia.transcribe`: the
+   note's embedded video/sound and its links (audio only, into a temp folder deleted after) through WhisperX (small
+   model, CPU, int8, Silero VAD), each transcript as "## Transcript" under its source. Tools: yt-dlp from your shell's
+   PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin, Vault Agent's `<vault>/.obsidian/plugins/vault-agent/bin`,
+   else downloaded once into `~/Library/Application Support/Edit Assist/bin`; ffmpeg the same way; WhisperX from
+   Vault Agent's runtime or a python3 that already imports it, else a private one in `Edit Assist/whisperx` (python3 -m venv with a Python 3.10-3.12, else uv,
+   downloaded as a release archive, brings Python 3.11). Every step and the tools' useful lines go to `progress` (progress at most every 2 s, "Still working: …" after 20 s of quiet);
+   cancelling the task stops the process. Notes change only through `Study.writeNote`, applied to the note as it reads
+   when written.
+10. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
 
 ## Rules carried from Edit Assist
 
