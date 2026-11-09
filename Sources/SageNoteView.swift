@@ -44,22 +44,38 @@ import WebKit
         guard let target else { task.didFailWithError(URLError(.fileDoesNotExist)); return }
         let id = ObjectIdentifier(task)
         let type = UTType(filenameExtension: target.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        // A video or sound in a note asks for its bytes a range at a time (2026-11-09): answered with just that range.
+        let range = task.request.value(forHTTPHeaderField: "Range").flatMap(Study.byteRange)
         Task.detached {
-            let data = try? Data(contentsOf: target, options: .mappedIfSafe)
+            var data: Data?, total = 0
+            if let range, let handle = try? FileHandle(forReadingFrom: target) {
+                total = Int((try? handle.seekToEnd()) ?? 0)
+                let end = min(range.upperBound ?? total - 1, total - 1)
+                if range.lowerBound <= end {
+                    try? handle.seek(toOffset: UInt64(range.lowerBound))
+                    data = try? handle.read(upToCount: end - range.lowerBound + 1)
+                }
+                try? handle.close()
+            } else {
+                data = try? Data(contentsOf: target, options: .mappedIfSafe)
+            }
+            let part = range.map { ($0.lowerBound, total) }
             await MainActor.run {
                 guard !self.stopped.contains(id) else { self.stopped.remove(id); return }
-                if let data { self.answer(task, url: url, data: data, type: type) } else { task.didFailWithError(URLError(.fileDoesNotExist)) }
+                if let data { self.answer(task, url: url, data: data, type: type, part: part) } else { task.didFailWithError(URLError(.fileDoesNotExist)) }
             }
         }
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) { stopped.insert(ObjectIdentifier(task)) }
 
-    private func answer(_ task: WKURLSchemeTask, url: URL, data: Data, type: String) {
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                                       headerFields: ["Content-Type": type, "Content-Length": "\(data.count)", "Access-Control-Allow-Origin": "*",
+    private func answer(_ task: WKURLSchemeTask, url: URL, data: Data, type: String, part: (from: Int, total: Int)? = nil) {
+        var headers = ["Content-Type": type, "Content-Length": "\(data.count)", "Accept-Ranges": "bytes"]
+        if let part { headers["Content-Range"] = "bytes \(part.from)-\(part.from + data.count - 1)/\(part.total)" }
+        let response = HTTPURLResponse(url: url, statusCode: part == nil ? 200 : 206, httpVersion: "HTTP/1.1",
+                                       headerFields: headers.merging(["Access-Control-Allow-Origin": "*",
                                                     // Obsidian's own files never change within a version: kept, not fetched again for every note.
-                                                    "Cache-Control": url.path.hasPrefix("/obsidian/") ? "max-age=86400, immutable" : "no-cache"])!
+                                                    "Cache-Control": url.path.hasPrefix("/obsidian/") ? "max-age=86400, immutable" : "no-cache"], uniquingKeysWith: { $1 }))!
         task.didReceive(response)
         task.didReceive(data)
         task.didFinish()
@@ -730,6 +746,13 @@ struct SageViewerPage: View {
                 if newTab { vault.openInNewTab(entry.file) } else { vault.show(entry.file) }
             }
         } else if ["http", "https"].contains(url.scheme ?? "") {
+            // A YouTube video plays in Sage's own player (2026-11-09: opening the browser for it was "terrible"); a page
+            // still opens in your browser.
+            if let id = Study.videoID(of: url.absoluteString), Study.isVideoID(id) {
+                let title = vault.note.map { $0.deletingPathExtension().lastPathComponent } ?? ""
+                desk.play(Study.Video(id: id, title: title, thumbnail: URL(string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg")))
+                return
+            }
             NSWorkspace.shared.open(url)
         }
     }

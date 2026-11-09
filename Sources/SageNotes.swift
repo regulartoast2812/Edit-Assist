@@ -170,7 +170,7 @@ extension Study {
             "<link rel=\"stylesheet\" href=\"\(attribute(vault)).obsidian/plugins/\(id.addingPercentEncoding(withAllowedCharacters: allowed) ?? id)/styles.css\">"
         }.joined() } ?? ""
         return "<!doctype html><html style=\"font-size: calc(\(size)px * var(--preferred-text-scale, 1));\"><head><meta charset=\"utf-8\">\(styles)\(plugins)"
-            + "<style>\(look.css)</style></head>\n"
+            + "<style>\(look.css)</style><style>\(afterTheme)</style></head>\n"
             + "<body class=\"\(bodyClass)\" style=\"\(attribute(style))\"\(editing ? " data-sage-edit" : "")>\(before)<div class=\"app-container\"><div class=\"horizontal-main-container\"><div class=\"workspace\">"
             + "<div class=\"workspace-split mod-vertical mod-root\"><div class=\"workspace-tabs mod-top mod-active\"><div class=\"workspace-tab-container\">"
             + "<div class=\"workspace-leaf mod-active\"><div class=\"workspace-leaf-content is-read-mode\" data-type=\"\(type)\" data-mode=\"preview\"><div class=\"view-content\">"
@@ -178,6 +178,19 @@ extension Study {
             + "\(content)</div></div>"
             + "</div></div></div></div></div></div></div></div></div><script>\(pageScript)</script></body></html>"
     }
+
+    /// After your theme: Cupertino (and themes like it) puts "requires a newer Obsidian installer" over the page when the
+    /// engine lacks `interpolate-size`, which Obsidian's Chromium has and the Mac's WebKit doesn't; the page is fine.
+    /// And a picture opened full size (`pageScript`'s viewer).
+    static let afterTheme = """
+    .mod-root::before { content: none !important; display: none !important; }
+    .markdown-preview-view img:not(.video-embed img), .canvas-node-content img { cursor: zoom-in; }
+    #sage-viewer { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, .86); cursor: zoom-out; animation: sage-viewer-in .14s ease-out; }
+    #sage-viewer img { max-width: 94vw; max-height: 94vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.6); cursor: zoom-out; }
+    @keyframes sage-viewer-in { from { opacity: 0; } }
+    body.reduce-motion #sage-viewer { animation: none; }
+    """
 
     /// What the page's sizer holds, its header (inline title and properties) and the note's blocks, each with the lines it
     /// came from. Also sent on its own to a page you're editing, so it redraws in place after an edit.
@@ -810,6 +823,23 @@ extension Study {
     /// page speaks to the app through window.webkit.messageHandlers.sage and hears it through window.sageReceive.
     static let pageScript = #"""
     (function () {
+      // A picture opened full size in the page (2026-11-09), before anything else hears the click (editing included);
+      // a click or Esc closes it. Pictures that are links, video cards and canvas cards being moved keep their own click.
+      document.addEventListener('click', function (e) {
+        var img = e.target && e.target.closest ? e.target.closest('img') : null;
+        if (!img || img.closest('a, .video-embed, .sage-viewer-skip, #sage-viewer') || !img.closest('.markdown-preview-view, .canvas-node-content')) return;
+        e.preventDefault(); e.stopPropagation();
+        var viewer = document.createElement('div');
+        viewer.id = 'sage-viewer';
+        var big = document.createElement('img');
+        big.src = img.currentSrc || img.src; big.alt = img.alt || '';
+        viewer.appendChild(big);
+        function close() { viewer.remove(); document.removeEventListener('keydown', key, true); }
+        function key(k) { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); close(); } }
+        viewer.addEventListener('click', function (c) { c.preventDefault(); c.stopPropagation(); close(); }, true);
+        document.addEventListener('keydown', key, true);
+        document.body.appendChild(viewer);
+      }, true);
       var icons = window.sageIcons || {};
       function svg(name) {
         name = (name || '').trim().replace(/^["']|["']$/g, '');

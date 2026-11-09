@@ -1577,6 +1577,18 @@ extension Study {
     /// The page with what it embeds drawn in: Vault Agent's file-embed blocks (a canvas, a web page, a CSV or TSV as a
     /// table, code, text, else as an ![[embed]]), and ![[embeds]] of a note (its text), a base (its views), a canvas or a
     /// PDF; then its pictures (withPictures). `from` is the note's path in the vault.
+    /// Video and sound files a note can play in place.
+    static let videoTypes: Set<String> = [".mp4", ".mov", ".m4v", ".webm", ".ogv"]
+    static let soundTypes: Set<String> = [".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"]
+
+    /// A Range header's bytes ("bytes=0-1023", "bytes=500-"): where it starts, and where it ends when it says.
+    static func byteRange(_ header: String) -> (lowerBound: Int, upperBound: Int?)? {
+        guard header.hasPrefix("bytes="), !header.contains(",") else { return nil }
+        let parts = header.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, let from = Int(parts[0]) else { return nil }
+        return (from, parts[1].isEmpty ? nil : Int(parts[1]))
+    }
+
     static func withVault(_ html: String, vault: URL, items: [VaultItem], from: String?, address: (String) -> String, depth: Int = 0) -> String {
         var page = replace(fileEmbedSlot, in: html) { m in
             let target = plainAttribute(m[1])
@@ -1600,6 +1612,11 @@ extension Study {
                 return "<div class=\"internal-embed canvas-embed is-loaded\" src=\"\(attribute(link))\">\(canvasHTML(canvas, canvasPath: found.path, height: "400px", vault: vault, items: items, address: address, depth: depth + 1))</div>"
             case ".pdf":
                 return "<div class=\"internal-embed pdf-embed is-loaded\" src=\"\(attribute(link))\"><iframe class=\"sage-pdf\" src=\"\(attribute(address(found.path)))\"></iframe></div>"
+            case _ where videoTypes.contains(found.ext):
+                // Plays in the note, as in Obsidian (2026-11-09).
+                return "<div class=\"internal-embed media-embed is-loaded\" src=\"\(attribute(link))\"><video controls preload=\"metadata\" src=\"\(attribute(address(found.path)))\"></video></div>"
+            case _ where soundTypes.contains(found.ext):
+                return "<div class=\"internal-embed media-embed is-loaded\" src=\"\(attribute(link))\"><audio controls preload=\"metadata\" src=\"\(attribute(address(found.path)))\"></audio></div>"
             case ".md":
                 guard let note = baseRead(full) else { return m[0] }
                 let (_, body) = split(note.replacingOccurrences(of: "\r\n", with: "\n"))
