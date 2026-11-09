@@ -273,16 +273,28 @@ final class KinoDesk: ObservableObject {
     }
 
     /// Takes a file out of the batch and every shot; the file itself is not touched.
-    func remove(_ path: String) {
-        batch.media.removeAll { $0 == path }
+    func remove(_ path: String) { remove([path]) }
+
+    /// Takes files out of the batch and every shot at once (Creative Assist, 2026-11-08); the files themselves are not touched.
+    func remove(_ paths: [String]) {
+        let gone = Set(paths)
+        guard !gone.isEmpty else { return }
+        batch.media.removeAll { gone.contains($0) }
         for code in batch.order { edit(code) { shot in
-            for input in shot.inputs where input.path == path {
+            for input in shot.inputs where gone.contains(input.path) {
                 shot.prompt = KinoPrompt.rewriting(shot.prompt) { handle, had in handle.lowercased() == input.tag.lowercased() ? nil : had }
             }
-            shot.inputs.removeAll { $0.path == path }
+            shot.inputs.removeAll { gone.contains($0.path) }
         } }
         save()
         refresh()
+    }
+
+    /// The shots that use any of these files, in shot order, each with those files under its tags there: what removing
+    /// them would change.
+    func using(_ paths: [String]) -> [(shot: String, files: [KinoFile])] {
+        let wanted = Set(paths)
+        return batch.order.map { code in (code, files(in: code).filter { wanted.contains($0.id) }) }.filter { !$0.files.isEmpty }
     }
 
     /// The file into the shot under a tag of its own there: the code in its name when that is this shot's and free
@@ -645,6 +657,25 @@ enum KinoRole: String, Codable, CaseIterable, Identifiable {
         var roles: [String: KinoRole] = [:]
         for file in files { roles[file.handle] = of(file, set) }
         return roles
+    }
+}
+
+/// Picking files in the media as Finder does (Creative Assist, 2026-11-08): a click picks only that one, Cmd+click adds or
+/// drops one, Shift+click picks the run from the last one clicked to this one, Cmd+Shift+click adds that run. The last one
+/// clicked without Shift is where the next run starts.
+enum KinoPick {
+    static func click(_ order: [String], picked: Set<String>, anchor: String?, _ id: String, command: Bool, shift: Bool) -> (picked: Set<String>, anchor: String?) {
+        var now = picked
+        if shift, let anchor, let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
+            if !command { now.removeAll() }
+            for index in min(from, to)...max(from, to) { now.insert(order[index]) }
+            return (now, anchor)
+        }
+        if command {
+            if now.remove(id) == nil { now.insert(id) }
+            return (now, id)
+        }
+        return ([id], id)
     }
 }
 

@@ -201,7 +201,7 @@ it shows each as a pill with the file's name in its role's colour and keeps it a
 makes it the start frame (/end, /look, /edit, /motion, /sound, /out the same; /mid 2s @K3, a Kling 4.0 keyframe at
 2 s, its time written into the prompt sent), shown as one pill ("Start · K2") and kept
 as "/start @K2"; a role lives only there (2026-11-06): one picked on the file or by dropping on a role's box is written as its command,
-No role or deleting the pill takes it away, roles kept beside the prompt before are not read, and commands are never sent. The media sorts by name, shot or newest. The outputs sit beside the shots, the newest take first, each played in
+No role or deleting the pill takes it away, roles kept beside the prompt before are not read, and commands are never sent. The media sorts by name, shot or newest. A file's × removes it from Kino, saying first which shots use it (Remove or Cancel); files are picked as in Finder (click, Cmd+click, Shift+click, Cmd+A; `KinoPick`) to drag, put in a shot or remove together (Delete removes, Esc unpicks), dragged as Finder drags (`KinoFileDrag`, AppKit: SwiftUI's drag carries one file); the rest slide into a removed file's place, at once with Reduce Motion (built first in Creative Assist, 2026-11-08). The outputs sit beside the shots, the newest take first, each played in
 place on a press (it counts as watched) and dragged into Premiere or onto a shot; until Kino sends, videos dropped there
 are the takes, with the shot their name has (K3.1 O1 with K3).
 The form follows the model (Kling O3, Seedance 2.5, Motion Control through Higgsfield; Kling 4.0 direct), and each shot

@@ -1793,6 +1793,29 @@ struct Checks {
                       "Each role has its own / command in the prompt, called by its usual words (/startframe is /start)")
                 desk.watch(outputs[1].path)
                 check(desk.takes(of: "K12")[1].seen && !desk.takes(of: "K12")[0].seen, "A take played counts as watched")
+                // The media's × and many files picked at once (Creative Assist, 2026-11-08).
+                let other = KinoDesk()
+                other.add([at("K1.png"), at("K1.1.png"), at("K2.png"), at("loose.png")])
+                other.add([at("K1.png")], into: "K2")
+                let used = other.using([at("K1.png").path, at("loose.png").path, at("K2.png").path])
+                let named = used.map { $0.shot + ":" + $0.files.map(\.handle).joined(separator: ",") }.joined(separator: ";")
+                other.remove([at("K1.png").path, at("loose.png").path])
+                check(named == "K1:K1;K2:K2,K2.1" && other.media.count == 2 && other.files(in: "K1").map(\.handle) == ["K1.1"]
+                      && other.files(in: "K2").map(\.handle) == ["K2"] && other.using([at("loose.png").path]).isEmpty,
+                      "Removing many files says first which shots use them, then takes each out of the media and every shot (\(named))")
+            }
+            do {
+                let order = ["a", "b", "c", "d", "e"]
+                let one = KinoPick.click(order, picked: [], anchor: nil, "b", command: false, shift: false)
+                let run = KinoPick.click(order, picked: one.picked, anchor: one.anchor, "d", command: false, shift: true)
+                let toggled = KinoPick.click(order, picked: run.picked, anchor: run.anchor, "c", command: true, shift: false)
+                let back = KinoPick.click(order, picked: toggled.picked, anchor: toggled.anchor, "a", command: false, shift: true)
+                let added = KinoPick.click(order, picked: ["e"], anchor: "b", "c", command: true, shift: true)
+                let plain = KinoPick.click(order, picked: added.picked, anchor: "b", "e", command: false, shift: false)
+                let noAnchor = KinoPick.click(order, picked: [], anchor: nil, "c", command: false, shift: true)
+                check(one.picked == ["b"] && run.picked == ["b", "c", "d"] && run.anchor == "b" && toggled.picked == ["b", "d"] && toggled.anchor == "c"
+                      && back.picked == ["a", "b", "c"] && added.picked == ["b", "c", "e"] && plain.picked == ["e"] && noAnchor.picked == ["c"],
+                      "Files are picked as in Finder: click, Cmd+click, Shift+click from the last click, Cmd+Shift+click adds the run")
             }
             func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
                 KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
