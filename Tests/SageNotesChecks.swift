@@ -24,6 +24,10 @@ extension Checks {
         check(Study.byteRange("bytes=0-1023").map { $0.lowerBound == 0 && $0.upperBound == 1023 } == true && Study.byteRange("bytes=500-").map { $0.lowerBound == 500 && $0.upperBound == nil } == true
               && Study.byteRange("bytes=0-1,5-9") == nil && Study.byteRange("items=0-1") == nil,
               "A video in a note is served the bytes it asks for")
+        let unresolved = Study.withVault(#"<p><a data-href="Nope" href="sage-note:Nope" class="internal-link">Nope</a> <a data-href="Pho" href="sage-note:Pho" class="internal-link">Pho</a></p>"#,
+                                         vault: URL(fileURLWithPath: "/tmp"), items: [Study.VaultItem(path: "Soups/Pho.md", folder: false)], from: nil, address: Study.vaultAddress)
+        check(unresolved.contains(#"class="is-unresolved internal-link">Nope"#) && unresolved.contains(#"class="internal-link">Pho"#),
+              "A link to a note that doesn't exist yet is drawn dimmed, as in Obsidian; one that does is left as it is")
         check(Study.pageScript.contains("'inline-cards'") && Study.playerPage.contains("autoplay') === '0'") && page.contains(".video-embed.sage-playing .play"),
               "YouTube cards play in place: the page says where the cards in sight are as it scrolls, and their players wait for a click")
         check(page.contains("mod-macos") && !page.contains("mod-windows") && !page.contains("styled-scrollbars") && page.contains("is-hidden-frameless"),

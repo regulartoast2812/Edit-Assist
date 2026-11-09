@@ -798,7 +798,16 @@ struct SageViewerPage: View {
             if let entry = Study.named([bare], in: desk.recipes, count: 1).first
                 ?? desk.recipes.first(where: { $0.file.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(bare) == .orderedSame }) {
                 if newTab { vault.openInNewTab(entry.file) } else { vault.show(entry.file) }
+                return
             }
+            // A link to a note that doesn't exist yet makes it, as Obsidian does (2026-11-09): where the vault puts new
+            // notes, or the folder the link names; the bar's Undo takes it back.
+            guard vault.vault != nil else { return }
+            let target = (name.split(separator: "#").first.map(String.init) ?? name).split(separator: "|").first.map(String.init) ?? name
+            let parts = target.replacingOccurrences(of: ".md", with: "").split(separator: "/").map { Study.folderPath(String($0)) }.filter { !$0.isEmpty }
+            guard let stem = parts.last else { return }
+            let folder = parts.count > 1 ? parts.dropLast().joined(separator: "/") : vault.newNoteFolder
+            if let made = vault.newNote(in: folder, named: stem), newTab { vault.openInNewTab(path: made) }
         } else if ["http", "https"].contains(url.scheme ?? "") {
             // A YouTube video plays in Sage's own player (2026-11-09: opening the browser for it was "terrible"); a page
             // still opens in your browser.
