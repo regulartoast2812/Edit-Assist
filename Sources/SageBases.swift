@@ -183,6 +183,7 @@ extension Study {
     private static let wikiValue = regex(#"^\[\[([^\]]+)\]\]$"#)
     private static let plainValue = regex(#"^[^\d\[\]#/:][^\[\]/:]{0,23}$"#)
     private static let fileEmbedSlot = regex(#"<div class="block-language-file-embed" data-sage-embed="([^"]*)" data-sage-height="(\d*)"></div>"#)
+    private static let noteLink = regex(#"(<a data-href="([^"]*)" href="sage-note:[^"]*" class="[^"]*?)internal-link""#)
     private static let otherEmbed = regex(#"<span class="internal-embed"(?: alt="([^"]*)")?><a class="internal-link" href="sage-note:([^"]*)">[^<]*</a></span>"#)
 
     /// The groups of the first match of a compiled expression ("" for a group not matched), or nil.
@@ -1597,6 +1598,10 @@ extension Study {
                 return "<div class=\"block-language-file-embed\"><div class=\"va-file-embed-missing\">file-embed: can't find “\(escape(target))”</div></div>"
             }
             return "<div class=\"block-language-file-embed\">" + fileEmbed(found, height, vault, items, address, depth) + "</div>"
+        }
+        // A link to a note that doesn't exist yet is drawn dimmed, as Obsidian draws it (is-unresolved); a click makes it.
+        page = replace(noteLink, in: page) { m in
+            resolve(plainAttribute(m[2]), in: items, from: from) == nil ? m[1] + "is-unresolved internal-link\"" : m[0]
         }
         page = replace(otherEmbed, in: page) { m in
             let link = plainAttribute(m[2])

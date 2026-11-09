@@ -103,9 +103,9 @@ extension SageVaultDesk {
     }
 
     /// A new note in a folder (from a template when one is given), opened, its path given back to rename it.
-    @discardableResult func newNote(in folder: String, template: String? = nil) -> String? {
+    @discardableResult func newNote(in folder: String, named stem: String = "Untitled", template: String? = nil) -> String? {
         guard let vault else { return nil }
-        let name = Study.freeName(taken: { self.exists(Self.joined(folder, $0)) }, stem: "Untitled", extension: ".md")
+        let name = Study.freeName(taken: { self.exists(Self.joined(folder, $0)) }, stem: stem, extension: ".md")
         let path = Self.joined(folder, name)
         var text = ""
         if let template {
