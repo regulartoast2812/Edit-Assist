@@ -96,10 +96,43 @@ touches projects, Premiere, Grafana or any Crossian account.
    or the middle button opens in a new tab. The topic's folder is still where Sage writes: right-click a folder, "Write …
    notes here". The chat's answer can also carry `save` (video ids to keep in Saved).
 9. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
+10. **As an agent** (2026-11-09: the user's Obsidian plugin Vault Agent, its source in the vault's
+    `.obsidian/plugins/vault-agent/`, brought into Sage). `Sources/SageAgent.swift` (Foundation: commands, prompts, the
+    stream read, models, memories, a run's files and Undo; plus `SageAgentProcess`, the CLI run through the CLI worker in
+    its own process group), `SageAgentDesk.swift` (the desk: runs, media, safety), `SageAgentView.swift` (run card, model
+    question and menu, note-bar actions, the chat's Markdown), `SageChatMarkdown.swift` (Foundation: Markdown blocks and
+    [[links]]). Checked in `Tests/SageAgentChecks.swift`.
+    - **Running.** As Vault Agent: `claude -p --output-format stream-json --verbose --include-partial-messages --model M
+      --permission-mode bypassPermissions --effort E` with `--session-id` on a conversation's first run and `--resume`
+      after (`Study.Conversation.agent`: id, CLI, vault; another vault or CLI starts afresh; a session the CLI lost is
+      dropped and asked again once). Prompt on stdin, cwd the vault root (the CLI reads the vault's CLAUDE.md and the one a
+      folder above). Codex: `codex exec [resume id] --json --skip-git-repo-check … -`, given CLAUDE.md on a new thread;
+      its messages come whole (no text deltas) and its file changes once made. PATH as Vault Agent's (its yt-dlp folder,
+      Homebrew, npm, pip). Text deltas stream into his message; tool calls become steps (Reading, Editing, Running…).
+    - **Commands.** `Study.quickCommands`, `quickPrompt` (Vault Agent's commands.ts word for word), `slash`, `expandSlash`:
+      /process /summarize /review /categorize /links /rename /fetch /transcribe /memory; words after one are added as
+      "Additional instruction". Process, Summarize, Review on the note bar, the rest (and Process & localize: fetch, then
+      process) in its ⋯ menu. The brain hands tool work over with the `agent` action (`abilitiesPrompt`).
+    - **Model.** No default: the first run asks (`Study.Message.ask`), remembered per CLI; the chat's model menu changes
+      it. Claude's list: its help's aliases (always the newest) and the known full ids, plus yours (~/.claude/settings.json)
+      and Vault Agent's; Codex's: ~/.codex/models_cache.json. Vault Agent's data.json: six keys only, never its chats.
+    - **Memories.** Notes in Vault Agent's memory folder ("System/Vault Agent/Memories"), its header format; the agent is
+      told to keep them, and the pinned and relevant ones go into its prompt (`relevantMemories`, Vault Agent's scoring).
+      /memory shows the folder in the tree. Vault Agent's "remember: …" shortcut and use counts aren't ported.
+    - **Media.** Fetch media and Transcribe call `SageMedia.fetch` / `transcribe` (SageMedia.swift, the media port's);
+      their progress lines are the run's steps, their report the message, a failure an ordinary failure line.
+    - **Safety.** Never without a vault. Before a run the open note is copied into sage/edited/, and each file the moment
+      its Edit or Write call shows in the stream (`SageAgentBackups`, on the reading thread; best effort: it races the CLI's
+      tool, and Bash, Codex and files outside the vault are never copied). The vault is read before and after
+      (`vaultChanges`): files changed, made and removed are listed as links; `agentUndo` puts back each copied file only if
+      it still reads as the agent left it; what had no copy is said.
+    - **Markdown.** His replies (agent's and his own) are drawn as Markdown: `chatBlocks` (headings, lists, tasks,
+      quotes, code, tables, rules), `chatInline` ([[wikilinks]] as `sage-note:` links that open the note).
 
 ## Rules carried from Edit Assist
 
-- He (the model) writes only new notes, only into a topic's folder, never over a note. You edit notes and change the
+- He (the model, through his own actions) writes only new notes, only into a topic's folder, never over a note. As an
+  agent (section 10) he edits notes with the CLI's tools, under its safety: copies first, the changes listed, Undo. You edit notes and change the
   vault yourself, in the note view and the tree; those writes follow the vault-editing rule in AGENTS.md.
 - Checks use temp folders, never your vault.
 - The API key never goes in settings files or git.

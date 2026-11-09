@@ -121,7 +121,7 @@ extension Study {
         var kind = "", target = "", value = "", text = ""
     }
 
-    static let actionKinds = ["connect_vault", "open_topic", "new_topic", "rename_topic", "set_folder", "write_note", "append", "set_status", "move", "rename", "show"]
+    static let actionKinds = ["connect_vault", "open_topic", "new_topic", "rename_topic", "set_folder", "write_note", "append", "set_status", "move", "rename", "show", "agent"]
 
     static var actionSchema: [String: Any] {
         let text: [String: Any] = ["type": "string"]
@@ -160,6 +160,12 @@ extension Study {
         - move: target = the note; value = the folder to move it to (made if missing).
         - rename: target = the note; value = its new name. Links to it in other notes follow, as Obsidian does.
         - show: open a note in the Notes stage. target = the note.
+        - agent: hand the work to your agent, which has real tools in my vault (Vault Agent's: it reads, edits and writes any \
+        files, runs commands, searches across notes, browses the web, and follows my vault's CLAUDE.md conventions and memories). \
+        Use it when I ask for something your own actions can't do: process, rewrite or clean up a note, fix its frontmatter, add \
+        links, edit several notes, research across many files, fetch something from the web into a note, remember something for \
+        later. text = the whole instruction for it, self-contained (which note, by its path, and everything it needs from our \
+        chat); target and value = "". Put it alone in `actions` and say in `reply`, in a few words, that you're handing it over.
         You can't delete notes or folders: if I ask, say so and offer to move them instead. When I ask for something you aren't \
         sure about (which note, which folder), ask me first instead of guessing.
 
@@ -257,10 +263,12 @@ extension Study {
         case edited(URL, before: Data, after: Data)
         case moved(from: URL, to: URL)
         case madeFolder(URL)
+        /// A file that was there before (its bytes) and isn't now: the agent removed it.
+        case removed(URL, Data)
 
         var file: URL {
             switch self {
-            case let .created(file, _), let .edited(file, _, _), let .moved(_, file), let .madeFolder(file): return file
+            case let .created(file, _), let .edited(file, _, _), let .moved(_, file), let .madeFolder(file), let .removed(file, _): return file
             }
         }
     }
@@ -282,6 +290,10 @@ extension Study {
         case let .madeFolder(folder):
             guard let items = try? manager.contentsOfDirectory(atPath: folder.path), items.allSatisfy({ $0.hasPrefix(".") }) else { return false }
             return (try? manager.removeItem(at: folder)) != nil
+        case let .removed(file, data):
+            guard !manager.fileExists(atPath: file.path) else { return false }
+            try? manager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return (try? data.write(to: file, options: .withoutOverwriting)) != nil
         }
     }
 

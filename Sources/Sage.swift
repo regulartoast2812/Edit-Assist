@@ -316,6 +316,7 @@ struct SagePage: View {
     var chatColumn: some View {
         panel(L("CHAT"), trailing: {
             HStack(spacing: 6) {
+                SageModelMenu(desk: desk)
                 Button { history.toggle() } label: { Image(systemName: "clock.arrow.circlepath") }.buttonStyle(.plain).help(L("Past chats"))
                     .popover(isPresented: $history, arrowEdge: .bottom) { historyList.padding(10).frame(width: 300) }
                 Button { desk.newChat() } label: { Image(systemName: "square.and.pencil") }.buttonStyle(.plain).help(L("New chat")).disabled(desk.current == nil)
@@ -372,9 +373,11 @@ struct SagePage: View {
                     if desk.chat.isEmpty {
                         Text(md: L("Ask Sage about “%@”: a question, what to watch, or what's in your notes. He searches YouTube and your whole vault when he needs to, and when you ask he connects your vault, sets up topics and writes, adds to, marks, moves or renames notes (each with Undo).", desk.topic.name))
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
+                        Text(md: L("As an agent he works in your vault with real tools, as Vault Agent does. On the open note: **/process**, **/summarize**, **/review**, **/categorize**, **/links**, **/rename**, **/fetch**, **/transcribe**; **/memory** opens his memories. Words after a command are added to it."))
+                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(desk.chat) { message($0) }
-                    if answering {
+                    if answering && desk.agentMessage == nil {
                         HStack(spacing: 8) {
                             PixelSage(pixel: 1.25, busyUntil: .distantFuture).frame(width: 22)
                             Text(L("Sage is thinking…")).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -388,10 +391,18 @@ struct SagePage: View {
             .onChange(of: desk.current) { _, _ in reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
             .onChange(of: answering) { _, answering in if answering { withAnimation { reader.scrollTo("thinking", anchor: .bottom) } } }
+            // A run's reply and steps stream in: the chat follows them.
+            .onChange(of: (desk.chat.last?.text.count ?? 0) + (desk.chat.last?.steps?.count ?? 0)) { _, _ in
+                if desk.agentMessage != nil { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
+            }
         }
         HStack(alignment: .bottom, spacing: 8) {
             TextField(L("Message Sage"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)
-            Button(L("Send"), action: send).disabled(desk.thinking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if desk.agentRun != nil {
+                Button { desk.stopAgent() } label: { Label(L("Stop"), systemImage: "stop.fill") }.help(L("Stops the agent and the commands it started"))
+            } else {
+                Button(L("Send"), action: send).disabled(desk.thinking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
     }
 
@@ -404,9 +415,18 @@ struct SagePage: View {
         HStack(alignment: .top, spacing: 8) {
             if message.fromSage { PixelSage(pixel: 1.25).frame(width: 22) } else { Spacer(minLength: 40) }
             VStack(alignment: message.fromSage ? .leading : .trailing, spacing: 8) {
-                Text(message.text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Group {
+                        // His replies drawn as Markdown, as Vault Agent's panel draws them; yours as you typed them.
+                        if message.fromSage { SageMarkdown(text: message.text) { desk.openLink($0) } } else {
+                            Text(message.text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(message.fromSage ? accent.opacity(0.12) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+                }
+                if message.ask != nil { SageModelQuestion(desk: desk, message: message, accent: accent) }
+                if let run = message.run { SageRunCard(desk: desk, message: message, run: run, accent: accent) }
                 if !message.notes.isEmpty {
                     HStack(spacing: 6) {
                         Text(L("Read:")).font(.system(size: 10)).foregroundStyle(.secondary)

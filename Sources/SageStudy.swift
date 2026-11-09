@@ -354,6 +354,11 @@ enum Study {
         var date = Date()
         /// What he did for it in your vault and the app (SageActions.swift), as said on screen.
         var done: [String]? = nil
+        /// An agent run's message (SageAgent.swift): the steps it took as it went, and the run (model, files, backups).
+        var steps: [AgentStep]? = nil
+        var run: AgentRun? = nil
+        /// A request waiting for you to choose the agent's model (the first run asks), sent once you do.
+        var ask: String? = nil
     }
 
     /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
@@ -362,6 +367,8 @@ enum Study {
         var messages: [Message] = []
         var created = Date()
         var updated = Date()
+        /// The agent's CLI session for this conversation, so its next run carries on from the last (nil in older chats).
+        var agent: AgentSession? = nil
 
         var title: String {
             let first = messages.first { !$0.fromSage }?.text ?? ""
@@ -369,6 +376,12 @@ enum Study {
             guard !line.isEmpty else { return "" }
             return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line
         }
+    }
+
+    /// A CLI session the agent can resume: its id, which CLI made it, and the vault it ran in (a session is found by its
+    /// folder, so another vault or CLI starts a new one).
+    struct AgentSession: Codable, Equatable {
+        var id: String, provider: String, vault: String
     }
 
     /// The conversations with your words in their title or any message, newest first.
