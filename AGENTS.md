@@ -9,6 +9,11 @@ Treat every change to decision logic as a change to what happens in their timeli
 1. `./build.sh` — it runs `./test.sh` first and installs nothing if a check fails or a recorded
    decision replays differently. Do not use `--skip-tests` without saying so to the user. In a chat's worktree,
    `Tools/ship.sh` instead (it runs `./build.sh`; see Parallel chats).
+   Builds are incremental (`Tools/incremental.zsh`, 2026-11-09): each product keeps its objects and dependency records in
+   `.build/inc/<name>/`, so only changed files (and files using something whose shape changed) recompile, on every core;
+   the checks compile and run while the app compiles, and are compiled with -O (the image checks took a minute unoptimized).
+   A one-file change builds, checks and installs in about 15 s; a first build or a flag change, about 2 min. Never edit
+   Sources/ while a build runs (the compiler stops: "modified during the build").
 2. Report which files you changed and whether any of it is **automation** (Desktop.swift,
    LiveFeed.swift, Store.swift's run/doTile/doSize/doOpen/navigation code) or **UI only**
    (App.swift, Overlay.swift drawing, Models.swift labels). A UI request does not touch automation;

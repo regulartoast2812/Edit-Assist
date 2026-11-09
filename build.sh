@@ -14,23 +14,37 @@ reveal=0
 source Tools/build-lock.zsh
 mkdir -p .build
 
+source Tools/incremental.zsh
+
 # Safeguard: nothing is installed unless every check passes and every recorded decision replays
-# unchanged. --skip-tests exists for emergencies only; say so if you use it.
+# unchanged. --skip-tests exists for emergencies only; say so if you use it. The checks run while the app compiles
+# (both incremental, Tools/incremental.zsh); the app is only installed once they have passed.
+testing=0
 if [[ "${1-}" != "--skip-tests" && "${2-}" != "--skip-tests" ]]; then
-  if ! ./test.sh > .build/test.log 2>&1; then
-    grep -E "FAIL|error:|Fatal" .build/test.log | head -20 >&2
-    echo "Tests failed; not installing. Full output: .build/test.log" >&2
-    exit 1
-  fi
-  echo "$(grep -E 'checks passed' .build/test.log | tail -1) · $(grep -E 'recorded decisions' .build/test.log | tail -1)"
+  testing=1
+  rm -f .build/test.status
+  ( ./test.sh > .build/test.log 2>&1; echo $? > .build/test.status ) &
+  tests=$!
 fi
 
 ./setup-signing.sh
 
 rm -rf "$STAGE"
 mkdir -p .build/module-cache "$STAGE/Contents/MacOS"
-xcrun swiftc -parse-as-library -O -module-cache-path .build/module-cache Helpers/CLIWorker.swift -o "$STAGE/Contents/MacOS/CLIWorker"
-xcrun swiftc -swift-version 5 -parse-as-library -O -module-cache-path .build/module-cache Sources/*.swift -o "$STAGE/Contents/MacOS/EditAssist"
+incremental cliworker .build/inc/cliworker/CLIWorker -parse-as-library -O -module-cache-path .build/module-cache -- Helpers/CLIWorker.swift
+incremental app .build/inc/app/EditAssist -swift-version 5 -parse-as-library -O -module-cache-path .build/module-cache -- Sources/*.swift
+cp .build/inc/cliworker/CLIWorker "$STAGE/Contents/MacOS/CLIWorker"
+cp .build/inc/app/EditAssist "$STAGE/Contents/MacOS/EditAssist"
+
+if (( testing )); then
+  wait $tests || true
+  if [[ "$(cat .build/test.status 2>/dev/null)" != "0" ]]; then
+    grep -E "FAIL|error:|Fatal" .build/test.log | head -20 >&2
+    echo "Tests failed; not installing. Full output: .build/test.log" >&2
+    exit 1
+  fi
+  echo "$(grep -E 'checks passed' .build/test.log | tail -1) · $(grep -E 'recorded decisions' .build/test.log | tail -1)"
+fi
 cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 # The app icon, drawn by Tools/MakeIcon.swift (rerun it, then iconutil, to change the design).
 mkdir -p "$STAGE/Contents/Resources"
