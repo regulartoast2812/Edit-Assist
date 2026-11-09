@@ -189,6 +189,7 @@ extension Study {
       background: rgba(0, 0, 0, .86); cursor: zoom-out; animation: sage-viewer-in .14s ease-out; }
     #sage-viewer img { max-width: 94vw; max-height: 94vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.6); cursor: zoom-out; }
     @keyframes sage-viewer-in { from { opacity: 0; } }
+    .video-embed.sage-playing .play { display: none; }
     body.reduce-motion #sage-viewer { animation: none; }
     """
 
@@ -840,6 +841,38 @@ extension Study {
         document.addEventListener('keydown', key, true);
         document.body.appendChild(viewer);
       }, true);
+      // A YouTube card plays in place (2026-11-09): Sage lays a player over the card and is told where the card is as
+      // the note scrolls or redraws; the card going away stops it.
+      (function () {
+        var playing = null, queued = false;
+        function say(m) { try { webkit.messageHandlers.sage.postMessage(m); } catch (_) {} }
+        function videoId(href) { var m = /(?:[?&]v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/.exec(href || ''); return m ? m[1] : null; }
+        function where(el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
+        function report() {
+          if (!playing) return;
+          if (!document.contains(playing.el)) {
+            var again = Array.prototype.filter.call(document.querySelectorAll('.video-embed'), function (a) { return videoId(a.getAttribute('href')) === playing.id; })[0];
+            if (!again) { playing = null; say({ type: 'inline-stop' }); return; }
+            playing.el = again; again.classList.add('sage-playing');
+          }
+          var r = where(playing.el); r.type = 'inline-rect'; say(r);
+        }
+        function soon() { if (queued || !playing) return; queued = true; requestAnimationFrame(function () { queued = false; report(); }); }
+        document.addEventListener('click', function (e) {
+          var card = e.target && e.target.closest ? e.target.closest('.video-embed') : null;
+          if (!card || e.metaKey || e.button !== 0) return;
+          var id = videoId(card.getAttribute('href'));
+          if (!id) return;
+          e.preventDefault(); e.stopPropagation();
+          if (playing && playing.el !== card) playing.el.classList.remove('sage-playing');
+          playing = { el: card, id: id };
+          card.classList.add('sage-playing');
+          var r = where(card); r.type = 'inline-play'; r.id = id; say(r);
+        }, true);
+        document.addEventListener('scroll', soon, true);
+        window.addEventListener('resize', soon);
+        new MutationObserver(soon).observe(document.documentElement, { childList: true, subtree: true });
+      })();
       var icons = window.sageIcons || {};
       function svg(name) {
         name = (name || '').trim().replace(/^["']|["']$/g, '');

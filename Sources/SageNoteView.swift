@@ -158,6 +158,7 @@ import WebKit
         lookKey = newLookKey; self.items = items
         let wanted = key(file)
         if wanted == shownKey { return }
+        stopInline()
         if same && blockOpen { reloadWaiting = true; return }
         Task {
             if blockOpen { await flush() }
@@ -228,6 +229,7 @@ import WebKit
 
     /// A closed tab's page let go: what's unsaved is saved first, then its page goes.
     func release() async {
+        stopInline()
         await flush()
         if let page { SageScheme.shared.pages[page] = nil }
         page = nil
@@ -297,6 +299,49 @@ import WebKit
         }
     }
 
+    // MARK: Videos playing in place
+
+    /// A YouTube video playing over its card in the note (2026-11-09: in the note, as in Obsidian, not in a corner).
+    /// YouTube only plays for a page with a web address (Error 153 otherwise) and the note's page is `sage://`, so the
+    /// player is a web view of its own, the mini player's page (`Study.playerPage`, https://sage-player.example), laid
+    /// over the card and moved with it as the note scrolls. It stops when the note changes, the tab closes or the page
+    /// leaves the window.
+    private var inline: SageInlinePlayer?
+
+    private func rect(_ body: [String: Any]) -> CGRect {
+        let n = { (key: String) in CGFloat((body[key] as? NSNumber)?.doubleValue ?? 0) }
+        return CGRect(x: n("x"), y: n("y"), width: n("w"), height: n("h"))
+    }
+
+    func playInline(_ id: String, _ rect: CGRect) {
+        guard let url = Study.playerURL(id) else { return }
+        if inline == nil {
+            let player = SageInlinePlayer()
+            player.gone = { [weak self] in self?.stopInline() }
+            web.addSubview(player)
+            inline = player
+        }
+        inline?.play(id, url: url)
+        placeInline(rect)
+    }
+
+    /// The card's place in the page's view (CSS points from its top left), clipped to what's in sight.
+    func placeInline(_ rect: CGRect) {
+        guard let inline else { return }
+        let y = web.isFlipped ? rect.minY : web.bounds.height - rect.maxY
+        let frame = CGRect(x: rect.minX, y: y, width: rect.width, height: rect.height)
+        inline.frame = frame
+        inline.isHidden = rect.width < 2 || !frame.intersects(web.bounds)
+    }
+
+    func stopInline() {
+        guard let player = inline else { return }
+        inline = nil
+        player.gone = {}
+        player.stop()
+        player.removeFromSuperview()
+    }
+
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
@@ -318,6 +363,11 @@ import WebKit
         case "preview":
             if let href = body["href"] as? String, let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue { preview(href, CGPoint(x: x, y: y)) }
         case "preview-end": preview("", nil)
+        // A YouTube card pressed in the note: the video plays right there, over the card (`playInline`).
+        case "inline-play":
+            if let id = body["id"] as? String { playInline(id, rect(body)) }
+        case "inline-rect": placeInline(rect(body))
+        case "inline-stop": stopInline()
         case "editing":
             blockOpen = body["on"] as? Bool ?? false
             if !blockOpen && reloadWaiting, let file {
@@ -839,5 +889,52 @@ struct SageNotesStage: View {
         .padding(12).frame(maxWidth: 640, alignment: .leading)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+
+/// The player laid over a video's card in a note (`SageNotePage.playInline`): the mini player's page in a web view of its
+/// own, clipped to the note's view, gone when the note's view leaves the window.
+final class SageInlinePlayer: NSView {
+    var gone: () -> Void = {}
+    private let coordinator = SagePlayerWeb.Coordinator()
+    private let web: WKWebView
+
+    override init(frame: NSRect) {
+        let configuration = WKWebViewConfiguration()
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.preferences.isElementFullscreenEnabled = true
+        configuration.websiteDataStore = .nonPersistent()
+        web = WKWebView(frame: .zero, configuration: configuration)
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        web.navigationDelegate = coordinator
+        web.uiDelegate = coordinator
+        web.frame = bounds
+        web.autoresizingMask = [.width, .height]
+        addSubview(web)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+
+    func play(_ id: String, url: URL) {
+        guard coordinator.playing != id else { return }
+        coordinator.playing = id
+        web.loadHTMLString(Study.playerPage, baseURL: url)
+    }
+
+    func stop() {
+        web.stopLoading()
+        web.loadHTMLString("", baseURL: nil)
+        coordinator.playing = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { gone() }
     }
 }

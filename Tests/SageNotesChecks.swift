@@ -24,6 +24,8 @@ extension Checks {
         check(Study.byteRange("bytes=0-1023").map { $0.lowerBound == 0 && $0.upperBound == 1023 } == true && Study.byteRange("bytes=500-").map { $0.lowerBound == 500 && $0.upperBound == nil } == true
               && Study.byteRange("bytes=0-1,5-9") == nil && Study.byteRange("items=0-1") == nil,
               "A video in a note is served the bytes it asks for")
+        check(Study.pageScript.contains("'inline-play'") && Study.pageScript.contains("'inline-rect'") && Study.pageScript.contains("'inline-stop'") && page.contains(".video-embed.sage-playing .play"),
+              "A YouTube card plays in place: the page says where the card is as it scrolls, and when it's gone")
         check(page.contains("mod-macos") && !page.contains("mod-windows") && !page.contains("styled-scrollbars") && page.contains("is-hidden-frameless"),
               "The page's body is as Obsidian's on the Mac: mod-macos, no styled scrollbars, no room for a title bar")
         check(Study.accentStyle("#38f") == " --accent-h: 215; --accent-s: 100%; --accent-l: 60%;" && Study.accentStyle("red") == "" && Study.accentStyle("") == "",
