@@ -1,11 +1,12 @@
 import SwiftUI
-import Charts
 
 /// Penny's media-buying charts, redrawn (2026-11-06) after you found the first ones cluttered: one measure per chart,
 /// never two axes on one, stacked so a day or an hour lines up down the page. ROAS on top (green from the profitable
 /// line, yellow from breakeven, red under it), then spend split by how each hour did, then CBH. The same three colours
 /// mean the same thing everywhere, Penny's read included. Hovering only redraws a thin layer over the charts, never
-/// the charts, so the page stays quick.
+/// the charts, so the page stays quick. Finished 2026-11-07 (first in the Windows app, drawn the same way here): each
+/// column's wash runs down all three charts, bars are rounded at their end only, values sit on the bars when they fit,
+/// breakeven and the profitable line carry their numbers on the axis, and the bars grow in on new days.
 enum PennyStyle {
     static let green = Color(red: 12 / 255, green: 163 / 255, blue: 12 / 255)
     static let yellow = Color(red: 250 / 255, green: 178 / 255, blue: 25 / 255)
@@ -18,6 +19,8 @@ enum PennyStyle {
     static let baseline = Color(red: 72 / 255, green: 72 / 255, blue: 68 / 255)
     static let surface = Color(red: 26 / 255, green: 26 / 255, blue: 25 / 255)
     static let panel = Color.white.opacity(0.035)
+    /// Plain words in Penny's read, and the values over the bars.
+    static let words = Color(red: 195 / 255, green: 194 / 255, blue: 183 / 255)
 
     static func tone(_ tone: Ledger.Tone?) -> Color {
         switch tone {
@@ -58,11 +61,27 @@ enum PennyStyle {
     /// An hour as an axis writes it: 12a, 3p.
     static func hour(_ hour: Int) -> String { "\(hour % 12 == 0 ? 12 : hour % 12)\(hour < 12 ? "a" : "p")" }
 
-    static func day(_ day: String) -> String {
-        var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
-        style.timeZone = Ledger.zone
-        return Ledger.start(of: day)?.formatted(style) ?? day
+    static func day(_ day: String) -> String { Ledger.short(day) }
+
+    /// A day's weekday: Sun, Mon.
+    static func weekday(_ day: String) -> String {
+        guard let start = Ledger.start(of: day) else { return "" }
+        return L(DaysCalendar.weekdays[(Ledger.calendar.component(.weekday, from: start) + 6) % 7])
     }
+
+    /// A bar rounded at its end only (the top, or the bottom for one hanging under zero), square on its baseline.
+    static func column(_ rect: CGRect, radius: CGFloat, up: Bool) -> Path {
+        let radius = max(0, min(radius, rect.width / 2, rect.height))
+        return UnevenRoundedRectangle(topLeadingRadius: up ? radius : 0, bottomLeadingRadius: up ? 0 : radius,
+                                      bottomTrailingRadius: up ? 0 : radius, topTrailingRadius: up ? radius : 0).path(in: rect)
+    }
+
+    /// Text for a chart drawn on a canvas.
+    static func write(_ context: GraphicsContext, _ text: String, _ size: CGFloat, _ color: Color, _ weight: Font.Weight = .regular) -> GraphicsContext.ResolvedText {
+        context.resolve(Text(text).font(.system(size: size, weight: weight).monospacedDigit()).foregroundColor(color))
+    }
+
+    static func width(_ text: GraphicsContext.ResolvedText) -> CGFloat { text.measure(in: CGSize(width: 10_000, height: 1000)).width }
 
     /// Round axis steps for a top value: 1, 2, 2.5 or 5 times a power of ten, about four of them.
     static func ticks(_ low: Double, _ high: Double) -> [Double] {
@@ -72,9 +91,13 @@ enum PennyStyle {
         let first = (low / step).rounded(.up) * step
         return Array(stride(from: first, through: high, by: step))
     }
+
+    /// How far a chart has grown in, 0 to 1, eased.
+    static func eased(_ t: Double) -> Double { 1 - pow(1 - min(max(t, 0), 1), 3) }
 }
 
-/// A titled panel: a heading, a line on how to read it, then its content.
+/// A titled panel: a heading, a line on how to read it, then its content. It fills the height it is given, so two
+/// panels side by side line up (`PanelFlow`).
 struct PennyPanel<Content: View, Accessory: View>: View {
     let title: String
     var note: String? = nil
@@ -93,7 +116,7 @@ struct PennyPanel<Content: View, Accessory: View>: View {
             }
             content()
         }
-        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(PennyStyle.panel, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.07)))
     }
@@ -105,9 +128,10 @@ extension PennyPanel where Accessory == EmptyView {
     }
 }
 
-/// A legend entry: a swatch (a bar, a line, a dashed line or a dot) and its name.
+/// A legend entry: a swatch (a bar, a line, a dashed line, a dot, or a column's wash) and its name.
 struct LegendKey: View {
-    enum Shape { case bar, line, dashed, dot, band }
+    /// Wash: a column's shading behind the bars; in muted, the three verdict colours side by side.
+    enum Shape { case bar, line, dashed, dot, band, wash }
     let name: String
     let color: Color
     var shape = Shape.bar
@@ -121,6 +145,11 @@ struct LegendKey: View {
             case .dot: Circle().fill(color).frame(width: 8, height: 8)
             case .band: RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.3)).frame(width: 7, height: 13)
                     .overlay(Circle().fill(color).frame(width: 6, height: 6))
+            case .wash where color == PennyStyle.muted:
+                HStack(spacing: 1) {
+                    ForEach([PennyStyle.green, PennyStyle.yellow, PennyStyle.red], id: \.self) { RoundedRectangle(cornerRadius: 2).fill($0.opacity(0.35)).frame(width: 7, height: 12) }
+                }
+            case .wash: RoundedRectangle(cornerRadius: 2).fill(color.opacity(color == .white ? 0.14 : 0.35)).frame(width: 9, height: 12)
             }
             Text(name).font(.system(size: 10.5)).foregroundStyle(.secondary)
         }
@@ -178,6 +207,11 @@ struct PennySlot: Identifiable {
     var faint = false
     /// A Saturday or Sunday, shaded behind its column.
     var weekend = false
+    /// The hour's average over all the days read against breakeven, washed behind its column down all three charts and
+    /// on its label (2026-11-07: you asked to see at a glance which hours pay on average). On a day opened hour by hour
+    /// it is still the hour over all the days, never that day's own (its bar already says that). Nil for none: days,
+    /// idle hours, hours with too few days.
+    var wash: Ledger.Tone? = nil
     var title: String
     var tip: [PennyTipLine] = []
     var spent: Double { good + fair + bad }
@@ -197,7 +231,7 @@ struct PennySlot: Identifiable {
         return reads.enumerated().map { index, day in
             var slot = PennySlot(id: day.day, label: (reads.count - 1 - index) % every == 0 ? PennyStyle.day(day.day) : "",
                                  roas: day.numbers.spent > 0 ? day.numbers.roas : nil, cbh: day.cbh, weekend: day.weekend,
-                                 title: PennyStyle.day(day.day) + (day.weekend ? " · " + L("weekend") : ""))
+                                 title: PennyStyle.weekday(day.day) + ", " + PennyStyle.day(day.day))
             for hour in day.hours { split(hour, profit, into: &slot) }
             slot.tip = [PennyTipLine(name: L("Spent"), value: Ledger.money(day.numbers.spent)),
                         PennyTipLine(name: L("Revenue"), value: Ledger.money(day.numbers.revenue)),
@@ -210,12 +244,12 @@ struct PennySlot: Identifiable {
         }
     }
 
-    /// One day hour by hour.
-    static func hours(of day: Ledger.DayRead, profit: Ledger.Profit) -> [PennySlot] {
+    /// One day hour by hour; each hour washed by how it does over all the days read (`overall`), if given.
+    static func hours(of day: Ledger.DayRead, profit: Ledger.Profit, overall: [Ledger.HourRead]? = nil) -> [PennySlot] {
         (0 ..< 24).map { hour in
             let numbers = day.hours[hour]
             var slot = PennySlot(id: PennyStyle.hour(hour), label: PennyStyle.hour(hour), roas: numbers.spent > 0 ? numbers.roas : nil,
-                                 cbh: profit.cbh(numbers), title: Ledger.hourName(hour))
+                                 cbh: profit.cbh(numbers), wash: Ledger.shade(overall, hour: hour, profit), title: Ledger.hourName(hour))
             split(numbers, profit, into: &slot)
             slot.tip = [PennyTipLine(name: L("Spent"), value: Ledger.money(numbers.spent)),
                         PennyTipLine(name: L("Revenue"), value: Ledger.money(numbers.revenue)),
@@ -232,6 +266,7 @@ struct PennySlot: Identifiable {
             let count = Double(max(read.days, 1))
             var slot = PennySlot(id: PennyStyle.hour(read.hour), label: PennyStyle.hour(read.hour), roas: read.days > 0 ? read.numbers.roas : nil,
                                  floor: read.floor, ceiling: read.ceiling, cbh: read.cbh / count, faint: read.verdict == .few,
+                                 wash: Ledger.shade(read, profit),
                                  title: Ledger.hourName(read.hour) + (read.verdict == .idle ? "" : " · " + HoursEfficiency.name(read.verdict)))
             for day in days { split(day.hours[read.hour], profit, into: &slot, share: 1 / count) }
             slot.tip = [PennyTipLine(name: L("Days"), value: "\(read.days)"),
@@ -246,61 +281,115 @@ struct PennySlot: Identifiable {
     }
 }
 
-/// Which column the pointer is on. Only the hover layers watch it, so moving the pointer never redraws a chart.
+/// Which column the pointer is on, from the charts or the calendar under them. Only the hover layers watch it, so
+/// moving the pointer never redraws a chart.
 final class PennyHover: ObservableObject {
-    @Published var id: String?
+    @Published private(set) var id: String?
+    /// Whether the charts draw their tip: not for a day under the pointer on the calendar, which shows its own numbers.
+    @Published private(set) var tip = true
+
+    func set(_ id: String?, tip: Bool = true) {
+        if self.tip != tip { self.tip = tip }
+        if self.id != id { self.id = id }
+    }
+}
+
+/// Where a stacked chart draws: its plot between the axis and the right edge, a band for each column.
+struct ColumnFrame {
+    /// Room over the plot for the values printed over the bars.
+    static let head: CGFloat = 16
+    var left: CGFloat, right: CGFloat, top: CGFloat, bottom: CGFloat
+    var count: Int
+    var band: CGFloat { (right - left) / CGFloat(max(count, 1)) }
+    func center(_ index: Int) -> CGFloat { left + band * (CGFloat(index) + 0.5) }
+    var barWidth: CGFloat { max(3, min(36, band * 0.58)) }
+    func index(at x: CGFloat) -> Int? { count == 0 || x < left || x >= right ? nil : min(count - 1, Int((x - left) / band)) }
+    /// The whole column, from over the plot to under it (its label too, on the chart that has them).
+    func column(_ index: Int, under: CGFloat = 0) -> CGRect {
+        CGRect(x: center(index) - band / 2 + 1, y: top - Self.head + 4, width: max(1, band - 2), height: bottom - top + Self.head - 4 + under)
+    }
+
+    static func of(_ size: CGSize, count: Int, labels: Bool) -> ColumnFrame {
+        ColumnFrame(left: PennyColumns.axisWidth, right: max(PennyColumns.axisWidth + 1, size.width - 4), top: head,
+                    bottom: max(head + 10, size.height - (labels ? 18 : 2)), count: count)
+    }
 }
 
 /// ROAS, spend and CBH for the same days or hours, one chart each, stacked so the columns line up. With `ranges`,
-/// ROAS is each hour's average as a dot on its bad-to-good-day band. A press on a column picks it when `selected` is
-/// given.
+/// ROAS is each hour's average as a dot on its bad-to-good-day band, the band coloured where it falls. A press on a
+/// column picks it when `selected` is given. Each column's wash (an hour's average, or a weekend) runs down all three
+/// charts; bars are rounded at their end only and spend stacks as one column; values sit over the bars when they fit;
+/// breakeven and the profitable line carry their numbers on the axis; a value past the top of the chart says so; and
+/// the bars grow in when the page opens on new days.
 struct PennyColumns: View {
+    enum Kind { case roas, spend, cbh }
     let slots: [PennySlot]
     let profit: Ledger.Profit
     var ranges = false
     var selected: Binding<String?>? = nil
     var perDay = false
     var height: CGFloat = 150
-    @State private var hover = PennyHover()
-    @State private var width: CGFloat = 900
+    /// What the columns' wash means, for the legend.
+    var washName = L("column: the hour's average")
+    /// Shared with the calendar under the days' charts; the charts' own otherwise.
+    var hover: PennyHover? = nil
+    @State private var own = PennyHover()
+    /// When the bars started growing in; nil once they have.
+    @State private var growFrom: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let axisWidth: CGFloat = 44
+    static let growTime = 0.52, stagger = 0.22
 
-    var picked: String? { selected?.wrappedValue }
-
-    var barWidth: CGFloat {
-        let band = (width - Self.axisWidth - 8) / CGFloat(max(slots.count, 1))
-        return max(3, min(24, band * 0.62))
+    /// `grow`: bars rise from the baseline when shown: the page opened on a product or days it wasn't showing.
+    init(slots: [PennySlot], profit: Ledger.Profit, ranges: Bool = false, selected: Binding<String?>? = nil, perDay: Bool = false, height: CGFloat = 150,
+         grow: Bool = false, washName: String = L("column: the hour's average"), hover: PennyHover? = nil) {
+        self.slots = slots; self.profit = profit; self.ranges = ranges; self.selected = selected; self.perDay = perDay; self.height = height
+        self.washName = washName; self.hover = hover
+        _growFrom = State(initialValue: grow && !slots.isEmpty ? Date() : nil)
     }
 
+    var pointer: PennyHover { hover ?? own }
+    var picked: String? { selected?.wrappedValue }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            row(L("ROAS"), keys: {
-                LegendKey(name: L("profitable"), color: PennyStyle.green, shape: ranges ? .band : .bar)
-                LegendKey(name: L("above breakeven"), color: PennyStyle.yellow, shape: ranges ? .band : .bar)
-                LegendKey(name: L("below breakeven"), color: PennyStyle.red, shape: ranges ? .band : .bar)
+        VStack(alignment: .leading, spacing: 8) {
+            row(L("ROAS")) {
+                LegendKey(name: L("profitable"), color: PennyStyle.green)
+                LegendKey(name: L("above breakeven"), color: PennyStyle.yellow)
+                LegendKey(name: L("below breakeven"), color: PennyStyle.red)
                 LegendKey(name: L("profitable %@", PennyStyle.times(profit.profitable)), color: PennyStyle.green, shape: .dashed)
                 LegendKey(name: L("breakeven %@", PennyStyle.times(profit.breakeven)), color: PennyStyle.red, shape: .dashed)
-                if ranges { Text(L("dot: average · band: bad day to good day")).font(.system(size: 10.5)).foregroundStyle(PennyStyle.muted) }
-            }) { roasChart.frame(height: height) }
-            row(perDay ? L("Spend a day") : L("Spend"), keys: {
+                if ranges {
+                    LegendKey(name: L("average"), color: PennyStyle.words, shape: .dot)
+                    Text(L("band: bad day to good day, coloured where it falls")).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                }
+                if slots.contains(where: { $0.wash != nil }) { LegendKey(name: washName, color: PennyStyle.muted, shape: .wash) }
+                if slots.contains(where: \.weekend) { LegendKey(name: L("weekend"), color: .white, shape: .wash) }
+            } chart: { chart(.roas, height: height + ColumnFrame.head) }
+            // Over the charts under it, so the tip can reach down past its own.
+            .zIndex(1)
+            row(perDay ? L("Spend a day") : L("Spend")) {
                 LegendKey(name: L("in profitable hours"), color: PennyStyle.green)
                 LegendKey(name: L("above breakeven"), color: PennyStyle.yellow)
                 LegendKey(name: L("below breakeven"), color: PennyStyle.red)
-            }) { spendChart.frame(height: height * 0.8) }
-            row(perDay ? L("CBH a day") : L("CBH"), keys: {
+            } chart: { chart(.spend, height: height * 0.8 + ColumnFrame.head) }
+            row(perDay ? L("CBH a day") : L("CBH")) {
                 LegendKey(name: L("made money"), color: PennyStyle.green)
                 LegendKey(name: L("lost money"), color: PennyStyle.red)
-            }) { cbhChart.frame(height: height * 0.7) }
+            } chart: { chart(.cbh, height: height * 0.7 + 16 + ColumnFrame.head) }
         }
-        .background(GeometryReader { geometry in
-            Color.clear.onAppear { width = geometry.size.width }.onChange(of: geometry.size.width) { _, new in width = new }
-        })
+        .onAppear { if reduceMotion { growFrom = nil } }
+        .task {
+            guard growFrom != nil else { return }
+            try? await Task.sleep(nanoseconds: UInt64((Self.growTime + Self.stagger + 0.05) * 1_000_000_000))
+            growFrom = nil
+        }
     }
 
     func row<Keys: View, Content: View>(_ title: String, @ViewBuilder keys: () -> Keys, @ViewBuilder chart: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 2) {
+            FlowLayout(spacing: 12) {
                 Text(title).font(.system(size: 11.5, weight: .semibold))
                 keys()
             }
@@ -308,149 +397,206 @@ struct PennyColumns: View {
         }
     }
 
+    func chart(_ kind: Kind, height: CGFloat) -> some View {
+        TimelineView(.animation(paused: growFrom == nil)) { context in
+            let clock = growFrom.map { context.date.timeIntervalSince($0) }
+            Canvas { canvas, size in draw(kind, in: canvas, size: size, clock: clock) }
+        }
+        .frame(height: height)
+        .overlay { PennyHoverLayer(slots: slots, labels: kind == .cbh, hover: pointer, tips: kind == .roas, selected: selected) }
+    }
+
+    /// How far column `index` has grown in, 0 to 1, eased; the columns start a little apart, left to right.
+    func grown(_ index: Int, _ clock: Double?) -> Double {
+        guard let clock else { return 1 }
+        let delay = slots.count > 1 ? Self.stagger * Double(index) / Double(slots.count - 1) : 0
+        return PennyStyle.eased((clock - delay) / Self.growTime)
+    }
+
     func faded(_ slot: PennySlot) -> Double {
-        if let picked { return picked == slot.id ? 1 : 0.35 }
+        if let picked { return picked == slot.id ? 1 : 0.4 }
         return slot.faint ? 0.55 : 1
     }
 
-    var roasTop: Double {
-        let highest = slots.compactMap { ranges ? ($0.ceiling ?? $0.roas) : $0.roas }.max() ?? 0
-        return min(6, max(profit.profitable * 1.3, highest * 1.08, 1))
+    func domain(_ kind: Kind) -> (low: Double, high: Double, ticks: [Double]) {
+        switch kind {
+        case .roas:
+            let highest = slots.compactMap { ranges ? ($0.ceiling ?? $0.roas) : $0.roas }.max() ?? 0
+            let top = min(6, max(profit.profitable * 1.25, highest * 1.04, 1))
+            return (0, top, PennyStyle.ticks(0, top))
+        case .spend:
+            let most = max((slots.map(\.spent).max() ?? 0) * 1.04, 1)
+            return (0, most, PennyStyle.ticks(0, most))
+        case .cbh:
+            // Under zero, room for the value printed under a loss.
+            let low = min(0, (slots.map(\.cbh).min() ?? 0) * 1.3), high = max(0, (slots.map(\.cbh).max() ?? 0) * 1.04)
+            let ticks = PennyStyle.ticks(low, high), span = max(high - low, 1)
+            return high - low < 1 ? (low - span / 2, high + span / 2, ticks) : (low, high, ticks)
+        }
     }
 
-    var roasChart: some View {
-        let top = roasTop
-        return Chart {
-            ForEach(slots) { slot in roasMarks(slot, top: top) }
-            RuleMark(y: .value("Profitable", profit.profitable))
-                .foregroundStyle(PennyStyle.green.opacity(0.8)).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            RuleMark(y: .value("Breakeven", profit.breakeven))
-                .foregroundStyle(PennyStyle.red.opacity(0.85)).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .chartXScale(domain: slots.map(\.id))
-        .chartYScale(domain: 0 ... top)
-        .chartXAxis(.hidden)
-        .chartYAxis { yAxis(values: PennyStyle.ticks(0, top)) { String(format: $0 < 10 && $0 != $0.rounded() ? "%.1f×" : "%.0f×", $0) } }
-        .chartOverlay { proxy in PennyHoverLayer(proxy: proxy, slots: slots, hover: hover, tips: true, selected: selected) }
-    }
+    func draw(_ kind: Kind, in context: GraphicsContext, size: CGSize, clock: Double?) {
+        let labels = kind == .cbh
+        let frame = ColumnFrame.of(size, count: slots.count, labels: labels)
+        let (low, high, ticks) = domain(kind)
+        func y(_ value: Double) -> CGFloat { frame.bottom - CGFloat((min(max(value, low), high) - low) / max(high - low, 1e-9)) * (frame.bottom - frame.top) }
+        let bar = frame.barWidth
 
-    @ChartContentBuilder func roasMarks(_ slot: PennySlot, top: Double) -> some ChartContent {
-        let color = PennyStyle.roas(slot.roas, profit)
-        if slot.weekend {
-            RectangleMark(x: .value("Column", slot.id), yStart: .value("", 0), yEnd: .value("", top)).foregroundStyle(.white.opacity(0.03))
+        // Behind everything, each column's wash, so a column reads as one down the three charts.
+        for (index, slot) in slots.enumerated() {
+            let area = Path(roundedRect: frame.column(index, under: labels ? 16 : 0), cornerRadius: 4)
+            if let tone = slot.wash { context.fill(area, with: .color(PennyStyle.tone(tone).opacity(0.085 * grown(index, clock)))) }
+            else if slot.weekend { context.fill(area, with: .color(.white.opacity(0.035))) }
         }
-        if ranges, let floor = slot.floor, let ceiling = slot.ceiling {
-            RectangleMark(x: .value("Column", slot.id), yStart: .value("Bad day", min(floor, top)), yEnd: .value("Good day", min(max(ceiling, floor + 0.04), top)),
-                          width: .fixed(barWidth))
-                .foregroundStyle(color.opacity(0.28 * faded(slot))).cornerRadius(4)
+
+        // Breakeven and the profitable line write their numbers on the axis, pushed apart when they're close, in place
+        // of the grid's labels they would cover.
+        var profitableY = y(profit.profitable), breakevenY = y(profit.breakeven)
+        if kind == .roas, breakevenY - profitableY < 12 {
+            let push = (12 - (breakevenY - profitableY)) / 2
+            profitableY -= push; breakevenY += push
         }
-        if let roas = slot.roas {
-            if ranges {
-                PointMark(x: .value("Column", slot.id), y: .value("ROAS", min(roas, top))).foregroundStyle(PennyStyle.surface).symbolSize(120)
-                PointMark(x: .value("Column", slot.id), y: .value("ROAS", min(roas, top))).foregroundStyle(color.opacity(faded(slot))).symbolSize(58)
-            } else {
-                // Nothing back still shows: a red stub on the baseline.
-                BarMark(x: .value("Column", slot.id), y: .value("ROAS", max(min(roas, top), top * 0.015)), width: .fixed(barWidth))
-                    .foregroundStyle(color.opacity(0.9 * faded(slot))).cornerRadius(roas < top * 0.03 ? 1 : 4)
+        for tick in ticks {
+            let at = y(tick)
+            var line = Path(); line.move(to: CGPoint(x: frame.left, y: at)); line.addLine(to: CGPoint(x: frame.right, y: at))
+            context.stroke(line, with: .color(PennyStyle.grid), lineWidth: 1)
+            if kind == .roas, abs(at - profitableY) < 11 || abs(at - breakevenY) < 11 { continue }
+            let label = kind == .roas ? String(format: tick < 10 && tick != tick.rounded() ? "%.1f×" : "%.0f×", tick) : PennyStyle.short(tick)
+            context.draw(PennyStyle.write(context, label, 9.5, PennyStyle.muted), at: CGPoint(x: Self.axisWidth - 6, y: at), anchor: .trailing)
+        }
+
+        for (index, slot) in slots.enumerated() {
+            let x = frame.center(index), faded = faded(slot), grown = grown(index, clock)
+            let shown = faded * min(max(grown * 1.6 - 0.6, 0), 1)
+            // A value over the bar, when it fits in the column.
+            func value(_ text: String, _ color: Color, _ at: CGFloat, above: Bool, shorter: String? = nil) {
+                var written = PennyStyle.write(context, text, 9.5, color.opacity(shown), .semibold)
+                if PennyStyle.width(written) > frame.band - 4, let shorter { written = PennyStyle.write(context, shorter, 9.5, color.opacity(shown), .semibold) }
+                guard PennyStyle.width(written) <= frame.band - 4 else { return }
+                // Under a loss, only when it stays clear of the hours' labels.
+                if !above, at + 1 + written.measure(in: CGSize(width: 1000, height: 100)).height > frame.bottom + 3 { return }
+                context.draw(written, at: CGPoint(x: x, y: above ? at - 1 : at + 1), anchor: above ? .bottom : .top)
             }
-        }
-    }
-
-    var spendChart: some View {
-        let top = max((slots.map(\.spent).max() ?? 0) * 1.1, 1)
-        return Chart {
-            ForEach(slots) { slot in
-                let parts = [(slot.good, PennyStyle.green), (slot.fair, PennyStyle.yellow), (slot.bad, PennyStyle.red)]
-                ForEach(0 ..< 3, id: \.self) { index in
-                    let below = parts[..<index].reduce(0) { $0 + $1.0 }
-                    if parts[index].0 > 0 {
-                        BarMark(x: .value("Column", slot.id), yStart: .value("From", below), yEnd: .value("To", below + parts[index].0), width: .fixed(barWidth))
-                            .foregroundStyle(parts[index].1.opacity(0.85 * faded(slot))).cornerRadius(2)
+            switch kind {
+            case .roas:
+                guard let roas = slot.roas else { break }
+                let color = PennyStyle.roas(roas, profit)
+                if ranges {
+                    let middle = y(min(roas, high))
+                    if let floor = slot.floor, let ceiling = slot.ceiling {
+                        // The band opens out from the average, and is coloured where it falls: red under breakeven, yellow
+                        // to the profitable line, green over it, so you see how much of an hour's spread loses money.
+                        // (2026-11-07: one colour for the band, the dot and the wash said the same thing three times.)
+                        var a = y(min(floor, high)), b = y(min(max(ceiling, floor + 0.04), high))
+                        a = middle + (a - middle) * grown; b = middle + (b - middle) * grown
+                        let band = CGRect(x: x - bar / 2, y: min(a, b), width: bar, height: max(1, abs(a - b)))
+                        var layer = context
+                        layer.clip(to: Path(roundedRect: band, cornerRadius: 4))
+                        let profitableAt = y(profit.profitable), breakevenAt = y(profit.breakeven)
+                        layer.fill(Path(CGRect(x: band.minX, y: band.minY, width: bar, height: max(0, profitableAt - band.minY))), with: .color(PennyStyle.green.opacity(0.42 * faded)))
+                        layer.fill(Path(CGRect(x: band.minX, y: profitableAt, width: bar, height: max(0, breakevenAt - profitableAt))), with: .color(PennyStyle.yellow.opacity(0.42 * faded)))
+                        layer.fill(Path(CGRect(x: band.minX, y: breakevenAt, width: bar, height: max(0, band.maxY - breakevenAt))), with: .color(PennyStyle.red.opacity(0.42 * faded)))
+                        if ceiling > high { past(context, x: x, top: frame.top, PennyStyle.times(ceiling), PennyStyle.roas(ceiling, profit), faded * grown, band: frame.band) }
                     }
+                    // The average, light on a dark ring: where it sits against the lines says how the hour does.
+                    let ring = 6 * grown, dot = 4.2 * grown
+                    context.fill(Path(ellipseIn: CGRect(x: x - ring, y: middle - ring, width: ring * 2, height: ring * 2)), with: .color(PennyStyle.surface.opacity(grown)))
+                    context.fill(Path(ellipseIn: CGRect(x: x - dot, y: middle - dot, width: dot * 2, height: dot * 2)), with: .color(PennyStyle.words.opacity(faded)))
+                } else {
+                    // Nothing back still shows: a red stub on the baseline.
+                    let top = y(max(min(roas, high), high * 0.015) * grown)
+                    context.fill(PennyStyle.column(CGRect(x: x - bar / 2, y: top, width: bar, height: max(1, frame.bottom - top)), radius: 4, up: true),
+                                 with: .color(color.opacity(0.9 * faded)))
+                    if roas > high { past(context, x: x, top: frame.top, PennyStyle.times(roas), color, faded * grown, band: frame.band) }
+                    else { value(PennyStyle.times(roas), color, top, above: true, shorter: String(format: "%.2f", roas)) }
+                }
+            case .spend:
+                guard slot.spent > 0 else { break }
+                // One column, rounded at the top only; its parts stack inside it.
+                let columnTop = y(slot.spent * grown)
+                var layer = context
+                layer.clip(to: PennyStyle.column(CGRect(x: x - bar / 2, y: columnTop, width: bar, height: max(0.5, frame.bottom - columnTop)), radius: 4, up: true))
+                var below = 0.0
+                for (part, color) in [(slot.good, PennyStyle.green), (slot.fair, PennyStyle.yellow), (slot.bad, PennyStyle.red)] where part > 0 {
+                    let from = y(below * grown), to = y((below + part) * grown)
+                    layer.fill(Path(CGRect(x: x - bar / 2, y: to, width: bar, height: max(0.5, from - to + (below > 0 ? 0 : 0.5)))), with: .color(color.opacity(0.88 * faded)))
+                    below += part
+                }
+                value(PennyStyle.short(slot.spent), PennyStyle.words, columnTop, above: true)
+            case .cbh:
+                if slot.spent > 0 || slot.cbh != 0 {
+                    let zero = y(0), end = y(slot.cbh * grown), up = slot.cbh >= 0, money = PennyStyle.money(slot.cbh)
+                    context.fill(PennyStyle.column(CGRect(x: x - bar / 2, y: min(zero, end), width: bar, height: max(0.5, abs(zero - end))), radius: 3, up: up),
+                                 with: .color(money.opacity(0.88 * faded)))
+                    if abs(slot.cbh) >= 0.5 { value(PennyStyle.short(slot.cbh), money, end, above: up) }
+                }
+                if !slot.label.isEmpty {
+                    let label = PennyStyle.write(context, slot.label, 9.5, slot.wash.map(PennyStyle.tone) ?? PennyStyle.muted, slot.wash != nil ? .semibold : .regular)
+                    context.draw(label, at: CGPoint(x: x, y: frame.bottom + 3), anchor: .top)
                 }
             }
         }
-        .chartXScale(domain: slots.map(\.id))
-        .chartYScale(domain: 0 ... top)
-        .chartXAxis(.hidden)
-        .chartYAxis { yAxis(values: PennyStyle.ticks(0, top), PennyStyle.short) }
-        .chartOverlay { proxy in PennyHoverLayer(proxy: proxy, slots: slots, hover: hover, selected: selected) }
+
+        if kind == .roas {
+            for (line, at, color) in [(profit.profitable, profitableY, PennyStyle.green), (profit.breakeven, breakevenY, PennyStyle.red)] {
+                var rule = Path(); rule.move(to: CGPoint(x: frame.left, y: y(line))); rule.addLine(to: CGPoint(x: frame.right, y: y(line)))
+                context.stroke(rule, with: .color(color.opacity(0.85)), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                context.draw(PennyStyle.write(context, PennyStyle.times(line), 9.5, color, .semibold), at: CGPoint(x: Self.axisWidth - 6, y: at), anchor: .trailing)
+            }
+        } else if kind == .cbh {
+            var zero = Path(); zero.move(to: CGPoint(x: frame.left, y: y(0))); zero.addLine(to: CGPoint(x: frame.right, y: y(0)))
+            context.stroke(zero, with: .color(PennyStyle.baseline), lineWidth: 1)
+        }
     }
 
-    var cbhChart: some View {
-        let low = min(0, (slots.map(\.cbh).min() ?? 0) * 1.12), high = max(0, (slots.map(\.cbh).max() ?? 0) * 1.12)
-        let span = max(high - low, 1)
-        return Chart {
-            ForEach(slots.filter { $0.spent > 0 || $0.cbh != 0 }) { slot in
-                BarMark(x: .value("Column", slot.id), y: .value("CBH", slot.cbh), width: .fixed(barWidth))
-                    .foregroundStyle(PennyStyle.money(slot.cbh).opacity(0.85 * faded(slot))).cornerRadius(3)
-            }
-            RuleMark(y: .value("Zero", 0)).foregroundStyle(PennyStyle.baseline).lineStyle(StrokeStyle(lineWidth: 1))
-        }
-        .chartXScale(domain: slots.map(\.id))
-        .chartYScale(domain: (high - low < 1 ? low - span / 2 : low) ... (high - low < 1 ? high + span / 2 : high))
-        .chartXAxis {
-            AxisMarks(values: slots.filter { !$0.label.isEmpty }.map(\.id)) { value in
-                AxisValueLabel(collisionResolution: .disabled) {
-                    if let id = value.as(String.self), let slot = slots.first(where: { $0.id == id }) {
-                        Text(slot.label).foregroundStyle(PennyStyle.muted)
-                    }
-                }.font(.system(size: 9.5))
-            }
-        }
-        .chartYAxis { yAxis(values: PennyStyle.ticks(low, high), PennyStyle.short) }
-        .chartOverlay { proxy in PennyHoverLayer(proxy: proxy, slots: slots, hover: hover, selected: selected) }
-    }
-
-    func yAxis(values: [Double], _ text: @escaping (Double) -> String) -> some AxisContent {
-        AxisMarks(position: .leading, values: values) { value in
-            AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(PennyStyle.grid)
-            AxisValueLabel {
-                if let number = value.as(Double.self) { Text(text(number)).frame(width: Self.axisWidth - 6, alignment: .trailing) }
-            }.font(.system(size: 9.5).monospacedDigit()).foregroundStyle(PennyStyle.muted)
-        }
+    /// A value past the top of the chart: a small arrow at the top of its column and the value over it.
+    func past(_ context: GraphicsContext, x: CGFloat, top: CGFloat, _ value: String, _ color: Color, _ opacity: Double, band: CGFloat) {
+        var arrow = Path()
+        arrow.move(to: CGPoint(x: x - 3.5, y: top + 1)); arrow.addLine(to: CGPoint(x: x, y: top - 3)); arrow.addLine(to: CGPoint(x: x + 3.5, y: top + 1)); arrow.closeSubpath()
+        context.fill(arrow, with: .color(color.opacity(opacity)))
+        var text = PennyStyle.write(context, value, 9, color.opacity(opacity), .semibold)
+        if PennyStyle.width(text) > band - 2 { text = PennyStyle.write(context, value.replacingOccurrences(of: "×", with: ""), 9, color.opacity(opacity), .semibold) }
+        if PennyStyle.width(text) <= band - 2 { context.draw(text, at: CGPoint(x: x, y: top - 4), anchor: .bottom) }
     }
 }
 
-/// The layer over one of the stacked charts: the column under the pointer washed lighter, the tip on the top chart,
-/// and a press to pick a column.
+/// The layer over one of the stacked charts: the column under the pointer washed lighter, the picked one outlined, the
+/// tip on the top chart, and a press to pick a column.
 struct PennyHoverLayer: View {
-    let proxy: ChartProxy
     let slots: [PennySlot]
+    let labels: Bool
     @ObservedObject var hover: PennyHover
     var tips = false
     var selected: Binding<String?>? = nil
 
     var body: some View {
         GeometryReader { geometry in
-            let plot = proxy.plotFrame.map { geometry[$0] } ?? .zero
-            let band = plot.width / CGFloat(max(slots.count, 1))
+            let frame = ColumnFrame.of(geometry.size, count: slots.count, labels: labels)
+            let under: CGFloat = labels ? 16 : 0
+            let hovered = slots.firstIndex { $0.id == hover.id }
+            let picked = slots.firstIndex { $0.id == selected?.wrappedValue }
             ZStack(alignment: .topLeading) {
-                if let picked = selected?.wrappedValue, let x = proxy.position(forX: picked) {
-                    RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(0.35), lineWidth: 1)
-                        .frame(width: band, height: plot.height).offset(x: plot.minX + x - band / 2, y: plot.minY)
-                }
-                if let id = hover.id, let x = proxy.position(forX: id) {
-                    RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.07))
-                        .frame(width: band, height: plot.height).offset(x: plot.minX + x - band / 2, y: plot.minY)
-                    if tips, let slot = slots.first(where: { $0.id == id }) {
-                        let right = plot.minX + x + band / 2 + 8
-                        ChartTip(title: slot.title, lines: slot.tip)
-                            .offset(x: right + ChartTip.width > geometry.size.width ? plot.minX + x - band / 2 - 8 - ChartTip.width : right, y: plot.minY)
-                            .zIndex(1)
+                Canvas { context, _ in
+                    if let hovered { context.fill(Path(roundedRect: frame.column(hovered, under: under), cornerRadius: 4), with: .color(.white.opacity(0.06))) }
+                    if let picked {
+                        context.stroke(Path(roundedRect: frame.column(picked, under: under).insetBy(dx: 0.5, dy: 0.5), cornerRadius: 4), with: .color(.white.opacity(0.4)), lineWidth: 1)
                     }
                 }
                 Rectangle().fill(.clear).contentShape(Rectangle())
                     .onContinuousHover { phase in
                         var id: String?
-                        if case let .active(point) = phase { id = proxy.value(atX: point.x - plot.minX, as: String.self) }
-                        if hover.id != id { hover.id = id }
+                        if case let .active(point) = phase, let index = frame.index(at: point.x) { id = slots[index].id }
+                        if hover.id != id || !hover.tip { hover.set(id) }
                     }
                     .onTapGesture { point in
-                        guard let selected, let id = proxy.value(atX: point.x - plot.minX, as: String.self),
-                              slots.contains(where: { $0.id == id && $0.spent > 0 }) else { return }
-                        selected.wrappedValue = selected.wrappedValue == id ? nil : id
+                        guard let selected, let index = frame.index(at: point.x), slots[index].spent > 0 else { return }
+                        selected.wrappedValue = selected.wrappedValue == slots[index].id ? nil : slots[index].id
                     }
+                if tips, hover.tip, let hovered {
+                    let x = frame.center(hovered), right = x + frame.band / 2 + 8
+                    ChartTip(title: slots[hovered].title, lines: slots[hovered].tip)
+                        .offset(x: max(0, right + ChartTip.width > geometry.size.width ? x - frame.band / 2 - 8 - ChartTip.width : right), y: frame.top)
+                }
             }
         }
     }
@@ -458,20 +604,25 @@ struct PennyHoverLayer: View {
 
 // MARK: Days
 
-/// The days on a calendar, each coloured by its ROAS with its spend and revenue; a press opens the day.
+/// The days on a calendar, each coloured by its ROAS with its spend and revenue; a press opens the day. It sits under
+/// the charts' plot, past their axis, so a week of it lines up with their columns; a day under the pointer here lights
+/// its column on the charts, and a column under the pointer there lights its day here.
 struct DaysCalendar: View {
     let days: [Ledger.DayRead]
     let profit: Ledger.Profit
     @Binding var selected: String?
+    var hover: PennyHover
 
     var body: some View {
         let byDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 7), spacing: 6) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 0) {
             ForEach(Self.weekdays, id: \.self) { name in
-                Text(L(name)).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(PennyStyle.muted)
+                Text(L(name)).font(.system(size: 9.5, weight: .semibold)).foregroundStyle(PennyStyle.muted).padding(.bottom, 3)
             }
-            ForEach(Self.cells(days.map(\.day)), id: \.self) { day in cell(day, byDay[day]) }
+            ForEach(Self.cells(days.map(\.day)), id: \.self) { day in cell(day, byDay[day]).padding(3) }
         }
+        // The cells' own 3 points taken off, so their edges meet the plot's.
+        .padding(.leading, PennyColumns.axisWidth - 3).padding(.trailing, 1).padding(.top, 16)
     }
 
     static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -502,18 +653,36 @@ struct DaysCalendar: View {
             Spacer(minLength: 0)
         }
         .padding(6).frame(maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .topLeading)
-        .background(read == nil ? Color.white.opacity(0.015) : Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+        .background { if read == nil { RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.015)) } else { CalendarLight(day: day, hover: hover) } }
         .overlay(alignment: .leading) { if ran { UnevenRoundedRectangle(topLeadingRadius: 7, bottomLeadingRadius: 7).fill(color).frame(width: 3) } }
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(chosen ? Color.white.opacity(0.6) : .clear, lineWidth: 1.5))
         .contentShape(Rectangle())
         .onTapGesture { if ran { selected = chosen ? nil : day } }
+        .onHover { inside in
+            guard ran else { return }
+            if inside { hover.set(day, tip: false) } else if hover.id == day { hover.set(nil) }
+        }
     }
 }
 
-/// One day hour by hour: its totals, then ROAS, spend and CBH each hour.
+/// A calendar day's face, lighter while its column (or the day itself) is under the pointer. Only this watches the
+/// pointer, so moving it redraws no more than the faces.
+struct CalendarLight: View {
+    let day: String
+    @ObservedObject var hover: PennyHover
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7).fill(.white.opacity(hover.id == day ? 0.08 : 0.035)).animation(.easeOut(duration: 0.12), value: hover.id == day)
+    }
+}
+
+/// One day hour by hour: its totals, then ROAS, spend and CBH each hour, each hour's column washed by how it does over
+/// all the days read (`overall`; nil with one day).
 struct DayDrill: View {
     let day: Ledger.DayRead
     let profit: Ledger.Profit
+    var overall: [Ledger.HourRead]? = nil
+    var days = 0
+    var grow = true
     var close: (() -> Void)? = nil
 
     var body: some View {
@@ -528,7 +697,8 @@ struct DayDrill: View {
                 Spacer()
                 if let close { Button { close() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain).help(L("Close")) }
             }
-            PennyColumns(slots: PennySlot.hours(of: day, profit: profit), profit: profit, height: 120)
+            PennyColumns(slots: PennySlot.hours(of: day, profit: profit, overall: overall), profit: profit, height: 120, grow: grow,
+                         washName: L("column: the hour over all %@ days", days))
         }
         .padding(14)
         .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
@@ -654,30 +824,38 @@ struct BandsView: View {
 // MARK: Weeks
 
 /// The weeks from Monday: a card each, then spend against revenue, the night against the peak, dead spend and CPM,
-/// one measure per chart.
+/// one measure per chart. Spend and revenue are a day's (2026-11-07): the first and last weeks of a range are often a
+/// day or two, and their totals put beside a whole week's said nothing. Each chart has a tip under the pointer.
 struct WeeksView: View {
     let weeks: [Ledger.WeekRead]
     let profit: Ledger.Profit
+    var grow = false
 
-    func label(_ week: Ledger.WeekRead) -> String { PennyStyle.day(week.start) }
+    static func label(_ week: Ledger.WeekRead) -> String { PennyStyle.day(week.start) }
+
+    static func days(_ count: Int) -> String { count == 1 ? L("1 day") : L("%@ days", count) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 8)], spacing: 8) {
                 ForEach(weeks) { week in card(week) }
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 20), GridItem(.flexible(), spacing: 20)], alignment: .leading, spacing: 20) {
-                small(L("Spend and revenue"), keys: {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)], alignment: .leading, spacing: 22) {
+                small(L("Spend and revenue a day"), keys: {
                     LegendKey(name: L("Spent"), color: PennyStyle.muted)
                     LegendKey(name: L("Revenue"), color: PennyStyle.blue)
-                }) { spendAndRevenue }
+                }) { WeekChart(weeks: weeks, profit: profit, kind: .spendAndRevenue, grow: grow) }
                 small(L("Night against peak"), keys: {
                     LegendKey(name: L("12 AM–6 AM"), color: PennyStyle.violet)
                     LegendKey(name: L("9 AM–9 PM"), color: PennyStyle.blue)
                     LegendKey(name: L("breakeven"), color: PennyStyle.red, shape: .dashed)
-                }) { nightAgainstPeak }
-                small(L("Dead spend"), keys: { Text(L("share of spend in hours under 1×")).font(.system(size: 10.5)).foregroundStyle(.secondary) }) { deadSpend }
-                small(L("CPM"), keys: { Text(L("what a thousand impressions cost: lower is better")).font(.system(size: 10.5)).foregroundStyle(.secondary) }) { cpm }
+                }) { WeekChart(weeks: weeks, profit: profit, kind: .nightAgainstPeak, grow: grow) }
+                small(L("Dead spend"), keys: { Text(L("share of spend in hours under 1×")).font(.system(size: 10.5)).foregroundStyle(.secondary) }) {
+                    WeekChart(weeks: weeks, profit: profit, kind: .deadSpend, grow: grow)
+                }
+                small(L("CPM"), keys: { Text(L("what a thousand impressions cost: lower is better")).font(.system(size: 10.5)).foregroundStyle(.secondary) }) {
+                    WeekChart(weeks: weeks, profit: profit, kind: .cpm, grow: grow)
+                }
             }
         }
     }
@@ -685,11 +863,11 @@ struct WeeksView: View {
     func card(_ week: Ledger.WeekRead) -> some View {
         let color = PennyStyle.roas(week.numbers.roas, profit)
         return VStack(alignment: .leading, spacing: 4) {
-            Text(L("Week of %@", label(week))).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            Text(L("Week of %@", Self.label(week)) + (week.days < 7 ? " · " + Self.days(week.days) : "")).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
             Text(PennyStyle.times(week.numbers.roas)).font(.system(size: 22, weight: .bold)).foregroundStyle(color)
             Group {
                 Text(L("%@ spent · %@ back", PennyStyle.short(week.numbers.spent), PennyStyle.short(week.numbers.revenue)))
-                Text(L("%@ orders · %@ days", Ledger.whole(week.numbers.orders), week.days))
+                Text(L("%@ orders · %@ a day", Ledger.whole(week.numbers.orders), PennyStyle.short(week.numbers.spent / Double(max(week.days, 1)))))
                 HStack(spacing: 0) {
                     Text("CBH ")
                     Text(PennyStyle.short(week.cbh)).fontWeight(.semibold).foregroundStyle(PennyStyle.money(week.cbh))
@@ -703,105 +881,190 @@ struct WeeksView: View {
     }
 
     func small<Keys: View, Content: View>(_ title: String, @ViewBuilder keys: () -> Keys, @ViewBuilder chart: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 12, weight: .semibold))
-            HStack(spacing: 12) { keys() }
-            chart().frame(height: 160)
+            FlowLayout(spacing: 12) { keys() }
+            chart().frame(height: 176)
+        }
+    }
+}
+
+/// One of the weeks' charts, one measure each; the week under the pointer washed lighter with its numbers beside it.
+struct WeekChart: View {
+    enum Kind { case spendAndRevenue, nightAgainstPeak, deadSpend, cpm }
+    let weeks: [Ledger.WeekRead]
+    let profit: Ledger.Profit
+    let kind: Kind
+    @State private var hover: Int?
+    @State private var growFrom: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    static let left = PennyColumns.axisWidth, top: CGFloat = 18, growTime = 0.52
+
+    init(weeks: [Ledger.WeekRead], profit: Ledger.Profit, kind: Kind, grow: Bool) {
+        self.weeks = weeks; self.profit = profit; self.kind = kind
+        _growFrom = State(initialValue: grow ? Date() : nil)
+    }
+
+    var shown: [Ledger.WeekRead] { kind == .cpm ? weeks.filter { $0.numbers.cpm != nil } : weeks }
+
+    static func perDay(_ week: Ledger.WeekRead, _ value: Double) -> Double { value / Double(max(week.days, 1)) }
+
+    func index(_ x: CGFloat, width: CGFloat) -> Int? {
+        let count = shown.count, right = width - 4
+        guard count > 0, x >= Self.left, x < right else { return nil }
+        return min(count - 1, Int((x - Self.left) / ((right - Self.left) / CGFloat(count))))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.animation(paused: growFrom == nil)) { context in
+                let grown = growFrom.map { PennyStyle.eased(context.date.timeIntervalSince($0) / Self.growTime) } ?? 1
+                Canvas { canvas, size in draw(canvas, size: size, grown: grown) }
+            }
+            .overlay(alignment: .topLeading) {
+                if let hover, hover < shown.count {
+                    let band = (geometry.size.width - 4 - Self.left) / CGFloat(shown.count), x = Self.left + band * (CGFloat(hover) + 0.5)
+                    let beside = x + band / 2 + 6
+                    ChartTip(title: L("Week of %@", WeeksView.label(shown[hover])), lines: tip(shown[hover]))
+                        .offset(x: beside + ChartTip.width <= geometry.size.width ? beside : max(0, x - band / 2 - 6 - ChartTip.width), y: Self.top - 14)
+                }
+            }
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                var at: Int?
+                if case let .active(point) = phase { at = index(point.x, width: geometry.size.width) }
+                if hover != at { hover = at }
+            }
+        }
+        .zIndex(hover == nil ? 0 : 1)
+        .onAppear { if reduceMotion { growFrom = nil } }
+        .task {
+            guard growFrom != nil else { return }
+            try? await Task.sleep(nanoseconds: UInt64((Self.growTime + 0.05) * 1_000_000_000))
+            growFrom = nil
         }
     }
 
-    var spendAndRevenue: some View {
-        Chart {
-            ForEach(weeks) { week in
-                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.spent), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.muted).position(by: .value("What", "spent")).cornerRadius(4)
-                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.revenue), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.blue).position(by: .value("What", "revenue")).cornerRadius(4)
-                    .annotation(position: .top, spacing: 2) { Text(PennyStyle.short(week.numbers.revenue)).font(.system(size: 9)).foregroundStyle(.secondary) }
+    func draw(_ context: GraphicsContext, size: CGSize, grown: Double) {
+        let left = Self.left, right = size.width - 4, top = Self.top, bottom = size.height - 30
+        let shown = shown
+        guard !shown.isEmpty, right > left, bottom > top else { return }
+        var low = 0.0, high: Double
+        switch kind {
+        case .spendAndRevenue: high = max((shown.map { Self.perDay($0, max($0.numbers.spent, $0.numbers.revenue)) }.max() ?? 0) * 1.04, 1)
+        case .nightAgainstPeak: high = max(max(shown.map { max($0.night.roas ?? 0, $0.peak.roas ?? 0) }.max() ?? 0, profit.breakeven) * 1.06, 1)
+        case .deadSpend: high = max(0.5, (shown.map(\.dead).max() ?? 0) * 1.06)
+        case .cpm:
+            let values = shown.map { $0.numbers.cpm ?? 0 }, most = values.max() ?? 0, least = values.min() ?? 0
+            let spread = max(most - least, most * 0.1)
+            low = max(0, least - spread * 0.8)
+            high = max(most + spread * 0.5, low + 1)
+        }
+        func y(_ value: Double) -> CGFloat { bottom - CGFloat((min(max(value, low), high) - low) / (high - low)) * (bottom - top) }
+        let band = (right - left) / CGFloat(shown.count)
+        func center(_ index: Int) -> CGFloat { left + band * (CGFloat(index) + 0.5) }
+        if let hover, hover < shown.count {
+            context.fill(Path(roundedRect: CGRect(x: center(hover) - band / 2 + 1, y: top - 14, width: band - 2, height: bottom - top + 14 + 28), cornerRadius: 4), with: .color(.white.opacity(0.06)))
+        }
+        for tick in PennyStyle.ticks(low, high) {
+            let at = y(tick)
+            var line = Path(); line.move(to: CGPoint(x: left, y: at)); line.addLine(to: CGPoint(x: right, y: at))
+            context.stroke(line, with: .color(PennyStyle.grid), lineWidth: 1)
+            let label: String
+            switch kind {
+            case .spendAndRevenue: label = PennyStyle.short(tick)
+            case .nightAgainstPeak: label = String(format: tick != tick.rounded() ? "%.1f×" : "%.0f×", tick)
+            case .deadSpend: label = String(format: "%.0f%%", tick * 100)
+            case .cpm: label = String(format: high - low < 4 ? "$%.1f" : "$%.0f", tick)
+            }
+            context.draw(PennyStyle.write(context, label, 9.5, PennyStyle.muted), at: CGPoint(x: left - 6, y: at), anchor: .trailing)
+        }
+        func bar(_ x: CGFloat, _ width: CGFloat, _ value: Double, _ color: Color) {
+            let at = y(low + (value - low) * grown)
+            if bottom - at > 0.5 { context.fill(PennyStyle.column(CGRect(x: x - width / 2, y: at, width: width, height: bottom - at), radius: 4, up: true), with: .color(color.opacity(0.9))) }
+        }
+        func note(_ text: String, _ x: CGFloat, _ at: CGFloat, _ color: Color = PennyStyle.words) {
+            let written = PennyStyle.write(context, text, 9.5, color.opacity(min(max(grown * 1.6 - 0.6, 0), 1)), .semibold)
+            if PennyStyle.width(written) <= band - 4 || shown.count == 1 { context.draw(written, at: CGPoint(x: x, y: at - 1), anchor: .bottom) }
+        }
+        let width = max(4, min(30, band * 0.28))
+        var points: [CGPoint] = []
+        for (index, week) in shown.enumerated() {
+            let x = center(index)
+            switch kind {
+            case .spendAndRevenue:
+                let spent = Self.perDay(week, week.numbers.spent), revenue = Self.perDay(week, week.numbers.revenue)
+                bar(x - width / 2 - 1.5, width, spent, PennyStyle.muted)
+                bar(x + width / 2 + 1.5, width, revenue, PennyStyle.blue)
+                note(PennyStyle.short(revenue), x + width / 2 + 1.5, y(revenue * grown), PennyStyle.blue)
+            case .nightAgainstPeak:
+                bar(x - width / 2 - 1.5, width, week.night.roas ?? 0, PennyStyle.violet)
+                bar(x + width / 2 + 1.5, width, week.peak.roas ?? 0, PennyStyle.blue)
+            case .deadSpend:
+                let color = week.dead > 0.3 ? PennyStyle.red : week.dead > 0.2 ? PennyStyle.yellow : PennyStyle.green
+                bar(x, max(4, min(40, band * 0.42)), week.dead, color)
+                note(Ledger.percent(week.dead), x, y(week.dead * grown), color)
+            case .cpm:
+                points.append(CGPoint(x: x, y: y(week.numbers.cpm ?? 0)))
+            }
+            context.draw(PennyStyle.write(context, WeeksView.label(week), 9.5, hover == index ? .primary : PennyStyle.muted), at: CGPoint(x: x, y: bottom + 3), anchor: .top)
+            if week.days < 7 {
+                // A week the range cuts short says so under its date.
+                context.draw(PennyStyle.write(context, WeeksView.days(week.days), 8.5, PennyStyle.muted.opacity(0.7)), at: CGPoint(x: x, y: bottom + 15), anchor: .top)
             }
         }
-        .chartXAxis { weekAxis }
-        .chartYAxis { dollarAxis }
+        if kind == .nightAgainstPeak {
+            var rule = Path(); rule.move(to: CGPoint(x: left, y: y(profit.breakeven))); rule.addLine(to: CGPoint(x: right, y: y(profit.breakeven)))
+            context.stroke(rule, with: .color(PennyStyle.red.opacity(0.85)), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        if kind == .cpm, let first = points.first, let last = points.last {
+            // The line draws in from the left as it grows.
+            var layer = context
+            layer.clip(to: Path(CGRect(x: 0, y: 0, width: left + (right - left) * grown + 8, height: size.height)))
+            var area = Path(); area.move(to: CGPoint(x: first.x, y: bottom))
+            for point in points { area.addLine(to: point) }
+            area.addLine(to: CGPoint(x: last.x, y: bottom)); area.closeSubpath()
+            layer.fill(area, with: .linearGradient(Gradient(colors: [PennyStyle.blue.opacity(0.18), PennyStyle.blue.opacity(0)]), startPoint: CGPoint(x: 0, y: top), endPoint: CGPoint(x: 0, y: bottom)))
+            var line = Path(); line.addLines(points)
+            layer.stroke(line, with: .color(PennyStyle.blue), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+            for (index, point) in points.enumerated() {
+                let scale: CGFloat = hover == index ? 1.25 : 1
+                layer.fill(Path(ellipseIn: CGRect(x: point.x - 5.5 * scale, y: point.y - 5.5 * scale, width: 11 * scale, height: 11 * scale)), with: .color(PennyStyle.surface))
+                layer.fill(Path(ellipseIn: CGRect(x: point.x - 3.6 * scale, y: point.y - 3.6 * scale, width: 7.2 * scale, height: 7.2 * scale)), with: .color(PennyStyle.blue))
+                let written = PennyStyle.write(layer, Ledger.money(shown[index].numbers.cpm ?? 0), 9.5, PennyStyle.blue.opacity(min(max(grown * 1.6 - 0.6, 0), 1)), .semibold)
+                if PennyStyle.width(written) <= band - 4 || shown.count == 1 { layer.draw(written, at: CGPoint(x: point.x, y: point.y - 6), anchor: .bottom) }
+            }
+        }
     }
 
-    var nightAgainstPeak: some View {
-        Chart {
-            ForEach(weeks) { week in
-                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.night.roas ?? 0), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.violet).position(by: .value("When", "night")).cornerRadius(4)
-                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.peak.roas ?? 0), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.blue).position(by: .value("When", "peak")).cornerRadius(4)
-            }
-            RuleMark(y: .value("Breakeven", profit.breakeven)).foregroundStyle(PennyStyle.red.opacity(0.85)).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .chartXAxis { weekAxis }
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(PennyStyle.grid)
-                AxisValueLabel { if let roas = value.as(Double.self) { Text(String(format: "%.0f×", roas)) } }.font(.system(size: 9.5)).foregroundStyle(PennyStyle.muted)
-            }
-        }
-    }
-
-    var deadSpend: some View {
-        Chart {
-            ForEach(weeks) { week in
-                BarMark(x: .value("Week", label(week)), y: .value("Dead", week.dead), width: .fixed(24))
-                    .foregroundStyle(week.dead > 0.3 ? PennyStyle.red : week.dead > 0.2 ? PennyStyle.yellow : PennyStyle.green).cornerRadius(4)
-                    .annotation(position: .top, spacing: 2) { Text(Ledger.percent(week.dead)).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary) }
-            }
-        }
-        .chartYScale(domain: 0 ... max(0.5, (weeks.map(\.dead).max() ?? 0) * 1.2))
-        .chartXAxis { weekAxis }
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(PennyStyle.grid)
-                AxisValueLabel { if let share = value.as(Double.self) { Text(String(format: "%.0f%%", share * 100)) } }.font(.system(size: 9.5)).foregroundStyle(PennyStyle.muted)
-            }
-        }
-    }
-
-    var cpm: some View {
-        let shown = weeks.filter { $0.numbers.cpm != nil }
-        let values = shown.compactMap(\.numbers.cpm)
-        let low = (values.min() ?? 0) * 0.8, high = max((values.max() ?? 1) * 1.12, low + 1)
-        return Chart {
-            ForEach(shown) { week in
-                AreaMark(x: .value("Week", label(week)), yStart: .value("", low), yEnd: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue.opacity(0.1))
-                LineMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue).lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                PointMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.surface).symbolSize(110)
-                PointMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue).symbolSize(50)
-                    .annotation(position: .top, spacing: 4) { Text(Ledger.money(week.numbers.cpm ?? 0)).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary) }
-            }
-        }
-        .chartYScale(domain: low ... high)
-        .chartXAxis { weekAxis }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: PennyStyle.ticks(low, high)) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(PennyStyle.grid)
-                AxisValueLabel { if let dollars = value.as(Double.self) { Text(String(format: "$%.0f", dollars)) } }.font(.system(size: 9.5)).foregroundStyle(PennyStyle.muted)
-            }
-        }
-    }
-
-    var dollarAxis: some AxisContent {
-        AxisMarks(position: .leading) { value in
-            AxisGridLine(stroke: StrokeStyle(lineWidth: 1)).foregroundStyle(PennyStyle.grid)
-            AxisValueLabel { if let dollars = value.as(Double.self) { Text(PennyStyle.short(dollars)) } }.font(.system(size: 9.5)).foregroundStyle(PennyStyle.muted)
-        }
-    }
-
-    var weekAxis: some AxisContent {
-        AxisMarks { value in
-            AxisValueLabel { if let name = value.as(String.self) { Text(name) } }
-                .font(.system(size: 9.5)).foregroundStyle(PennyStyle.muted)
+    func tip(_ week: Ledger.WeekRead) -> [PennyTipLine] {
+        switch kind {
+        case .spendAndRevenue:
+            return [PennyTipLine(name: L("Spent a day"), value: Ledger.money(Self.perDay(week, week.numbers.spent))),
+                    PennyTipLine(name: L("Revenue a day"), value: Ledger.money(Self.perDay(week, week.numbers.revenue))),
+                    PennyTipLine(name: L("ROAS"), value: PennyStyle.times(week.numbers.roas), color: PennyStyle.roas(week.numbers.roas, profit)),
+                    PennyTipLine(name: L("Days"), value: "\(week.days)")]
+        case .nightAgainstPeak:
+            return [PennyTipLine(name: L("12 AM–6 AM ROAS"), value: PennyStyle.times(week.night.roas), color: PennyStyle.roas(week.night.roas, profit)),
+                    PennyTipLine(name: L("9 AM–9 PM ROAS"), value: PennyStyle.times(week.peak.roas), color: PennyStyle.roas(week.peak.roas, profit)),
+                    PennyTipLine(name: L("Night spent"), value: Ledger.money(week.night.spent)),
+                    PennyTipLine(name: L("Peak spent"), value: Ledger.money(week.peak.spent))]
+        case .deadSpend:
+            return [PennyTipLine(name: L("Dead spend"), value: Ledger.percent(week.dead), color: week.dead > 0.3 ? PennyStyle.red : nil),
+                    PennyTipLine(name: L("Spent under 1×"), value: Ledger.money(week.deadSpent)),
+                    PennyTipLine(name: L("Spent in all"), value: Ledger.money(week.numbers.spent))]
+        case .cpm:
+            return [PennyTipLine(name: L("CPM"), value: week.numbers.cpm.map(Ledger.money) ?? "–"),
+                    PennyTipLine(name: L("Impressions"), value: Ledger.whole(week.numbers.impressions)),
+                    PennyTipLine(name: L("Spent"), value: Ledger.money(week.numbers.spent))]
         }
     }
 }
 
 // MARK: Figures
 
-/// A headline number: its name, value (coloured when it has a verdict) and the change on the days before.
+/// A headline number: its name, value (coloured when it has a verdict) and the change on the days before; under the
+/// pointer, what the change is against and the value then (`was`).
 struct PennyFigure: View {
     let name: String
     let value: String
@@ -811,6 +1074,7 @@ struct PennyFigure: View {
     var upIsGood = true
     /// A change that is neither good nor bad by itself (spend), shown grey.
     var neutral = false
+    var was: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -820,6 +1084,7 @@ struct PennyFigure: View {
                 let good = (change > 0) == upIsGood
                 Text((change > 0 ? "▲ " : "▼ ") + Ledger.percent(abs(change))).font(.system(size: 10, weight: .medium).monospacedDigit())
                     .foregroundStyle(neutral ? PennyStyle.muted : good ? PennyStyle.green : PennyStyle.red)
+                    .help(was ?? "")
             } else {
                 Text(" ").font(.system(size: 10))
             }
@@ -850,7 +1115,7 @@ struct PennyReadLine: View {
             } else if bold {
                 text = text.fontWeight(.semibold).foregroundColor(.primary)
             } else {
-                text = text.foregroundColor(Color(red: 195 / 255, green: 194 / 255, blue: 183 / 255))
+                text = text.foregroundColor(PennyStyle.words)
             }
             result = result + text
         }

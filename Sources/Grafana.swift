@@ -1,10 +1,13 @@
 import Foundation
 import Security
+import WebKit
 
 /// The company's Grafana (grafana.selless.com, Grafana 11.2): Google sign-in only, its login form is off. Penny keeps
 /// the session your sign-in made (in the Keychain, never in UserDefaults or projects.json) and reads with it; Grafana
-/// rotates that session every few minutes, so a refused request first asks for the new one (2026-11-05). Penny only
-/// reads: he never saves, changes or deletes anything in Grafana.
+/// rotates that session every few minutes, so a refused request first asks for the new one (2026-11-05). When Grafana
+/// won't renew it, Penny signs in again by himself with the Google account his sign-in window remembers (`signInAgain`,
+/// 2026-11-08, first in the Windows app: you were asked to sign in too often), and only asks you when Google does.
+/// Penny only reads: he never saves, changes or deletes anything in Grafana.
 enum Grafana {
     static let base = URL(string: "https://grafana.selless.com/")!
     private static let service = "Edit Assist Grafana"
@@ -53,19 +56,26 @@ enum Grafana {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 401 {
-            guard !renewed, try await renewal.renew(refused: session) else {
-                if Self.session == session { Self.session = nil }
-                throw Failure.signedOut
+            // Renewed (Grafana's rotation), or failing that signed in again with the remembered Google account.
+            if !renewed {
+                if try await renewal.renew(refused: session) { return try await self.request(path, body: body, renewed: true) }
+                if await renewal.again(refused: session) { return try await self.request(path, body: body, renewed: true) }
             }
-            return try await self.request(path, body: body, renewed: true)
+            if Self.session == session {
+                Self.session = nil
+                note("Signed out: Grafana refused the session on \(url.path)\(renewed ? " just after it was renewed" : "")")
+            }
+            throw Failure.signedOut
         }
         guard (200 ..< 300).contains(status) else { throw Failure.refused(status, message(in: data) ?? "HTTP \(status)") }
         return data
     }
 
     /// One renewal at a time: panels refused together wait for the same new session rather than each asking for one.
+    /// One sign-in again at a time, for the same reason.
     private actor Renewal {
         private var running: Task<Bool, Error>?
+        private var signingIn: Task<Bool, Never>?
         func renew(refused: String) async throws -> Bool {
             if let current = Grafana.session, current != refused { return true }
             if let running { return try await running.value }
@@ -74,8 +84,57 @@ enum Grafana {
             defer { running = nil }
             return try await task.value
         }
+
+        /// Signs in again by himself (`signInAgain`) when Grafana won't renew the session; false when he can't.
+        func again(refused: String) async -> Bool {
+            if let current = Grafana.session, current != refused { return true }
+            guard let again = Grafana.signInAgain else { return false }
+            if let signingIn { return await signingIn.value }
+            let task = Task { () -> Bool in
+                if let session = await again() {
+                    Grafana.session = session
+                    Grafana.note("Signed in again by himself with the remembered Google account")
+                    return true
+                }
+                Grafana.note("Couldn't sign in again by himself: Google wanted you")
+                return false
+            }
+            signingIn = task
+            defer { signingIn = nil }
+            return await task.value
+        }
     }
     private static let renewal = Renewal()
+
+    /// Signs in again without asking: the sign-in window, out of sight, with the Google account it remembers; the
+    /// session it ends with, or nil when Google wants you to choose or confirm. Set by Penny's desk; nil in the checks.
+    static var signInAgain: (@MainActor () async -> String?)?
+    /// Forgets the Google account the sign-in window remembers (Sign out). Set by Penny's desk.
+    static var forget: (@MainActor () -> Void)?
+
+    /// penny/sign-ins.log beside projects.json.
+    static var signIns: URL { Studio.folder.appendingPathComponent("penny/sign-ins.log") }
+
+    /// A line in penny/sign-ins.log: when a session ended and why, and when Penny signed in again by himself, so a
+    /// session that keeps ending can be looked into. Never the session itself. Cut to its last 200 lines past 64 KB.
+    static func note(_ what: String, in file: URL = signIns) {
+        let manager = FileManager.default
+        try? manager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let size = (try? manager.attributesOfItem(atPath: file.path))?[.size] as? Int, size > 64 * 1024,
+           let text = try? String(contentsOf: file, encoding: .utf8) {
+            let kept = text.split(separator: "\n").suffix(200)
+            try? (kept.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        }
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let line = Data("\(stamp.string(from: Date()))  \(what)\n".utf8)
+        if let handle = try? FileHandle(forWritingTo: file) {
+            handle.seekToEndOfFile(); handle.write(line); try? handle.close()
+        } else {
+            try? line.write(to: file)
+        }
+    }
 
     /// Asks Grafana for the session that replaces this one (its token rotation); false when it is over.
     static func rotate() async throws -> Bool {
@@ -86,7 +145,11 @@ enum Grafana {
         request.setValue(String(base.absoluteString.dropLast()), forHTTPHeaderField: "Origin")
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
-              let renewed = sessionCookie(in: http) else { return false }
+              let renewed = sessionCookie(in: http) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            note("Grafana wouldn't renew the session: HTTP \(status)\((200 ..< 300).contains(status) ? ", no new session in its reply" : "")")
+            return false
+        }
         Self.session = renewed
         return true
     }
@@ -183,7 +246,10 @@ final class PennyDesk: ObservableObject {
         zones = Self.zones(in: Self.folder)
         let files = (try? FileManager.default.contentsOfDirectory(at: Self.folder.appendingPathComponent("dashboards"), includingPropertiesForKeys: nil)) ?? []
         boards = Self.ordered(files.filter { $0.pathExtension == "json" }.compactMap { (try? Data(contentsOf: $0)).flatMap(Grafana.dashboard(from:)) })
-        ledger.onSignedOut = { [weak self] in self?.signOut() }
+        // The copy, or a board, found the session over (and Penny couldn't sign in again): signed out, the account kept.
+        ledger.onSignedOut = { [weak self] in self?.ended() }
+        Grafana.signInAgain = { await GrafanaWeb.silently() }
+        Grafana.forget = { GrafanaWeb.forget() }
         if Grafana.session != nil { ledger.start() }
     }
 
@@ -209,10 +275,21 @@ final class PennyDesk: ObservableObject {
         if case .signedIn = state, let board, !board.busy, (board.updated ?? .distantPast) < Date().addingTimeInterval(-300) { board.load() }
     }
 
+    private var triedAgain = false
+
     func check() {
-        guard Grafana.session != nil else { state = .signedOut; return }
         state = .checking
         Task {
+            // Signed out when the page opens (the session ended while the app was closed): once, sign in again by himself.
+            if Grafana.session == nil, !triedAgain, let again = Grafana.signInAgain {
+                triedAgain = true
+                if let session = await again() {
+                    Grafana.session = session
+                    Grafana.note("Signed in again by himself when Penny opened")
+                    ledger.start()
+                }
+            }
+            guard Grafana.session != nil else { state = .signedOut; return }
             do {
                 guard let user = Grafana.user(from: try await Grafana.request("api/user")) else { throw Grafana.Failure.refused(0, L("Grafana did not say who you are.")) }
                 state = .signedIn(user)
@@ -233,7 +310,15 @@ final class PennyDesk: ObservableObject {
         ledger.start()
     }
 
+    /// Sign out: the session ends and the Google account the sign-in window remembers is forgotten.
     func signOut() {
+        Grafana.forget?()
+        Grafana.note("Signed out by you; the Google account forgotten")
+        ended()
+    }
+
+    /// The session is over; the remembered Google account stays, for the next sign-in.
+    func ended() {
         Grafana.session = nil
         ledger.stop()
         state = .signedOut; dashboards = []; board = nil
@@ -254,7 +339,7 @@ final class PennyDesk: ObservableObject {
         Grafana.zone = Grafana.zone([dashboard.timezone] + zones, fallback: dashboard.clock.flatMap(TimeZone.init(identifier:)) ?? .current)
         let board = PennyBoard(dashboard: dashboard, sources: sources)
         board.onBusy = { [weak self] in self?.reading = $0 }
-        board.onSignedOut = { [weak self] in self?.signOut() }
+        board.onSignedOut = { [weak self] in self?.ended() }
         self.board = board
         if case .signedIn = state { board.load() }
     }
@@ -317,5 +402,108 @@ final class PennyDesk: ObservableObject {
     nonisolated static func describe(_ error: Error) -> String {
         if case Grafana.Failure.refused(let status, let reason) = error { return status == 0 ? reason : L("Grafana refused (%@): %@", status, reason) }
         return error.localizedDescription
+    }
+}
+
+/// The sign-in window's web data store, Penny's own (2026-11-08, first in the Windows app): nothing from Safari or your
+/// browsers is read, and nothing is kept there but Google's sign-in. It used to be a new empty store each time, so Google
+/// asked for your email whenever Grafana ended a session; now it remembers your account, as a browser does, and Penny can
+/// sign in again out of sight (`silently`). Your password is never seen or kept by Penny. Grafana's own cookies are
+/// removed from the store once the session is taken, so it never holds (or renews) the session Penny reads with: that
+/// lives only in the Keychain. Sign out removes the store.
+@MainActor
+enum GrafanaWeb {
+    /// The store's name, fixed so the same one is found again (WKWebsiteDataStore(forIdentifier:), macOS 14).
+    static let storeID = UUID(uuidString: "5E1D7A43-2C9B-4F0E-9A6D-7B3C1E8F4A20")!
+    /// How long signing in again out of sight may take before Google is taken to want you.
+    static let patience: TimeInterval = 25
+
+    static func webView(_ coordinator: GrafanaSignInCoordinator) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: storeID)
+        let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 560, height: 700), configuration: configuration)
+        // Google turns away sign-ins from pages it takes for an app's web view; Safari's own name gets the normal page.
+        view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+        view.navigationDelegate = coordinator
+        view.uiDelegate = coordinator
+        view.load(URLRequest(url: Grafana.base.appendingPathComponent("login/google")))
+        return view
+    }
+
+    /// Whether a Google account is remembered: the store has been made and not forgotten since.
+    static func remembered() async -> Bool {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.fetchAllDataStoreIdentifiers { continuation.resume(returning: $0.contains(storeID)) }
+        }
+    }
+
+    /// Signs in again out of sight with the remembered account: the session, or nil when Google wants you (or nothing
+    /// is remembered). The page loads in a window off every screen, see-through, that never takes the focus.
+    static func silently() async -> String? {
+        guard await remembered() else { return nil }
+        return await withCheckedContinuation { continuation in
+            let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 560, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.alphaValue = 0
+            window.ignoresMouseEvents = true
+            window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
+            let coordinator = GrafanaSignInCoordinator { session in
+                (window.contentView as? WKWebView)?.stopLoading()
+                window.contentView = nil
+                window.close()
+                continuation.resume(returning: session)
+            }
+            window.contentView = webView(coordinator)
+            window.orderBack(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + patience) { coordinator.finish(nil) }
+        }
+    }
+
+    /// Forgets the remembered Google account: the store is removed (once no web view holds it).
+    static func forget() {
+        Task { @MainActor in
+            for _ in 0 ..< 10 {
+                guard await remembered() else { return }
+                if (try? await WKWebsiteDataStore.remove(forIdentifier: storeID)) != nil { return }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+}
+
+/// The sign-in page's delegate, seen or out of sight: back on Grafana past its login pages, it takes the session from
+/// the cookies, removes Grafana's cookies from the store and finishes, once.
+@MainActor
+final class GrafanaSignInCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private let done: (String?) -> Void
+    private var finished = false
+    init(done: @escaping (String?) -> Void) { self.done = done }
+
+    func finish(_ session: String?) {
+        guard !finished else { return }
+        finished = true
+        done(session)
+    }
+
+    /// Back on Grafana past its login pages: the session is in the cookies.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !finished, let url = webView.url, url.host == Grafana.base.host, !url.path.hasPrefix("/login") else { return }
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        store.getAllCookies { [weak self, weak webView] cookies in
+            let host = Grafana.base.host ?? ""
+            let grafana = cookies.filter { host.hasSuffix($0.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))) }
+            guard let self, !self.finished, let session = grafana.first(where: { $0.name == "grafana_session" && !$0.value.isEmpty })?.value else { return }
+            // Grafana's cookies leave the store: only Google's sign-in stays, and nothing here renews Penny's session.
+            webView?.stopLoading()
+            let group = DispatchGroup()
+            for cookie in grafana { group.enter(); store.delete(cookie) { group.leave() } }
+            group.notify(queue: .main) { self.finish(session) }
+        }
+    }
+
+    /// A link that would open a new window opens here.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        webView.load(action.request)
+        return nil
     }
 }
