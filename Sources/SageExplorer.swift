@@ -1301,16 +1301,41 @@ struct SagePathBar: View {
                 let parts = path.components(separatedBy: "/")
                 let folders = (0 ..< parts.count - 1).map { (name: parts[$0], path: parts[...$0].joined(separator: "/")) }
                 let order = Self.foldOrder(folders.count)
-                ViewThatFits(in: .horizontal) {
-                    ForEach(0 ... order.count, id: \.self) { hidden in
-                        line(folders, hidden: Set(order.prefix(hidden)), path: path)
-                    }
+                // How many folders fold is worked out from the names' widths (`folded`), once per size: a ViewThatFits laid
+                // out every way of folding on every layout pass, and inside the page's scroll view that was most of what a
+                // click on a note cost (2026-11-09).
+                GeometryReader { space in
+                    line(folders, hidden: Set(order.prefix(Self.folded(folders.map(\.name), name: shownName, order: order, width: space.size.width))), path: path)
+                        .frame(width: space.size.width, height: space.size.height, alignment: .leading)
                 }
+                .frame(height: 20)
             } else {
                 Text(shownName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
             }
         }.help(file.path)
     }
+
+    /// How many folders (in `order`) fold into “…” for the path to fit the width: the fewest that do, all when none do.
+    static func folded(_ names: [String], name: String, order: [Int], width: CGFloat) -> Int {
+        let chevron: CGFloat = 14, dots = textWidth("…") + chevron
+        let last = textWidth(name, bold: true)
+        for hidden in 0 ... order.count {
+            let gone = Set(order.prefix(hidden))
+            let shown = names.indices.filter { !gone.contains($0) }.reduce(CGFloat(0)) { $0 + textWidth(names[$1]) + chevron }
+            if shown + (gone.isEmpty ? 0 : dots) + last <= width { return hidden }
+        }
+        return order.count
+    }
+
+    /// A name's width in the bar's font, measured once and kept.
+    static func textWidth(_ text: String, bold: Bool = false) -> CGFloat {
+        let key = (bold ? "b:" : "r:") + text
+        if let known = widths[key] { return known }
+        let measured = ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: bold ? .semibold : .regular)]).width)
+        widths[key] = measured
+        return measured
+    }
+    @MainActor private static var widths: [String: CGFloat] = [:]
 
     /// What folds first when the bar is too narrow: the middle folders, then the first, then the last.
     static func foldOrder(_ count: Int) -> [Int] {
