@@ -159,6 +159,25 @@ enum Ledger {
         return days(back: min(count, 366), from: max(a, b))
     }
 
+    /// The same number of days just before (`direction` < 0) or after (> 0) `days` (newest first), never past the day
+    /// `now` is in: the range selector's ‹ and › (2026-11-07, first in the Windows app). Stepping forward into today ends
+    /// the window on today, keeping its length.
+    static func shift(_ days: [String], by direction: Int, now: Date) -> [String] {
+        guard let first = days.first, let last = days.last, direction != 0 else { return days }
+        let count = days.count
+        if direction < 0 {
+            guard let oldest = start(of: last) else { return days }
+            return self.days(back: count, from: oldest.addingTimeInterval(-12 * 3600))
+        }
+        // Middle of the day n days on, so a daylight-saving hour can't land it on the wrong day.
+        guard let newest = start(of: first), let later = calendar.date(byAdding: .day, value: count, to: newest) else { return days }
+        let end = later.addingTimeInterval(12 * 3600)
+        return name(of: end) >= name(of: now) ? self.days(back: count, from: now) : self.days(back: count, from: end)
+    }
+
+    /// Whether `days` (newest first) already end on the day `now` is in.
+    static func endsToday(_ days: [String], now: Date) -> Bool { days.first == name(of: now) }
+
     /// The days still to copy, newest first: never copied, or copied before they had settled.
     static func wanted(now: Date, summary: Summary, kept: Int = kept) -> [String] { wanted(now: now, copied: summary.copied, kept: kept) }
 
@@ -587,7 +606,7 @@ enum Ledger {
 
     /// Penny's read of a product over the days: how it did against the days before, which creatives sell and which
     /// only spend, and the hours that sell. Each finding a line, money in dollars, hours in Alaska time.
-    static func report(_ days: [Day], before: Numbers? = nil, profit: Profit = .usual) -> [String] {
+    static func report(_ days: [Day], before: Numbers? = nil, profit: Profit = .usual, against: Against? = nil) -> [String] {
         let total = total(days)
         guard total.spent > 0 || total.orders > 0 else { return [L("Nothing ran in these days.")] }
         var lines: [String] = []
@@ -598,7 +617,9 @@ enum Ledger {
         if let before, before.spent > 0, let now = total.roas, let then = before.roas {
             let change = then > 0 ? (now - then) / then : 0
             let moved = tone(L(change > 0 ? "up %@" : "down %@", percent(abs(change))), change > 0 ? .good : .bad)
-            lines.append(abs(change) < 0.05 ? L("ROAS about the same as the days before (%@)", ratio(then)) : L("ROAS %@ on the days before (%@)", moved, ratio(then)))
+            // Named and dated (2026-11-07: you asked what the 7 days were set against).
+            let with = against?.said ?? L("the days before")
+            lines.append(abs(change) < 0.05 ? L("ROAS about the same as %@: %@", with, ratio(then)) : L("ROAS %@ against %@: %@", moved, with, ratio(then)))
         }
         // Creatives worth naming spent at least 2% of the product's spend; one with no orders, twice what an order costs.
         let all = creatives(days), floor = max(total.spent * 0.02, 5), roas = total.roas ?? 0
@@ -655,6 +676,87 @@ enum Ledger {
     }
 
     static func tone(money: Double) -> Tone { money < 0 ? .bad : .good }
+
+    /// The shade of an hour's column on the charts and its row in the table: its average against breakeven (2026-11-07:
+    /// you asked to see at a glance which hours pay on average). None for an idle hour or one with too few days to judge.
+    static func shade(_ read: HourRead, _ profit: Profit) -> Tone? {
+        read.days > 0 && read.verdict != .few ? tone(roas: read.numbers.roas ?? 0, profit) : nil
+    }
+
+    /// An hour of a day opened hour by hour: shaded by how that hour does over all the days read, never by the day's own
+    /// hour, which its bar already shows (2026-11-07). None without the days' hours (a range of one day).
+    static func shade(_ overall: [HourRead]?, hour: Int, _ profit: Profit) -> Tone? {
+        overall?.first(where: { $0.hour == hour }).flatMap { shade($0, profit) }
+    }
+
+    /// One day's hour: shaded by its ROAS when it spent.
+    static func shade(_ hour: Numbers, _ profit: Profit) -> Tone? { hour.spent > 0 ? tone(roas: hour.roas ?? 0, profit) : nil }
+
+    /// A day as the read and the header write it: "Oct 31".
+    static func short(_ day: String) -> String {
+        var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        style.timeZone = zone
+        return start(of: day)?.formatted(style) ?? day
+    }
+
+    /// Days (any order) as a span: "Oct 25 – Oct 31", or "Oct 31" for one.
+    static func span(_ days: [String]) -> String {
+        let sorted = days.sorted()
+        guard let first = sorted.first, let last = sorted.last else { return "" }
+        return first == last ? short(first) : "\(short(first)) – \(short(last))"
+    }
+
+    /// The days a range is set against, by how many: "the day before", "the week before", "the 14 days before".
+    static func beforeName(_ count: Int) -> String {
+        count == 1 ? L("the day before") : count == 7 ? L("the week before") : L("the %@ days before", count)
+    }
+
+    /// What a range is compared with (2026-11-07, you asked what the 7 days were set against): the same number of days
+    /// just before it, named and dated. When the range ends on today, still coming in, the day it meets is cut to the
+    /// same hours (`upTo`), so this morning is set against yesterday morning, not all of yesterday. When fewer of the
+    /// earlier days were copied than the range has, totals are compared a day.
+    struct Against: Equatable {
+        var days: [String]
+        var copied: Int
+        var nowCopied: Int
+        var upTo: Int?
+
+        var name: String { Ledger.beforeName(days.count) }
+
+        /// The change from then to now, or nil with nothing to compare; a total (spend, orders, CBH) a day when the two
+        /// sides have different numbers of days copied.
+        func change(_ now: Double?, _ then: Double?, total: Bool = false) -> Double? {
+            guard copied > 0, var now, var then else { return nil }
+            if total, copied != nowCopied, nowCopied > 0 { now /= Double(nowCopied); then /= Double(copied) }
+            return then == 0 ? nil : (now - then) / abs(then)
+        }
+
+        /// As Penny says it: "the week before (Oct 25 – Oct 31)", and how it was cut or scaled.
+        var said: String {
+            var notes = [Ledger.span(days)]
+            if let upTo {
+                let hour = (upTo + 1) % 24
+                notes.append(L("to %@ on its last day, as far as today has come", "\(hour % 12 == 0 ? 12 : hour % 12) \(hour < 12 ? "AM" : "PM")"))
+            }
+            if copied > 0, copied < days.count { notes.append(L("only %@ of its %@ days copied, so totals a day", copied, days.count)) }
+            return "\(name) (\(notes.joined(separator: "; ")))"
+        }
+    }
+
+    /// The numbers of the days before a range, as `Against` compares them: the last of them cut to the hours today has
+    /// (when today, still coming in, ends the range), from its hourly copy.
+    static func before(_ product: String, now: [String], before: [String], summary: Summary, clock: Date, load: (String) -> Day?) -> (numbers: Numbers, against: Against) {
+        let copied = before.filter { summary.copied[$0] != nil }.count
+        let nowCopied = now.filter { summary.copied[$0] != nil }.count
+        var upTo: Int?
+        var numbers = summary.numbers(of: product, on: before)
+        if let today = now.first, let met = before.first, case .live = state(of: today, in: summary), let bounds = bounds(of: today), clock < bounds.to,
+           let hour = summary.latest[today], hour < 23, let last = load(met) {
+            upTo = hour
+            numbers = summary.numbers(of: product, on: Array(before.dropFirst())) + last.hours.filter { $0.hour <= hour }.reduce(Numbers()) { $0 + $1.numbers }
+        }
+        return (numbers, Against(days: before, copied: copied, nowCopied: nowCopied, upTo: upTo))
+    }
 
     static func plain(_ line: String) -> String {
         line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "⟦[gyr/]⟧", with: "", options: .regularExpression)

@@ -1392,6 +1392,60 @@ struct Checks {
             let bands = Ledger.bands(week, profit: profit)
             check(bands.map(\.cells) == [0, 5, 4, 0, 0, 9] && bands[2].high == profit.breakeven && bands[5].numbers.spent == 230,
                   "Every hour of every day falls in a band by the ROAS it brought back")
+            // The range selector's ‹ and ›, the hours' shading, what the days are compared with (2026-11-07, from the Windows app).
+            let evening = Date(timeIntervalSince1970: 1_793_869_200 - 4 * 3600)  // Nov 4, 8 PM in Alaska
+            let lastSeven = Ledger.days(back: 7, from: evening)
+            let stepped = Ledger.shift(lastSeven, by: -1, now: evening)
+            check(stepped.count == 7 && stepped.first == "2026-10-28" && stepped.last == "2026-10-22" && Ledger.shift(stepped, by: 1, now: evening) == lastSeven
+                  && Ledger.endsToday(lastSeven, now: evening) && !Ledger.endsToday(stepped, now: evening) && Ledger.shift(lastSeven, by: 1, now: evening) == lastSeven
+                  && Ledger.shift(["2026-11-04"], by: -1, now: evening) == ["2026-11-03"],
+                  "‹ and › step the same number of days back or forward, never past today")
+            let nearToday = Ledger.shift(Ledger.days(from: "2026-10-25", to: "2026-10-31"), by: 1, now: evening)
+            check(nearToday.first == "2026-11-04" && nearToday.count == 7
+                  && Ledger.shift(Ledger.days(from: "2026-11-01", to: "2026-11-03"), by: -1, now: evening) == ["2026-10-31", "2026-10-30", "2026-10-29"],
+                  "› into today ends the range on today, keeping its length; ‹ steps across daylight saving")
+            func hourRead(_ hour: Int, _ spent: Double, _ revenue: Double, days: Int, _ verdict: Ledger.HourRead.Verdict) -> Ledger.HourRead {
+                var read = Ledger.HourRead(hour: hour); read.numbers.spent = spent; read.numbers.revenue = revenue; read.days = days; read.verdict = verdict; return read
+            }
+            let usual = Ledger.Profit.usual
+            let shaded = [hourRead(0, 100, 100 * (usual.profitable + 0.1), days: 5, .reliable), hourRead(1, 100, 100 * (usual.breakeven + usual.profitable) / 2, days: 5, .thin),
+                          hourRead(2, 100, 100 * (usual.breakeven - 0.3), days: 5, .costly), hourRead(3, 100, 100 * (usual.profitable + 1), days: 2, .few), hourRead(4, 0, 0, days: 0, .idle)]
+            check(shaded.map { Ledger.shade($0, usual) } == [.good, .fair, .bad, nil, nil]
+                  && Ledger.shade(Ledger.Numbers([50, 0, 0, 0, 0, 0, 0, 0, 50 * (usual.breakeven - 0.5)]), usual) == .bad && Ledger.shade(Ledger.Numbers(), usual) == nil,
+                  "Each hour's column and row is shaded by its average against breakeven; idle hours and too few days are not")
+            check(Ledger.shade(shaded, hour: 0, usual) == .good && Ledger.shade(shaded, hour: 2, usual) == .bad && Ledger.shade(nil, hour: 0, usual) == nil,
+                  "A day opened hour by hour is shaded by each hour over all the days, not its own")
+            let weekBefore = Ledger.shift(lastSeven, by: -1, now: evening)
+            var compared = Ledger.Summary()
+            for name in lastSeven + weekBefore {
+                compared.copied[name] = name == lastSeven[0] ? evening.addingTimeInterval(-600) : evening.addingTimeInterval(-86_400)
+                compared.products["P", default: [:]][name] = Ledger.Numbers([24, 0, 0, 0, 0, 0, 0, 0, 48])
+            }
+            compared.latest[lastSeven[0]] = 9  // Grafana has today to 10 AM
+            let metDay = Ledger.Day(product: "P", day: weekBefore[0], copied: evening, ads: [],
+                                    hours: (0 ..< 24).map { Ledger.Hour(ad: "a", hour: $0, numbers: Ledger.Numbers([1, 0, 0, 0, 0, 0, 0, 0, 2])) })
+            let (cut, against) = Ledger.before("P", now: lastSeven, before: weekBefore, summary: compared, clock: evening, load: { $0 == weekBefore[0] ? metDay : nil })
+            check(against.upTo == 9 && cut.spent == 6 * 24 + 10 && against.name == L("the week before")
+                  && against.said == "\(L("the week before")) (\(Ledger.span(weekBefore)); \(L("to %@ on its last day, as far as today has come", "10 AM")))",
+                  "The days are set against the week before, dated, its last day cut to the hours today has")
+            check(Ledger.beforeName(1) == L("the day before") && Ledger.beforeName(14) == L("the %@ days before", 14)
+                  && Ledger.before("P", now: weekBefore, before: Ledger.shift(weekBefore, by: -1, now: evening), summary: compared, clock: evening, load: { _ in metDay }).against.upTo == nil,
+                  "Days before are named by how many; a range not ending today isn't cut")
+            let partial = Ledger.Against(days: weekBefore, copied: 3, nowCopied: 7, upTo: nil)
+            check(abs((partial.change(700, 150, total: true) ?? 0) - 1) < 1e-9 && abs((partial.change(2.4, 2.0) ?? 0) - 0.2) < 1e-9
+                  && partial.said.contains(L("only %@ of its %@ days copied, so totals a day", 3, 7)) && Ledger.Against(days: weekBefore, copied: 0, nowCopied: 7).change(10, 5) == nil
+                  && Ledger.report(week, before: Ledger.Numbers([40, 0, 0, 0, 0, 0, 0, 1, 80]), against: partial).contains { $0.contains(partial.said) },
+                  "With fewer earlier days copied, totals are compared a day and Penny's read says so")
+            // Penny's sign-ins log (2026-11-08): a line each, kept short.
+            let log = FileManager.default.temporaryDirectory.appendingPathComponent("penny-checks-\(UUID().uuidString)/sign-ins.log")
+            Grafana.note("Signed out: test", in: log)
+            let first = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+            try String(repeating: String(repeating: "x", count: 99) + "\n", count: 700).write(to: log, atomically: true, encoding: .utf8)
+            Grafana.note("Signed in again by himself", in: log)
+            let trimmed = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n")
+            check(first.hasSuffix("  Signed out: test\n") && trimmed.count == 201 && trimmed.last?.hasSuffix("  Signed in again by himself") == true,
+                  "Penny's sign-ins log takes a line each, cut to its last 200 lines when it grows")
+            try? FileManager.default.removeItem(at: log.deletingLastPathComponent())
         }
         // Pix's chat history (2026-11-06): boards saved before it still read, each earlier chat titled by your first message.
         do {
