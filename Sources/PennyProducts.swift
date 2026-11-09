@@ -700,6 +700,8 @@ struct PresetRow: View {
 /// wrapped into four rows). The minute's refresh keeps where you scrolled; a new range goes back to the newest day.
 struct DataState: View {
     @ObservedObject var ledger: PennyLedger
+    /// The days in the range picked: lit; the others the copy keeps stay in the strip, greyed at half opacity
+    /// (2026-11-09: you asked not to lose sight of them).
     let days: [String]
     @State private var offset: CGFloat = 0
     @State private var viewport: CGFloat = 0
@@ -711,22 +713,25 @@ struct DataState: View {
             let today = Ledger.name(of: context.date)
             VStack(alignment: .leading, spacing: 8) {
                 headline(today: today, now: context.date).font(.system(size: 11))
-                strip(today: today, now: context.date)
+                strip(Array(Set(Ledger.days(back: Ledger.kept, from: context.date) + days)).sorted(by: >), today: today, now: context.date)
             }
         }
     }
 
-    func strip(today: String, now: Date) -> some View {
-        let content = CGFloat(days.count) * (Self.tile + Self.gap) - Self.gap
+    func strip(_ all: [String], today: String, now: Date) -> some View {
+        let picked = Set(days)
+        let content = CGFloat(all.count) * (Self.tile + Self.gap) - Self.gap
         let more = content > viewport + 1
         let atStart = offset >= -1, atEnd = offset <= -(content - viewport) + 1
         let edge = min(0.45, 36 / max(viewport, 1))
         return ScrollViewReader { reader in
             HStack(spacing: 6) {
-                if more { pager("chevron.left", L("Newer days"), enabled: !atStart) { page(-1, reader) } }
+                if more { pager("chevron.left", L("Newer days"), enabled: !atStart) { page(-1, all, reader) } }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: Self.gap) {
-                        ForEach(days, id: \.self) { day in tile(day, today: today, now: now).frame(width: Self.tile).id(day) }
+                        ForEach(all, id: \.self) { day in
+                            tile(day, today: today, now: now, outside: !picked.contains(day)).frame(width: Self.tile).id(day)
+                        }
                     }
                     .background(GeometryReader { geometry in
                         Color.clear.preference(key: StripOffset.self, value: geometry.frame(in: .named("strip")).minX)
@@ -739,9 +744,11 @@ struct DataState: View {
                 .mask(LinearGradient(stops: [.init(color: more && !atStart ? .clear : .black, location: 0), .init(color: .black, location: more && !atStart ? edge : 0),
                                              .init(color: .black, location: more && !atEnd ? 1 - edge : 1), .init(color: more && !atEnd ? .clear : .black, location: 1)],
                                      startPoint: .leading, endPoint: .trailing))
-                if more { pager("chevron.right", L("Older days"), enabled: !atEnd) { page(1, reader) } }
+                if more { pager("chevron.right", L("Older days"), enabled: !atEnd) { page(1, all, reader) } }
             }
-            .onChange(of: days) { _, new in if let first = new.first { reader.scrollTo(first, anchor: .leading) } }
+            // The range's newest day at the left edge when the range changes, and when the page opens.
+            .onChange(of: days) { _, new in if let first = new.max() { withAnimation(.easeOut(duration: 0.35)) { reader.scrollTo(first, anchor: .leading) } } }
+            .onAppear { if let first = days.max() { reader.scrollTo(first, anchor: .leading) } }
         }
     }
 
@@ -751,7 +758,7 @@ struct DataState: View {
     }
 
     /// A page at a time, less one tile so the last one seen stays in view.
-    func page(_ direction: Int, _ reader: ScrollViewProxy) {
+    func page(_ direction: Int, _ days: [String], _ reader: ScrollViewProxy) {
         let step = Self.tile + Self.gap
         let first = Int((-offset / step).rounded())
         let pageSize = max(1, Int((viewport - step) / step))
@@ -783,9 +790,10 @@ struct DataState: View {
         }
     }
 
-    func tile(_ day: String, today: String, now: Date) -> some View {
+    /// `outside`: a day not in the range picked, grey at half opacity, its state still written.
+    func tile(_ day: String, today: String, now: Date, outside: Bool = false) -> some View {
         let state = Ledger.state(of: day, in: ledger.summary)
-        let (mark, color, note, help): (String, Color, String, String) = {
+        let (mark, shown, note, help): (String, Color, String, String) = {
             if ledger.copying == day { return ("arrow.triangle.2.circlepath", .secondary, L("Copying…"), L("Copying now")) }
             switch state {
             case .missing:
@@ -799,12 +807,14 @@ struct DataState: View {
                 return ("checkmark.circle.fill", .green, L("Final"), L("Copied %@, after its numbers had settled", copied.formatted(date: .abbreviated, time: .shortened)))
             }
         }()
+        let color = outside ? Color.gray : shown
         return VStack(alignment: .leading, spacing: 2) {
-            Text(day == today ? L("Today") : Self.written(day)).font(.system(size: 10, weight: .semibold))
+            Text(day == today ? L("Today") : Self.written(day)).font(.system(size: 10, weight: .semibold)).foregroundStyle(outside ? Color.gray : .primary)
             Label(note, systemImage: mark).font(.system(size: 9)).foregroundStyle(color).lineLimit(1)
         }
         .padding(6).frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        .opacity(outside ? 0.5 : 1)
         .help(help)
     }
 
