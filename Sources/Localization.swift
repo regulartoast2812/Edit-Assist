@@ -645,7 +645,7 @@ enum Vietnamese {
         "Checking with Grafana…": "Đang kiểm tra với Grafana…",
         "Sign out": "Đăng xuất",
         "Sign in again": "Đăng nhập lại",
-        "The company's Grafana only takes **Sign in with Google**. Sign in once here with your work account; Penny keeps the session in your Mac's **Keychain** and asks again when Grafana ends it.": "Grafana của công ty chỉ cho **đăng nhập bằng Google**. Đăng nhập một lần ở đây bằng tài khoản công ty; Penny giữ phiên đăng nhập trong **Keychain** của máy Mac và hỏi lại khi Grafana kết thúc phiên.",
+        "The company's Grafana only takes **Sign in with Google**. Sign in once here with your work account: Penny keeps the session in your Mac's **Keychain** and remembers your Google account in a sign-in window of his own, so when Grafana ends a session he signs in again by himself. **Sign out** forgets both.": "Grafana của công ty chỉ cho **đăng nhập bằng Google**. Đăng nhập một lần ở đây bằng tài khoản công ty: Penny giữ phiên đăng nhập trong **Keychain** của máy Mac và nhớ tài khoản Google của bạn trong cửa sổ đăng nhập riêng của anh ấy, nên khi Grafana kết thúc phiên, anh ấy tự đăng nhập lại. **Đăng xuất** sẽ quên cả hai.",
         "Sign in with Google": "Đăng nhập bằng Google",
         "Reading your dashboards…": "Đang đọc các dashboard của bạn…",
         "%@ panels": "%@ panel",
