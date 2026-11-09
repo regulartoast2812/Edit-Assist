@@ -475,27 +475,36 @@ struct HoursEfficiency: View {
     }
 }
 
-/// An hour's bad-to-good-day range on a 0–4× track, its average as a dot, breakeven as a red tick.
+/// An hour's ROAS as a filled slider (2026-11-09: the old one drew only a faint range, invisible on one day): the fill
+/// runs from 0 to the hour's average in its colour (green profitable, yellow above breakeven, red under), a lighter
+/// band behind it spans the bad day to the good day, and a white tick marks breakeven. Past the right end it is capped.
 struct RangeBar: View {
     let read: Ledger.HourRead
     let profit: Ledger.Profit
-    static let top = 4.0
+    var top: Double { max(4, (profit.profitable * 2).rounded(.up)) }
 
     var body: some View {
+        let color = PennyStyle.roas(read.numbers.roas, profit)
         GeometryReader { geometry in
-            let x = { (roas: Double) in geometry.size.width * min(max(roas, 0), Self.top) / Self.top }
+            let width = geometry.size.width
+            let x = { (roas: Double) in width * min(max(roas, 0), top) / top }
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.06)).frame(height: 4)
-                if let floor = read.floor, let ceiling = read.ceiling {
-                    Capsule().fill(PennyStyle.verdict(read.verdict).opacity(0.55)).frame(width: max(2, x(ceiling) - x(floor)), height: 4).offset(x: x(floor))
+                Capsule().fill(Color.white.opacity(0.08)).frame(height: 6)
+                if let floor = read.floor, let ceiling = read.ceiling, ceiling > floor {
+                    let start = max(0, x(floor) - 4), end = min(width, x(ceiling) + 4)
+                    Capsule().fill(color.opacity(0.28)).frame(width: max(8, end - start), height: 10).offset(x: min(start, width - 8))
                 }
-                Rectangle().fill(PennyStyle.red).frame(width: 1.5, height: 12).offset(x: x(profit.breakeven))
                 if let roas = read.numbers.roas {
-                    Circle().fill(PennyStyle.orange).frame(width: 7, height: 7).offset(x: x(roas) - 3.5)
+                    Capsule().fill(color).frame(width: max(6, x(roas)), height: 6)
+                }
+                Rectangle().fill(Color.white.opacity(0.7)).frame(width: 1.5, height: 12).offset(x: x(profit.breakeven) - 0.75)
+                if let roas = read.numbers.roas {
+                    Circle().fill(color).frame(width: 10, height: 10).overlay(Circle().stroke(PennyStyle.surface, lineWidth: 2))
+                        .offset(x: min(max(x(roas) - 5, 0), width - 10))
                 }
             }.frame(maxHeight: .infinity)
         }
-        .help(L("Bad day %@, good day %@, average %@; the red tick is breakeven", PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
+        .help(L("Bad day %@, good day %@, average %@; the white tick is breakeven", PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
     }
 }
 

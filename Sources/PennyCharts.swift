@@ -107,7 +107,7 @@ extension PennyPanel where Accessory == EmptyView {
 
 /// A legend entry: a swatch (a bar, a line, a dashed line or a dot) and its name.
 struct LegendKey: View {
-    enum Shape { case bar, line, dashed, dot, band }
+    enum Shape { case bar, line, dashed, dot, band, tones }
     let name: String
     let color: Color
     var shape = Shape.bar
@@ -121,6 +121,8 @@ struct LegendKey: View {
             case .dot: Circle().fill(color).frame(width: 8, height: 8)
             case .band: RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.3)).frame(width: 7, height: 13)
                     .overlay(Circle().fill(color).frame(width: 6, height: 6))
+            case .tones: HStack(spacing: 1) { ForEach([PennyStyle.red, PennyStyle.yellow, PennyStyle.green], id: \.self) { Rectangle().fill($0).frame(width: 4, height: 9) } }
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
             }
             Text(name).font(.system(size: 10.5)).foregroundStyle(.secondary)
         }
@@ -310,8 +312,11 @@ struct PennyColumns: View {
 
     func faded(_ slot: PennySlot) -> Double {
         if let picked { return picked == slot.id ? 1 : 0.35 }
-        return slot.faint ? 0.55 : 1
+        return slot.faint && slots.contains(where: { !$0.faint }) ? 0.55 : 1
     }
+
+    /// A ROAS past the chart's top, written on its mark so a capped bar or dot still says what it was.
+    static func capped(_ roas: Double) -> String { String(format: roas >= 10 ? "%.0f×" : "%.1f×", roas) }
 
     var roasTop: Double {
         let highest = slots.compactMap { ranges ? ($0.ceiling ?? $0.roas) : $0.roas }.max() ?? 0
@@ -336,10 +341,10 @@ struct PennyColumns: View {
 
     @ChartContentBuilder func roasMarks(_ slot: PennySlot, top: Double) -> some ChartContent {
         let color = PennyStyle.roas(slot.roas, profit)
-        if slot.weekend {
+        if slot.weekend, slots.count > 1 {
             RectangleMark(x: .value("Column", slot.id), yStart: .value("", 0), yEnd: .value("", top)).foregroundStyle(.white.opacity(0.03))
         }
-        if ranges, let floor = slot.floor, let ceiling = slot.ceiling {
+        if ranges, let floor = slot.floor, let ceiling = slot.ceiling, ceiling > floor {
             RectangleMark(x: .value("Column", slot.id), yStart: .value("Bad day", min(floor, top)), yEnd: .value("Good day", min(max(ceiling, floor + 0.04), top)),
                           width: .fixed(barWidth))
                 .foregroundStyle(color.opacity(0.28 * faded(slot))).cornerRadius(4)
@@ -348,10 +353,16 @@ struct PennyColumns: View {
             if ranges {
                 PointMark(x: .value("Column", slot.id), y: .value("ROAS", min(roas, top))).foregroundStyle(PennyStyle.surface).symbolSize(120)
                 PointMark(x: .value("Column", slot.id), y: .value("ROAS", min(roas, top))).foregroundStyle(color.opacity(faded(slot))).symbolSize(58)
+                    .annotation(position: .bottom, spacing: 3) {
+                        if roas > top { Text(Self.capped(roas)).font(.system(size: 8.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary) }
+                    }
             } else {
                 // Nothing back still shows: a red stub on the baseline.
                 BarMark(x: .value("Column", slot.id), y: .value("ROAS", max(min(roas, top), top * 0.015)), width: .fixed(barWidth))
                     .foregroundStyle(color.opacity(0.9 * faded(slot))).cornerRadius(roas < top * 0.03 ? 1 : 4)
+                    .annotation(position: .overlay, alignment: .top, spacing: 3) {
+                        if roas > top { Text(Self.capped(roas)).font(.system(size: 8.5, weight: .bold).monospacedDigit()).foregroundStyle(.white).fixedSize() }
+                    }
             }
         }
     }
@@ -548,8 +559,8 @@ struct DayDrill: View {
 /// The verdicts as a legend, each with what it means.
 struct VerdictLegend: View {
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 8)], alignment: .leading, spacing: 6) {
-            ForEach([Ledger.HourRead.Verdict.reliable, .volatile, .thin, .losing, .costly, .dead], id: \.self) { verdict in
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 8, alignment: .topLeading)], alignment: .leading, spacing: 8) {
+            ForEach([Ledger.HourRead.Verdict.reliable, .volatile, .thin, .losing, .costly, .dead, .few], id: \.self) { verdict in
                 HStack(alignment: .top, spacing: 6) {
                     Circle().fill(PennyStyle.verdict(verdict)).frame(width: 8, height: 8).padding(.top, 3)
                     VStack(alignment: .leading, spacing: 1) {
@@ -623,9 +634,16 @@ struct BandsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 14) {
                 Text(L("Every hour of every day, by the ROAS it brought back")).font(.system(size: 11.5, weight: .semibold))
-                LegendKey(name: L("share of spend"), color: PennyStyle.muted)
+                LegendKey(name: L("share of spend"), color: PennyStyle.muted, shape: .tones)
                 LegendKey(name: L("share of revenue"), color: PennyStyle.blue)
             }
+            HStack(spacing: 10) {
+                Spacer()
+                Text(L("of spend")).frame(width: 48, alignment: .trailing)
+                Text(L("Spent")).frame(width: 80, alignment: .trailing)
+                Text(L("came back")).frame(width: 88, alignment: .trailing)
+                Text(L("of revenue")).frame(width: 66, alignment: .trailing)
+            }.font(.system(size: 9.5, weight: .semibold)).foregroundStyle(PennyStyle.muted)
             ForEach(bands) { band in
                 let spendShare = spent > 0 ? band.numbers.spent / spent : 0
                 let revenueShare = revenue > 0 ? band.numbers.revenue / revenue : 0
@@ -643,7 +661,7 @@ struct BandsView: View {
                     Text(Ledger.percent(spendShare)).font(.system(size: 11, weight: .semibold).monospacedDigit()).frame(width: 48, alignment: .trailing)
                     Text(Ledger.money(band.numbers.spent)).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.secondary).frame(width: 80, alignment: .trailing)
                     Text("→ " + Ledger.money(band.numbers.revenue)).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.secondary).frame(width: 88, alignment: .trailing)
-                    Text(Ledger.percent(revenueShare)).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
+                    Text(Ledger.percent(revenueShare)).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(.secondary).frame(width: 66, alignment: .trailing)
                 }
                 .help(L("%@ hours of a day spent in this band", band.cells))
             }
@@ -689,7 +707,7 @@ struct WeeksView: View {
             Text(PennyStyle.times(week.numbers.roas)).font(.system(size: 22, weight: .bold)).foregroundStyle(color)
             Group {
                 Text(L("%@ spent · %@ back", PennyStyle.short(week.numbers.spent), PennyStyle.short(week.numbers.revenue)))
-                Text(L("%@ orders · %@ days", Ledger.whole(week.numbers.orders), week.days))
+                Text(week.days == 1 ? L("%@ orders · 1 day", Ledger.whole(week.numbers.orders)) : L("%@ orders · %@ days", Ledger.whole(week.numbers.orders), week.days))
                 HStack(spacing: 0) {
                     Text("CBH ")
                     Text(PennyStyle.short(week.cbh)).fontWeight(.semibold).foregroundStyle(PennyStyle.money(week.cbh))
@@ -713,13 +731,15 @@ struct WeeksView: View {
     var spendAndRevenue: some View {
         Chart {
             ForEach(weeks) { week in
-                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.spent), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.muted).position(by: .value("What", "spent")).cornerRadius(4)
-                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.revenue), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.blue).position(by: .value("What", "revenue")).cornerRadius(4)
-                    .annotation(position: .top, spacing: 2) { Text(PennyStyle.short(week.numbers.revenue)).font(.system(size: 9)).foregroundStyle(.secondary) }
+                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.spent), width: .fixed(24))
+                    .foregroundStyle(PennyStyle.muted).position(by: .value("What", "spent"), span: .fixed(68)).cornerRadius(4)
+                    .annotation(position: .top, spacing: 2) { valueLabel(PennyStyle.short(week.numbers.spent)) }
+                BarMark(x: .value("Week", label(week)), y: .value("Dollars", week.numbers.revenue), width: .fixed(24))
+                    .foregroundStyle(PennyStyle.blue).position(by: .value("What", "revenue"), span: .fixed(68)).cornerRadius(4)
+                    .annotation(position: .top, spacing: 2) { valueLabel(PennyStyle.short(week.numbers.revenue)) }
             }
         }
+        .chartYScale(domain: 0 ... max(1, weeks.map { max($0.numbers.spent, $0.numbers.revenue) }.max() ?? 0) * 1.15)
         .chartXAxis { weekAxis }
         .chartYAxis { dollarAxis }
     }
@@ -727,13 +747,16 @@ struct WeeksView: View {
     var nightAgainstPeak: some View {
         Chart {
             ForEach(weeks) { week in
-                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.night.roas ?? 0), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.violet).position(by: .value("When", "night")).cornerRadius(4)
-                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.peak.roas ?? 0), width: .fixed(18))
-                    .foregroundStyle(PennyStyle.blue).position(by: .value("When", "peak")).cornerRadius(4)
+                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.night.roas ?? 0), width: .fixed(24))
+                    .foregroundStyle(PennyStyle.violet).position(by: .value("When", "night"), span: .fixed(68)).cornerRadius(4)
+                    .annotation(position: .top, spacing: 2) { valueLabel(PennyStyle.times(week.night.roas)) }
+                BarMark(x: .value("Week", label(week)), y: .value("ROAS", week.peak.roas ?? 0), width: .fixed(24))
+                    .foregroundStyle(PennyStyle.blue).position(by: .value("When", "peak"), span: .fixed(68)).cornerRadius(4)
+                    .annotation(position: .top, spacing: 2) { valueLabel(PennyStyle.times(week.peak.roas)) }
             }
             RuleMark(y: .value("Breakeven", profit.breakeven)).foregroundStyle(PennyStyle.red.opacity(0.85)).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
+        .chartYScale(domain: 0 ... max(profit.breakeven * 1.3, weeks.flatMap { [$0.night.roas ?? 0, $0.peak.roas ?? 0] }.max() ?? 0) * 1.15)
         .chartXAxis { weekAxis }
         .chartYAxis {
             AxisMarks(position: .leading) { value in
@@ -748,7 +771,7 @@ struct WeeksView: View {
             ForEach(weeks) { week in
                 BarMark(x: .value("Week", label(week)), y: .value("Dead", week.dead), width: .fixed(24))
                     .foregroundStyle(week.dead > 0.3 ? PennyStyle.red : week.dead > 0.2 ? PennyStyle.yellow : PennyStyle.green).cornerRadius(4)
-                    .annotation(position: .top, spacing: 2) { Text(Ledger.percent(week.dead)).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary) }
+                    .annotation(position: .top, spacing: 2) { valueLabel(Ledger.percent(week.dead)) }
             }
         }
         .chartYScale(domain: 0 ... max(0.5, (weeks.map(\.dead).max() ?? 0) * 1.2))
@@ -767,11 +790,10 @@ struct WeeksView: View {
         let low = (values.min() ?? 0) * 0.8, high = max((values.max() ?? 1) * 1.12, low + 1)
         return Chart {
             ForEach(shown) { week in
-                AreaMark(x: .value("Week", label(week)), yStart: .value("", low), yEnd: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue.opacity(0.1))
                 LineMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue).lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 PointMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.surface).symbolSize(110)
                 PointMark(x: .value("Week", label(week)), y: .value("CPM", week.numbers.cpm ?? 0)).foregroundStyle(PennyStyle.blue).symbolSize(50)
-                    .annotation(position: .top, spacing: 4) { Text(Ledger.money(week.numbers.cpm ?? 0)).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.secondary) }
+                    .annotation(position: .top, spacing: 4) { valueLabel(Ledger.money(week.numbers.cpm ?? 0)) }
             }
         }
         .chartYScale(domain: low ... high)
@@ -783,6 +805,8 @@ struct WeeksView: View {
             }
         }
     }
+
+    func valueLabel(_ text: String) -> some View { Text(text).font(.system(size: 9.5, weight: .medium).monospacedDigit()).foregroundStyle(.secondary).fixedSize() }
 
     var dollarAxis: some AxisContent {
         AxisMarks(position: .leading) { value in
