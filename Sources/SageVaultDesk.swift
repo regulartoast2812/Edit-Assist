@@ -76,7 +76,12 @@ struct FileChange: Identifiable {
     @Published private(set) var tabs: [SageTab] = []
     @Published private(set) var activeTab = 0
     /// Everything in the vault the explorer shows, and its sort.
-    @Published private(set) var items: [Study.VaultItem] = []
+    @Published private(set) var items: [Study.VaultItem] = [] { didSet { childCache = [:]; byParent = nil } }
+    /// Each folder's contents as shown, worked out once per change of the vault, the sort or what's shown: the tree and the
+    /// path bar ask for them on every redraw, and filtering and sorting the whole vault each time made the page crawl.
+    private var childCache: [String: [Study.VaultItem]] = [:]
+    private var childKey = ""
+    private var byParent: [String: [Study.VaultItem]]?
     @Published private(set) var explorerOrder = "alphabetical"
     /// Your vault's look in Obsidian (theme, accent, fonts, snippets, reading-view settings), read from the vault.
     @Published private(set) var look = Study.Look()
@@ -349,9 +354,14 @@ struct FileChange: Identifiable {
 
     /// What a folder holds as the tree shows it: the sort, folders first (or mixed in by name), notes only.
     func children(of folder: String) -> [Study.VaultItem] {
-        let here = Study.children(items, folder: folder, order: sort).filter(shown)
-        guard !settings.foldersFirst else { return here }
-        return here.sorted(by: Study.fileOrder(sort))
+        let key = "\(sort)|\(settings.foldersFirst)|\(settings.notesOnly)"
+        if key != childKey { childCache = [:]; childKey = key }
+        if let cached = childCache[folder] { return cached }
+        if byParent == nil { byParent = Dictionary(grouping: items, by: \.parent) }
+        var here = Study.children(byParent?[folder] ?? [], folder: folder, order: sort).filter(shown)
+        if !settings.foldersFirst { here.sort(by: Study.fileOrder(sort)) }
+        childCache[folder] = here
+        return here
     }
 
     /// A file you opened, first among the recent ones (eight kept).

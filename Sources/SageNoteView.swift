@@ -202,8 +202,11 @@ import WebKit
 
     private func load(_ url: URL) {
         expected = url
-        web.load(URLRequest(url: url))
+        current = web.load(URLRequest(url: url))
     }
+
+    /// The load under way: a failure of an earlier one (cut off by this one) isn't this page's.
+    private var current: WKNavigation?
 
     /// A closed tab's page let go: what's unsaved is saved first, then its page goes.
     func release() async {
@@ -235,11 +238,15 @@ import WebKit
         return nil
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
 
-    private func failed(_ error: Error) {
-        if (error as NSError).code == NSURLErrorCancelled { return }
+    private func failed(_ error: Error, _ navigation: WKNavigation?) {
+        let error = error as NSError
+        // Cut off by a newer load, or a navigation Sage turned away himself (WebKit's 102, "Frame load interrupted"):
+        // neither means this page failed (2026-11-09: it showed over notes that had loaded).
+        if error.code == NSURLErrorCancelled || (error.domain == "WebKitErrorDomain" && error.code == 102) { return }
+        if let navigation, let current, navigation !== current { return }
         // A page that couldn't load says so: the one before it is never left showing as if it were this one.
         problem = L("Sage couldn't show %@ (%@). Open it again from the tree, or in Obsidian.", file?.lastPathComponent ?? "", error.localizedDescription)
     }

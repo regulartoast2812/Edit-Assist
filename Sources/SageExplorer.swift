@@ -1367,29 +1367,16 @@ struct SagePathBar: View {
         }
     }
 
-    /// The › after a folder in the path: what's in that folder (its folders open onto theirs).
+    /// The › after a folder in the path: what's in that folder (its folders open onto theirs). The menu is built when you
+    /// click it, and each folder's submenu when you open it (`SageFolderMenu`): a SwiftUI Menu built all of them, three
+    /// folders deep, on every redraw of the page, which made notes take seconds to open (2026-11-09).
     func chevron(_ folder: String) -> some View {
-        Menu { folderItems(folder, depth: 0) } label: { Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary) }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().padding(.horizontal, 3)
-            .help(L("What's in this folder")).accessibilityLabel(L("What's in %@", (folder as NSString).lastPathComponent))
-    }
-
-    func folderItems(_ folder: String, depth: Int) -> AnyView {
-        let kids = vault.children(of: folder)
-        if kids.isEmpty { return AnyView(Button(L("Empty")) {}.disabled(true)) }
-        return AnyView(ForEach(Array(kids.prefix(60)), id: \.path) { item in
-            if item.folder && depth < 3 && !vault.children(of: item.path).isEmpty {
-                Menu {
-                    Button(L("Show in the tree")) { vault.showInTree(item.path) }
-                    Divider()
-                    folderItems(item.path, depth: depth + 1)
-                } label: { Label(item.name, systemImage: "folder") }
-            } else {
-                Button { if item.folder { vault.showInTree(item.path) } else { vault.show(path: item.path) } } label: {
-                    Label(item.folder ? item.name : item.title, systemImage: item.folder ? "folder" : Self.symbol(item))
-                }
-            }
-        })
+        Button { SageFolderMenu.show(folder, vault: vault) } label: {
+            Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 3).frame(maxHeight: .infinity).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).fixedSize()
+        .help(L("What's in this folder")).accessibilityLabel(L("What's in %@", (folder as NSString).lastPathComponent))
     }
 
     /// A file's icon by its type, where the tree's look (each note's kind) isn't at hand.
@@ -1405,4 +1392,69 @@ struct SagePathBar: View {
         default: return "doc"
         }
     }
+}
+
+/// A folder's contents as a menu, filled in only when it opens (so a submenu costs nothing until you point at it).
+@MainActor final class SageFolderMenu: NSObject, NSMenuDelegate {
+    private weak var vault: SageVaultDesk?
+    private let folder: String, depth: Int
+    private var built = false
+    private var submenus: [SageFolderMenu] = []
+
+    init(vault: SageVaultDesk, folder: String, depth: Int) { self.vault = vault; self.folder = folder; self.depth = depth }
+
+    /// Opens the folder's menu under the pointer; it stays open until you pick or leave it.
+    static func show(_ folder: String, vault: SageVaultDesk) {
+        let menu = NSMenu()
+        let filler = SageFolderMenu(vault: vault, folder: folder, depth: 0)
+        menu.delegate = filler
+        filler.fill(menu)
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        _ = filler
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) { fill(menu) }
+
+    private func fill(_ menu: NSMenu) {
+        guard !built, let vault else { return }
+        built = true
+        menu.removeAllItems()
+        if depth > 0 {
+            menu.addItem(SageMenuItem(title: L("Show in the tree")) { [weak vault, folder] in vault?.showInTree(folder) })
+            menu.addItem(.separator())
+        }
+        let kids = vault.children(of: folder)
+        if kids.isEmpty {
+            let empty = NSMenuItem(title: L("Empty"), action: nil, keyEquivalent: ""); empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        for item in kids.prefix(60) {
+            let entry = SageMenuItem(title: item.folder ? item.name : item.title) { [weak vault] in
+                if item.folder { vault?.showInTree(item.path) } else { vault?.show(path: item.path) }
+            }
+            entry.image = NSImage(systemSymbolName: item.folder ? "folder" : SagePathBar.symbol(item), accessibilityDescription: nil)
+            if item.folder, depth < 3, !vault.children(of: item.path).isEmpty {
+                let submenu = NSMenu()
+                let filler = SageFolderMenu(vault: vault, folder: item.path, depth: depth + 1)
+                submenu.delegate = filler
+                submenus.append(filler)
+                // A placeholder, so the submenu opens and asks to be filled.
+                submenu.addItem(NSMenuItem(title: "…", action: nil, keyEquivalent: ""))
+                entry.submenu = submenu
+            }
+            menu.addItem(entry)
+        }
+    }
+}
+
+/// A menu item that runs a closure.
+final class SageMenuItem: NSMenuItem {
+    private let run: () -> Void
+    init(title: String, run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(go), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    @objc private func go() { run() }
 }
