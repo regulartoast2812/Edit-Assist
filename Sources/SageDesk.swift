@@ -11,9 +11,9 @@ import Security
     @Published private(set) var topicID: UUID?
     /// The open topic's notes.
     @Published private(set) var recipes: [Study.Entry] = []
-    @Published private(set) var results: [Study.Video] = []
+    @Published var results: [Study.Video] = []
     /// What the results are for, and whether Sage searched it from the chat.
-    @Published private(set) var resultsFor = ""
+    @Published var resultsFor = ""
     @Published private(set) var resultsBySage = false
     /// Which half of the page shows beside the chat: research (Find, Saved, Write your own) or notes (your notes, one open).
     @Published var stage = UserDefaults.standard.string(forKey: "sageStage") ?? UserDefaults.standard.string(forKey: "basilStage") ?? "research" {
@@ -46,7 +46,17 @@ import Security
     /// Why writing a saved source failed, by id.
     @Published private(set) var refused: [String: String] = [:]
     /// Sage choosing videos for you.
-    @Published private(set) var picking = false
+    @Published var picking = false
+    /// What the last Pick did: what it saved and why, and what it passed over and why not. Cleared by a new search.
+    @Published var lastPick: Study.PickOutcome?
+    /// Pick's steps so far, the last one the step it is on ("Searching 3 angles…").
+    @Published var pickSteps: [String] = []
+    /// The video playing in the mini player, or nil when it is closed (SageDeskPick.swift).
+    @Published var playing: Study.Video?
+    /// The mini player shown large over the stage (true) or docked small in the corner (false).
+    @Published var playerExpanded = UserDefaults.standard.bool(forKey: "sagePlayerExpanded") {
+        didSet { UserDefaults.standard.set(playerExpanded, forKey: "sagePlayerExpanded") }
+    }
 
     var busy: Bool { searching || thinking || picking || adding || !writing.isEmpty }
     var topic: Study.Topic { topics.first { $0.id == topicID } ?? topics.first ?? Study.Topic(name: "Research") }
@@ -255,7 +265,7 @@ import Security
     // MARK: Finding
 
     /// Search, then each video's details, in the search's order.
-    private func videos(for words: String, key: String, count: Int = 24) async throws -> [Study.Video] {
+    func videos(for words: String, key: String, count: Int = 24) async throws -> [Study.Video] {
         let ids = Study.ids(inSearch: try await fetch(Study.searchURL(words, key: key, count: count)))
         guard !ids.isEmpty else { return [] }
         let videos = Study.videos(in: try await fetch(Study.videosURL(ids, key: key)))
@@ -265,7 +275,7 @@ import Security
     func search(_ words: String) {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty, let key = Self.key, !searching else { return }
-        searching = true; failure = nil
+        searching = true; failure = nil; lastPick = nil
         let query = Study.search(words, in: topic)
         Task {
             defer { searching = false }
@@ -273,31 +283,7 @@ import Security
         }
     }
 
-    /// Sage searches for your words, picks the videos most worth saving (at most five), and saves them here to review.
-    func pick(_ words: String) {
-        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let key = Self.key, !picking, !searching else { return }
-        picking = true; failure = nil
-        let topic = topic, query = Study.search(words, in: topic)
-        Task {
-            defer { picking = false }
-            do {
-                results = try await videos(for: query, key: key); resultsFor = query; resultsBySage = false
-                let kept = Set(savedHere.map(\.id))
-                let fresh = results.filter { !sources.contains($0.url.absoluteString) && !kept.contains($0.id) }
-                guard !fresh.isEmpty else { return }
-                let answer = try await HelperBrain.ask(Study.pickPrompt(query, videos: fresh, count: 5, topic: topic), schema: Study.pickSchema)
-                let picks = Study.picks(from: answer, among: fresh, count: 5)
-                if picks.isEmpty {
-                    failure = topic.kind == .recipes ? L("Sage found no real recipe among these videos. Try other words.") : L("Sage found nothing worth saving among these videos. Try other words.")
-                    return
-                }
-                for pick in picks.reversed() {
-                    if let video = fresh.first(where: { $0.id == pick.id }) { save(video, why: pick.why, in: topic.id) }
-                }
-            } catch { failure = describe(error) }
-        }
-    }
+    // Pick for me: SageDeskPick.swift.
 
     // MARK: Saved
 
@@ -473,7 +459,7 @@ import Security
 
     // MARK: Network
 
-    private func fetch(_ url: URL) async throws -> Data {
+    func fetch(_ url: URL) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 20))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200 ..< 300).contains(status) else {
@@ -500,7 +486,7 @@ import Security
         return Study.recipeData(inHTML: String(decoding: data, as: UTF8.self))
     }
 
-    private func describe(_ error: Error) -> String {
+    func describe(_ error: Error) -> String {
         if case AssistError.message(let text) = error { return text }
         return error.localizedDescription
     }
