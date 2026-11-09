@@ -149,8 +149,9 @@ final class PennyAnalysis {
         marginBefore = summary.margin(of: product, on: days.before)
         profit = Ledger.Profit(margin.margin) ?? .usual
         dayReads = Ledger.dayReads(loaded, profit: profit)
-        history = (summary.products[product] ?? [:]).filter { $0.value.spent > 0 }.keys.sorted(by: >)
-        let past = Set(days.now) == Set(history) ? loaded : PennyLedger.days(of: product, history)
+        let copied = (summary.products[product] ?? [:]).filter { $0.value.spent > 0 }.keys.sorted(by: >)
+        let past = (Set(days.now) == Set(copied) ? loaded : PennyLedger.days(of: product, copied)).filter(Ledger.ran)
+        history = past.map(\.day).sorted(by: >)
         hourProfit = Ledger.Profit(summary.margin(of: product, on: history).margin) ?? .usual
         hourReads = Ledger.hourReads(past, profit: hourProfit)
         hourSlots = PennySlot.hours(hourReads, days: Ledger.dayReads(past, profit: hourProfit), profit: hourProfit)
@@ -226,7 +227,8 @@ struct ProductDetail: View, Equatable {
     var panels: some View {
         let a = analysis, profit = a.profit
         // The hours are judged over every day copied, not the range; their notes say which days and which breakeven.
-        let hoursOver = L(a.hourProfit.measured ? "All %@ days copied, %@ – %@, against breakeven %@ from their CBH" : "All %@ days copied, %@ – %@, against the usual breakeven %@",
+        let hoursOver = L(a.hourProfit.measured ? "The %@ days the ads ran, %@ – %@ (in 12 hours or $300 spent), against breakeven %@ from their CBH"
+                                                : "The %@ days the ads ran, %@ – %@ (in 12 hours or $300 spent), against the usual breakeven %@",
                           String(a.history.count), PennyStyle.day(a.history.last ?? ""), PennyStyle.day(a.history.first ?? ""), PennyStyle.times(a.hourProfit.breakeven)) + ". "
         return PanelFlow {
             PennyPanel(title: L("Penny's read")) {
@@ -259,7 +261,7 @@ struct ProductDetail: View, Equatable {
                     .layoutValue(key: PanelFull.self, value: true)
             }
             PennyPanel(title: L("Hours of the day"),
-                       note: hoursOver + L("Each hour over the days read, Alaska time: its average ROAS (the dot) and its bad to good day (the band, 10th to 90th percentile of its days, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
+                       note: hoursOver + L("Each hour, Alaska time: its average ROAS (the dot) and its bad to good stretch (the band: its days cut into runs long enough for about 3 orders, 10th to 90th percentile, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
                 PennyColumns(slots: a.hourSlots, profit: a.hourProfit, ranges: true, perDay: true, height: 170, grow: true)
             }
             PennyPanel(title: L("Hour by hour"), note: hoursOver + L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
@@ -834,13 +836,13 @@ struct HoursEfficiency: View {
 
     static func meaning(_ verdict: Ledger.HourRead.Verdict) -> String {
         switch verdict {
-        case .reliable: return L("Profitable on average, and its bad days still break even")
-        case .volatile: return L("Profitable on average, but its bad days lose money")
+        case .reliable: return L("Profitable on average, and its bad stretches still break even")
+        case .volatile: return L("Profitable on average, but its bad stretches lose money")
         case .thin: return L("Above breakeven, under 5% CBH: not worth more budget")
         case .losing: return L("Below breakeven, on little spend")
         case .costly: return L("Below breakeven while spending over $50 a day")
         case .dead: return L("Under 1×: less comes back than is spent")
-        case .few: return L("Spent on fewer than 3 days: too few to judge")
+        case .few: return L("Too few days or orders yet to judge")
         case .idle: return ""
         }
     }
@@ -855,7 +857,7 @@ struct HoursEfficiency: View {
         [Column(name: "Days", width: 36, value: { Double($0.days) }, text: { "\($0.days)" }),
          Column(name: "Spent a day", width: 76, value: { $0.spentPerDay }, text: { Ledger.money($0.spentPerDay) }),
          Column(name: "ROAS", width: 46, value: { $0.numbers.roas }, text: { Ledger.ratio($0.numbers.roas) }),
-         Column(name: "Bad → good day", width: 96, value: { $0.floor }, text: { "\(Ledger.ratio($0.floor)) → \(Ledger.ratio($0.ceiling))" }),
+         Column(name: "Bad → good stretch", width: 118, value: { $0.floor }, text: { "\(Ledger.ratio($0.floor)) → \(Ledger.ratio($0.ceiling))" }),
          Column(name: "Orders a day", width: 76, value: { $0.days > 0 ? $0.numbers.orders / Double($0.days) : nil },
                 text: { $0.days > 0 ? String(format: "%.1f", $0.numbers.orders / Double($0.days)) : "–" }),
          Column(name: "CBH", width: 76, value: { $0.cbh }, text: { Ledger.money($0.cbh) })]
@@ -943,7 +945,7 @@ struct HoursEfficiency: View {
 
 /// An hour's ROAS as a filled slider (2026-11-09: the old one drew only a faint range, invisible on one day): the fill
 /// runs from 0 to the hour's average in its colour (green profitable, yellow above breakeven, red under), a lighter
-/// band behind it spans the bad day to the good day, and a white tick marks breakeven. Past the right end it is capped.
+/// band behind it spans the bad stretch to the good, and a white tick marks breakeven. Past the right end it is capped.
 struct RangeBar: View {
     let read: Ledger.HourRead
     let profit: Ledger.Profit
@@ -970,7 +972,10 @@ struct RangeBar: View {
                 }
             }.frame(maxHeight: .infinity)
         }
-        .help(L("Bad day %@, good day %@, average %@; the white tick is breakeven", PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
+        .help(read.floor == nil
+              ? L("Average %@; too few orders yet to tell its bad stretches from its good; the white tick is breakeven", PennyStyle.times(read.numbers.roas))
+              : L("Over %@ stretches of %@ days: bad %@, good %@, average %@; the white tick is breakeven", String(read.stretches), String(read.stretch),
+                  PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
     }
 }
 

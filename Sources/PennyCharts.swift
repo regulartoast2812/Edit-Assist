@@ -200,7 +200,7 @@ struct PennySlot: Identifiable {
     /// The axis label; empty to leave the column unlabelled.
     var label: String
     var roas: Double?
-    /// The bad and good day (10th and 90th percentile) of an hour over the days.
+    /// The bad and good stretch (10th and 90th percentile over runs of days) of an hour.
     var floor: Double? = nil
     var ceiling: Double? = nil
     /// The spend (a day, for an hour over the days) in hours that were profitable, above breakeven and below it.
@@ -263,7 +263,7 @@ struct PennySlot: Identifiable {
         }
     }
 
-    /// The hours over the days: spend a day, split by how the hour did on each day; CBH a day; the bad and good day.
+    /// The hours over the days: spend a day, split by how the hour did on each day; CBH a day; the bad and good stretch.
     static func hours(_ reads: [Ledger.HourRead], days: [Ledger.DayRead], profit: Ledger.Profit) -> [PennySlot] {
         reads.map { read in
             let count = Double(max(read.days, 1))
@@ -275,8 +275,8 @@ struct PennySlot: Identifiable {
             slot.tip = [PennyTipLine(name: L("Days"), value: "\(read.days)"),
                         PennyTipLine(name: L("Spent a day"), value: Ledger.money(read.spentPerDay)),
                         PennyTipLine(name: L("ROAS"), value: PennyStyle.times(read.numbers.roas), color: PennyStyle.roas(read.numbers.roas, profit)),
-                        PennyTipLine(name: L("Bad day"), value: PennyStyle.times(read.floor), color: read.floor.map { PennyStyle.roas($0, profit) }),
-                        PennyTipLine(name: L("Good day"), value: PennyStyle.times(read.ceiling), color: read.ceiling.map { PennyStyle.roas($0, profit) }),
+                        PennyTipLine(name: L("Bad stretch"), value: PennyStyle.times(read.floor), color: read.floor.map { PennyStyle.roas($0, profit) }),
+                        PennyTipLine(name: L("Good stretch"), value: PennyStyle.times(read.ceiling), color: read.ceiling.map { PennyStyle.roas($0, profit) }),
                         PennyTipLine(name: L("Orders a day"), value: String(format: "%.1f", read.numbers.orders / count)),
                         PennyTipLine(name: L("CBH a day"), value: Ledger.money(slot.cbh), color: PennyStyle.money(slot.cbh))]
             return slot
@@ -365,7 +365,7 @@ struct PennyColumns: View {
                 LegendKey(name: L("breakeven %@", PennyStyle.times(profit.breakeven)), color: PennyStyle.red, shape: .dashed)
                 if ranges {
                     LegendKey(name: L("average"), color: PennyStyle.words, shape: .dot)
-                    Text(L("band: bad day to good day, coloured where it falls")).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    Text(L("band: bad stretch to good, coloured where it falls")).font(.system(size: 10.5)).foregroundStyle(.secondary)
                 }
                 if slots.contains(where: { $0.wash != nil }) { LegendKey(name: washName, color: PennyStyle.muted, shape: .wash) }
                 if slots.contains(where: \.weekend) { LegendKey(name: L("weekend"), color: .white, shape: .wash) }

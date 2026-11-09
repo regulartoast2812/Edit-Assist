@@ -1364,18 +1364,29 @@ struct Checks {
             func spentDay(_ name: String, _ hours: [(Int, Double, Double)]) -> Ledger.Day {
                 Ledger.Day(product: "P", day: name, copied: nov5, ads: [], hours: hours.map { Ledger.Hour(ad: "a", hour: $0.0, numbers: Ledger.Numbers([$0.1, 0, 0, 0, 0, 0, 0, 1, $0.2])) })
             }
+            // Nine days, an order an hour a day: stretches of 3 days (2026-11-09: single days made every bad day 0).
+            let nine = (1 ... 9).map { "2026-11-0\($0)" }.enumerated().map { index, name in
+                spentDay(name, [(19, 30, 90), (3, 60, 30), (9, 60, 90), (12, 30, index < 3 ? 15 : 90)] + (index < 2 ? [(14, 10, 50)] : []))
+            }
             let week = ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"].enumerated().map { index, name in
                 spentDay(name, [(19, 30, 90), (3, 60, 30), (9, 60, 90), (12, 30, index == 2 ? 15 : 90)] + (index < 2 ? [(14, 10, 50)] : []))
             }
-            let reads = Ledger.hourReads(week, profit: profit)
+            let reads = Ledger.hourReads(nine, profit: profit)
             check(reads[19].verdict == .reliable && reads[3].verdict == .dead && reads[9].verdict == .costly && reads[12].verdict == .volatile
                   && reads[14].verdict == .few && reads[0].verdict == .idle, "Each hour gets the dashboard's verdict, with breakeven from CBH")
-            check(reads[12].floor == 0.5 && reads[12].ceiling == 3 && reads[19].spentPerDay == 30 && abs(reads[9].cbh - (0.58 * 360 - 240)) < 1e-9,
-                  "An hour's bad and good days are the 10th and 90th percentile of its days' ROAS; its CBH is what revenue keeps less spend")
+            check(reads[12].floor == 0.5 && reads[12].ceiling == 3 && reads[12].stretch == 3 && reads[12].stretches == 3
+                  && reads[19].spentPerDay == 30 && abs(reads[9].cbh - (0.58 * 810 - 540)) < 1e-9,
+                  "An hour's bad and good stretch are the 10th and 90th percentile over runs of days with about 3 orders; its CBH is what revenue keeps less spend")
+            let short = Ledger.hourReads(week, profit: profit)
+            check(short[19].floor == nil && short[19].verdict == .few && short[3].verdict == .dead,
+                  "A profitable hour without 3 stretches yet is too few to judge, not a high ceiling")
+            let trickle = spentDay("2026-11-10", [(1, 10, 0), (2, 10, 0), (3, 10, 0)])
+            check(!Ledger.ran(trickle) && Ledger.ran(spentDay("2026-11-11", (0 ..< 12).map { ($0, 5, 0) })) && Ledger.ran(spentDay("2026-11-12", [(4, 300, 0)])),
+                  "A day counts for the hours when the ads ran in 12 hours or spent $300")
             let parts = Ledger.efficiency(reads, profit: profit)
-            check(parts.losing.hours == [3, 9] && parts.profitable.hours == [12, 14, 19] && parts.losing.numbers.spent == 480,
+            check(parts.losing.hours == [3, 9] && parts.profitable.hours == [12, 14, 19] && parts.losing.numbers.spent == 1080,
                   "The budget splits into hours below breakeven and profitable hours")
-            let hoursRead = Ledger.report(week, profit: profit)
+            let hoursRead = Ledger.report(nine, profit: profit)
             check(hoursRead.contains { $0.contains("Breakeven ROAS **1.72**") } && hoursRead.contains { Ledger.plain($0).hasPrefix("Put more in: 7 PM-8 PM") }
                   && hoursRead.contains { Ledger.plain($0).hasPrefix("Cut back: 3 AM-4 AM") } && hoursRead.contains { $0.contains("⟦g⟧7 PM-8 PM⟦/⟧") }, "Penny's read names breakeven, the hours to put more in and the ones to cut")
             var priced = Ledger.Summary()

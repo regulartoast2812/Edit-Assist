@@ -446,9 +446,11 @@ enum Ledger {
         func cbh(_ numbers: Numbers) -> Double { kept * numbers.revenue - cost * numbers.spent }
     }
 
-    /// An hour of the day over the days read, as a media buyer judges it: what it spends a day, its ROAS, its bad-day
-    /// floor and good-day ceiling (the 10th and 90th percentile of its days' ROAS, so one lucky order doesn't count), the
-    /// CBH it makes and a verdict. The rules are the Campaign Breakdown dashboard's, with breakeven from CBH.
+    /// An hour of the day over the days read, as a media buyer judges it: what it spends a day, its ROAS, its bad and
+    /// good stretch (the 10th and 90th percentile of its ROAS over runs of days long enough for about 3 orders), the CBH
+    /// it makes and a verdict. The rules are the Campaign Breakdown dashboard's, with breakeven from CBH, except that the
+    /// dashboard took single days (2026-11-09: an hour sells under one order a day, so a single day's hour is 0× or a
+    /// lucky order, and every hour's bad day was 0).
     struct HourRead: Identifiable, Equatable {
         enum Verdict: String, CaseIterable { case reliable, volatile, thin, losing, costly, dead, few, idle }
         var hour: Int
@@ -458,38 +460,61 @@ enum Ledger {
         var days = 0
         var floor: Double?
         var ceiling: Double?
+        /// The days in each stretch the floor and ceiling are taken over, and how many stretches there were.
+        var stretch = 0
+        var stretches = 0
         var cbh = 0.0
         var verdict = Verdict.idle
         var spentPerDay: Double { days > 0 ? numbers.spent / Double(days) : 0 }
     }
 
-    /// A day's hour counts toward the floor and ceiling when it spent $20, or $3 on a day under $300 (low signal).
+    /// A day the product's ads ran: in 12 of its hours, or $300 spent. The hours over many days count only these
+    /// (2026-11-09: days when the ads trickled for a few hours, or were off, read as 0× hours).
+    static func ran(_ day: Day) -> Bool {
+        var spent = [Double](repeating: 0, count: 24)
+        for hour in day.hours where spent.indices.contains(hour.hour) { spent[hour.hour] += hour.numbers.spent }
+        return spent.filter { $0 > 0 }.count >= 12 || spent.reduce(0, +) >= 300
+    }
+
+    /// Each hour's days, oldest first, cut into stretches of whole days, as long as it takes for about 3 orders at the
+    /// hour's own rate (at most 7 days; a short stretch left at the end joins the one before). The bad and good stretch
+    /// are taken when there are 3 stretches or more.
+    static let ordersAStretch = 3.0
+    static let longestStretch = 7
+
     static func hourReads(_ days: [Day], profit: Profit) -> [HourRead] {
         var reads = (0 ..< 24).map { HourRead(hour: $0) }
-        var roases = [[Double]](repeating: [], count: 24)
-        for day in days {
+        var daily = [[Numbers]](repeating: [], count: 24)
+        for day in days.sorted(by: { $0.day < $1.day }) {
             var hours = [Numbers](repeating: Numbers(), count: 24)
             for hour in day.hours where hours.indices.contains(hour.hour) { hours[hour.hour] += hour.numbers }
-            let least = hours.reduce(0) { $0 + $1.spent } < 300 ? 3.0 : 20.0
             for (hour, numbers) in hours.enumerated() where numbers.spent > 0 || numbers.orders > 0 {
                 reads[hour].numbers += numbers
-                if numbers.spent > 0 { reads[hour].days += 1 }
-                if numbers.spent >= least, let roas = numbers.roas { roases[hour].append(roas) }
+                if numbers.spent > 0 { reads[hour].days += 1; daily[hour].append(numbers) }
             }
         }
         for hour in reads.indices {
-            let sorted = roases[hour].sorted()
-            reads[hour].floor = percentile(sorted, 0.1)
-            reads[hour].ceiling = percentile(sorted, 0.9)
+            let days = daily[hour], orders = days.reduce(0) { $0 + $1.orders } / Double(max(days.count, 1))
+            let length = min(longestStretch, max(1, Int((ordersAStretch / max(orders, 0.001)).rounded(.up))))
+            var stretches: [Numbers] = stride(from: 0, to: days.count, by: length).map { days[$0 ..< min($0 + length, days.count)].reduce(Numbers(), +) }
+            if days.count % length != 0, days.count > length, let last = stretches.popLast() { stretches[stretches.count - 1] += last }
+            let sorted = stretches.compactMap(\.roas).sorted()
+            reads[hour].stretch = length
+            reads[hour].stretches = sorted.count
+            if sorted.count >= 3 {
+                reads[hour].floor = percentile(sorted, 0.1)
+                reads[hour].ceiling = percentile(sorted, 0.9)
+            }
             reads[hour].cbh = profit.cbh(reads[hour].numbers)
             reads[hour].verdict = verdict(reads[hour], profit: profit)
         }
         return reads
     }
 
-    /// The value a share of the way up sorted values, as the dashboard took it (no interpolation).
+    /// The value a share of the way up sorted values, no interpolation, at the nearest place (2026-11-09: the
+    /// dashboard rounded down, so over 3 stretches the 90th percentile was the middle one, under the hour's average).
     static func percentile(_ sorted: [Double], _ share: Double) -> Double? {
-        sorted.isEmpty ? nil : sorted[min(sorted.count - 1, Int(share * Double(sorted.count - 1)))]
+        sorted.isEmpty ? nil : sorted[min(sorted.count - 1, Int((share * Double(sorted.count - 1)).rounded()))]
     }
 
     static func verdict(_ read: HourRead, profit: Profit) -> HourRead.Verdict {
@@ -498,7 +523,9 @@ enum Ledger {
         if roas < 1 { return .dead }
         if roas < profit.breakeven { return read.spentPerDay > 50 ? .costly : .losing }
         if roas < profit.profitable { return .thin }
-        return (read.floor ?? 0) >= profit.breakeven ? .reliable : .volatile
+        // Profitable, but too few orders yet for 3 stretches: nothing says whether its bad stretches hold.
+        guard let floor = read.floor else { return .few }
+        return floor >= profit.breakeven ? .reliable : .volatile
     }
 
     /// Where the budget went: hours below breakeven, thin, and profitable, each with its numbers and CBH.
@@ -659,10 +686,10 @@ enum Ledger {
         let more = judged.filter { $0.verdict == .reliable }.sorted { $0.cbh > $1.cbh }.prefix(3)
         let cut = judged.filter { $0.verdict == .costly || $0.verdict == .dead }.sorted { $0.cbh < $1.cbh }.prefix(3)
         if let hours, hours.days > days.count, !more.isEmpty || !cut.isEmpty {
-            lines.append(L("Hours judged over all **%@** days copied:", String(hours.days)))
+            lines.append(L("Hours judged over the **%@** days the ads ran:", String(hours.days)))
         }
         if !more.isEmpty {
-            lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad days %@)", tone(hourName($0.hour), .good), tone(ratio($0.numbers.roas), .good), ratio($0.floor)) }.joined(separator: ", ")))
+            lines.append(L("Put more in: %@", more.map { L("%@ (ROAS %@, bad stretch %@)", tone(hourName($0.hour), .good), tone(ratio($0.numbers.roas), .good), ratio($0.floor)) }.joined(separator: ", ")))
         }
         if !cut.isEmpty {
             lines.append(L("Cut back: %@", cut.map { L("%@ (ROAS %@, CBH %@ a day)", tone(hourName($0.hour), .bad), tone(ratio($0.numbers.roas), .bad), tone(money($0.cbh / Double(max($0.days, 1))), .bad)) }.joined(separator: ", ")))
