@@ -628,7 +628,20 @@ enum Ledger {
         return bands
     }
 
-    // MARK: Report
+    // MARK: Copying
+
+    /// A failure that passes: Grafana's database is a read-only replica, and it cancels a query when it has to catch up
+    /// with the main one ("canceling statement due to conflict with recovery", 2026-11-09), or a gateway or the network
+    /// hiccups. Penny asks again soon rather than giving up for half an hour.
+    nonisolated static func passing(_ error: Error) -> Bool {
+        if case Grafana.Failure.refused(let status, let reason) = error {
+            let said = reason.lowercased()
+            return [502, 503, 504].contains(status) || said.contains("conflict with recovery") || said.contains("canceling statement") || said.contains("timeout")
+        }
+        if let error = error as? URLError { return [.timedOut, .networkConnectionLost, .cannotConnectToHost, .notConnectedToInternet].contains(error.code) }
+        return false
+    }
+
     // MARK: Report
 
     /// Penny's read of a product over the days: how it did against the days before, which creatives sell and which
@@ -874,8 +887,10 @@ final class PennyLedger: ObservableObject {
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.sync()
-                self?.next = Date().addingTimeInterval(30 * 60)
-                try? await Task.sleep(nanoseconds: 30 * 60 * 1_000_000_000)
+                // After a failure, again in 5 minutes rather than half an hour.
+                let wait: TimeInterval = self?.failure == nil ? 30 * 60 : 5 * 60
+                self?.next = Date().addingTimeInterval(wait)
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
         }
     }
@@ -907,29 +922,46 @@ final class PennyLedger: ObservableObject {
             tried.insert(day)
             copying = day
             do {
-                try await copy(day)
+                try await patiently { try await self.copy(day) }
             } catch Grafana.Failure.signedOut {
                 copying = nil; stop(); onSignedOut?(); return
             } catch {
-                failure = L("Could not copy %@: %@", day, PennyDesk.describe(error))
-                break
+                // The other days still go; a day already copied stays as it was.
+                failure = failure ?? said(error, day, L("Could not copy %@: %@", day, PennyDesk.describe(error)))
             }
         }
         // CBH after the ads, in its own requests: a day it fails for keeps the ads' copy and is tried again next time.
         var priced: Set<String> = []
-        while failure == nil, loop != nil, !Task.isCancelled,
+        while loop != nil, !Task.isCancelled,
               let day = (Ledger.wanted(now: Date(), copied: summary.margined) + asked.filter { summary.margined[$0] == nil }.sorted(by: >)).first(where: { !priced.contains($0) }) {
             priced.insert(day)
             copying = day
             do {
-                try await copyMargins(day)
+                try await patiently { try await self.copyMargins(day) }
             } catch Grafana.Failure.signedOut {
                 copying = nil; stop(); onSignedOut?(); return
             } catch {
-                failure = L("Could not read CBH for %@: %@", day, PennyDesk.describe(error))
+                failure = failure ?? said(error, day, L("Could not read CBH for %@: %@", day, PennyDesk.describe(error)))
             }
         }
         copying = nil
+    }
+
+    /// Asked again after 10 and 30 seconds when the failure passes (`Ledger.passing`), three times in all.
+    private func patiently(_ work: () async throws -> Void) async throws {
+        for wait in [10.0, 30.0] {
+            do { return try await work() } catch where Ledger.passing(error) {
+                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
+        }
+        try await work()
+    }
+
+    /// A failure as the Data section says it: a busy database plainly, anything else as Grafana put it.
+    private func said(_ error: Error, _ day: String, _ otherwise: String) -> String {
+        Ledger.passing(error)
+            ? L("Grafana's database was busy and dropped the copy of %@ three times; Penny tries again in 5 minutes. Nothing copied before is lost.", day)
+            : otherwise
     }
 
     /// One day's CBH by product. An empty answer for a day that had some leaves it as it was.

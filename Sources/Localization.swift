@@ -784,6 +784,7 @@ enum Vietnamese {
         "%@ and up": "%@ trở lên",
         "share of spend": "tỷ lệ chi tiêu",
         "share of revenue": "tỷ lệ doanh thu",
+        "Grafana's database was busy and dropped the copy of %@ three times; Penny tries again in 5 minutes. Nothing copied before is lost.": "Cơ sở dữ liệu của Grafana đang bận và đã bỏ bản sao %@ ba lần; Penny sẽ thử lại sau 5 phút. Dữ liệu đã sao chép trước đó không bị mất.",
         "Last %@ days the ads ran": "%@ ngày chạy gần nhất",
         "Orders then": "Đơn khi đó",
         "Last 7 days: the hour over the last 7 days the ads ran, ▲ or ▼ a tenth above or below its whole ROAS. CPM is what a thousand impressions cost, CTR the clicks on them, CR the orders from the page's views. ": "7 ngày gần nhất: giờ đó qua 7 ngày quảng cáo chạy gần nhất, ▲ hoặc ▼ khi cao hơn hoặc thấp hơn một phần mười so với ROAS chung. CPM là giá một nghìn lượt hiển thị, CTR là lượt nhấp trên đó, CR là đơn trên lượt xem trang. ",
