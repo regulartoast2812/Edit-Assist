@@ -352,6 +352,8 @@ enum Study {
         /// The notes he read for it.
         var notes: [String] = []
         var date = Date()
+        /// What he did for it in your vault and the app (SageActions.swift), as said on screen.
+        var done: [String]? = nil
     }
 
     /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
@@ -399,7 +401,7 @@ enum Study {
 
     static var chatSchema: [String: Any] {
         let text: [String: Any] = ["type": "string"], list: [String: Any] = ["type": "array", "items": text]
-        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list, "save": list]
+        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list, "save": list, "find": text, "read": list, "actions": actionSchema]
         return ["type": "object", "additionalProperties": false, "required": properties.keys.sorted(), "properties": properties]
     }
 
@@ -444,7 +446,7 @@ enum Study {
         if last { text += "Answer now with what you have: leave `youtube` and `notes` empty.\n\n" }
         if !canSearch { text += "YouTube search is not set up (no API key): don't search; if I want videos, tell me to add the YouTube key at the top of the page.\n\n" }
         if !folder {
-            text += "This topic's folder in my vault is not chosen yet, so there are no notes: if I ask about my notes, tell me to choose it at the top of the page.\n\n"
+            text += "This topic's folder in my vault is not chosen yet, so there are no notes in this topic: if I ask you to, set it (set_folder, below), or tell me I can choose it at the top of the page.\n\n"
         } else {
             text += "My notes in this topic (title | status | \(cooking ? "cuisine" : "-") | tags), \(recipes.count) in all:\n"
             text += recipes.prefix(400).map { "- \($0.title) | \($0.status.isEmpty ? "-" : $0.status) | \($0.cuisine.isEmpty ? "-" : $0.cuisine) | \($0.tags.joined(separator: ", "))" }

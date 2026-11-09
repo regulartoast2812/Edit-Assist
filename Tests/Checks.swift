@@ -1624,6 +1624,69 @@ struct Checks {
             let reply = Study.reply(from: ["reply": " Looking ", "youtube": "pho recipe", "notes": ["pho", " "], "show": []])
             check(reply.text == "Looking" && reply.notes == ["pho"] && reply.looksUp && !Study.reply(from: ["reply": "Hi"]).looksUp, "Sage's chat answer says what he looks up")
             check(Study.named(["PHO", "adobo!", "Nothing"], in: entries).map(\.title) == ["Pho", "Adobo"], "Notes the chat names are found by title, case and marks aside")
+            // Sage acting from the chat (SageActions.swift): Obsidian's vaults, the whole vault, safe changes and their undo.
+            let list = Data(#"{"vaults":{"a":{"path":"/Users/me/Drive/Obsidian","ts":1,"open":true},"b":{"path":"/Users/me/Work Notes","ts":2}}}"#.utf8)
+            let known = Study.knownVaults(in: list)
+            check(known.map(\.name) == ["Obsidian", "Work Notes"] && known[0].open && Study.vault(named: "", in: known)?.name == "Obsidian"
+                  && Study.vault(named: "work notes", in: known)?.path == "/Users/me/Work Notes" && Study.vault(named: "my obsidian vault", in: known)?.name == "Obsidian"
+                  && Study.vault(named: "anything", in: [known[1]])?.name == "Work Notes" && Study.knownVaults(in: Data("x".utf8)).isEmpty,
+                  "Sage connects the vault your words mean from Obsidian's list: by name, else the only one, else the one open")
+            let (vaultNotes, vaultFolders) = Study.contents(ofVault: vault)
+            check(vaultNotes.map(\.path) == ["Adobo.md", "Soups/Pho.md"] && vaultFolders == ["Soups"] && vaultNotes[1].title == "Pho",
+                  "The whole vault's notes and folders, by their paths, .obsidian left out")
+            check(Study.resolve("[[pho]]", in: vaultNotes)?.path == "Soups/Pho.md" && Study.resolve("Soups/Pho.md", in: vaultNotes) != nil && Study.resolve("Ramen", in: vaultNotes) == nil
+                  && Study.folder("soups/", in: vaultFolders) == "Soups" && Study.folder("", in: vaultFolders) == "" && Study.folder("New", in: vaultFolders) == nil
+                  && Study.folderPath(" Cooking / Soups: hot ") == "Cooking/Soups hot",
+                  "A note is found by its path or name as a link would, a folder by its path or name")
+            let vaultHits = Study.find("pho", in: vaultNotes, vault: vault)
+            check(vaultHits.first?.path == "Soups/Pho.md" && Study.find("simmer", in: vaultNotes, vault: vault).first.map { $0.path == "Adobo.md" && $0.line.contains("Simmer") } == true
+                  && Study.find("x", in: vaultNotes, vault: vault).isEmpty,
+                  "Finding in the vault: names first, then the text, with the line it's on")
+            let doing = Study.actions(from: ["actions": [["kind": "append", "target": " Pho ", "value": "", "text": "\nMore\n"], ["kind": "delete", "target": "Pho", "value": "", "text": ""]]])
+            check(doing == [Study.Action(kind: "append", target: "Pho", value: "", text: "More")] && (Study.chatSchema["required"] as? [String])?.contains("actions") == true,
+                  "Sage's actions are read from his answer; one he can't do (delete) is dropped")
+            check(Study.adding("More", to: "Text\n\n\n") == "Text\n\nMore\n" && Study.adding("More", to: "A\r\nB\r\n") == "A\r\nB\r\n\r\nMore\r\n" && Study.adding("x", to: "") == "x\n",
+                  "Adding to a note: after a blank line, in the note's own line endings")
+            let crlfNote = "---\r\nstatus: to try\r\n---\r\nText"
+            check(Study.setting("status", to: "made", keepingEndingsIn: crlfNote) == "---\r\nstatus: made\r\n---\r\nText", "A status set keeps the note's line endings")
+            check(Study.relinked("See [[Pho]], [[pho|soup]], ![[Soups/Pho#Broth]], [[Pho.md]], [[Phony]] and [[Other]].", from: "Pho", to: "Pho Bo")
+                  == "See [[Pho Bo]], [[Pho Bo|soup]], ![[Soups/Pho Bo#Broth]], [[Pho Bo.md]], [[Phony]] and [[Other]].",
+                  "Links to a renamed note follow it, as Obsidian's do; other links are left")
+            let bomData = Data([0xEF, 0xBB, 0xBF]) + Data("Hi".utf8)
+            check(Study.noteText(bomData).text == "Hi" && Study.noteText(bomData).bom && Study.noteData("Hi", bom: true) == bomData, "A note's byte-order mark is kept")
+            let pho = vault.appendingPathComponent("Soups/Pho.md")
+            let phoBefore = try Data(contentsOf: pho)
+            let phoAfter = Data(Study.adding("Broth", to: String(decoding: phoBefore, as: UTF8.self)).utf8)
+            try Study.replace(pho, with: phoAfter)
+            let edit = Study.Change.edited(pho, before: phoBefore, after: phoAfter)
+            let phoNow = try Data(contentsOf: pho)
+            let phoUndone = Study.undo(edit)
+            let phoBack = try Data(contentsOf: pho)
+            check(phoNow == phoAfter && phoUndone && phoBack == phoBefore, "A change to a note is undone while it still reads as Sage left it")
+            try Study.replace(pho, with: phoAfter)
+            try Data("Changed in Obsidian".utf8).write(to: pho)
+            let notUndone = !Study.undo(edit)
+            let phoKept = try Data(contentsOf: pho)
+            check(notUndone && String(decoding: phoKept, as: UTF8.self) == "Changed in Obsidian", "A note changed since isn't undone: what you wrote stays")
+            let deeper = vault.appendingPathComponent("Cooking/Soups", isDirectory: true)
+            let madeFolders = try Study.make(deeper)
+            let movedPho = deeper.appendingPathComponent("Pho.md")
+            try FileManager.default.moveItem(at: pho, to: movedPho)
+            check(madeFolders.map(\.file.lastPathComponent) == ["Cooking", "Soups"] && Study.undo(.moved(from: pho, to: movedPho))
+                  && FileManager.default.fileExists(atPath: pho.path) && madeFolders.reversed().allSatisfy(Study.undo) && !FileManager.default.fileExists(atPath: vault.appendingPathComponent("Cooking").path),
+                  "A move and the folders made for it are undone")
+            let written = vault.appendingPathComponent("New.md")
+            try Data("x".utf8).write(to: written)
+            check(Study.undo(.created(written, Data("x".utf8))) && !FileManager.default.fileExists(atPath: written.path), "A note he wrote is taken back while it's as he wrote it")
+            let keptFolder = vault.appendingPathComponent("sage-kept", isDirectory: true)
+            Study.keep(phoBefore, of: pho, in: keptFolder)
+            check(((try? FileManager.default.contentsOfDirectory(atPath: keptFolder.appendingPathComponent("edited").path)) ?? []).first?.hasSuffix(" Pho.md") == true,
+                  "A note is copied to Sage's edited folder before he first changes it")
+            let abilities = Study.abilitiesPrompt(vault: "", known: known, topics: [Study.Topic(name: "Recipes", kind: .recipes)], current: Study.Topic(name: "Recipes", kind: .recipes),
+                                                  folders: [], findWords: "", found: nil, read: [], done: ["Moved “Pho” to Soups"], last: false)
+            check(abilities.contains("- Obsidian | /Users/me/Drive/Obsidian | open in Obsidian") && abilities.contains("folder: not chosen") && abilities.contains("- Moved “Pho” to Soups")
+                  && abilities.contains("to try, made, favourite") && abilities.contains("can't delete"),
+                  "Sage's question says what he can do, Obsidian's vaults, your topics and what he did")
             let asked = [Study.Message(fromSage: false, text: "What's in my pho?")]
             let withNotes = Study.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",
                                                read: [("Pho", "Pho text")], last: true)

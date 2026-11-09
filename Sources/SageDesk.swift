@@ -58,6 +58,12 @@ import Security
         didSet { UserDefaults.standard.set(playerExpanded, forKey: "sagePlayerExpanded") }
     }
 
+    /// The vault you had Sage connect from the chat (Obsidian's list); empty: the one the topic's folder is in (SageActions.swift).
+    @Published var vaultPath = UserDefaults.standard.string(forKey: "sageVault") ?? "" {
+        didSet { UserDefaults.standard.set(vaultPath, forKey: "sageVault") }
+    }
+    /// What he did for each of his messages, to undo it (this run only).
+    @Published var undos: [UUID: [SageUndo]] = [:]
     var busy: Bool { searching || thinking || picking || adding || !writing.isEmpty }
     var topic: Study.Topic { topics.first { $0.id == topicID } ?? topics.first ?? Study.Topic(name: "Research") }
     var folder: URL? { topic.folder.isEmpty ? nil : URL(fileURLWithPath: topic.folder, isDirectory: true) }
@@ -128,6 +134,13 @@ import Security
         if topicID == id, let first = topics.first?.id { open(topic: first) }
     }
 
+    /// A topic's folder set from the chat (a path; empty: none).
+    func setFolder(_ path: String, for id: UUID) {
+        guard let index = topics.firstIndex(where: { $0.id == id }) else { return }
+        topics[index].folder = path; saveTopics()
+        if id == topic.id { reload() }
+    }
+
     private func saveTopics() {
         try? FileManager.default.createDirectory(at: Self.place, withIntermediateDirectories: true)
         try? JSONEncoder().encode(topics).write(to: Self.topicsFile, options: .atomic)
@@ -195,7 +208,8 @@ import Security
 
     // MARK: Chat
 
-    /// Your message, then his answer: up to three rounds, each of which may search YouTube or read notes before he answers.
+    /// Your message, then his answer: up to four rounds, each of which may search YouTube, read notes, look in the whole
+    /// vault or do what you asked (SageActions.swift) before he answers.
     func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !thinking else { return }
@@ -203,40 +217,87 @@ import Security
         if current == nil { conversations.append(Study.Conversation(id: id)); current = id }
         append(Study.Message(fromSage: false, text: text), to: id)
         thinkingIn = id; failure = nil
-        let topic = topic
         Task {
             defer { thinkingIn = nil }
             // The conversation asked in, even if you open another meanwhile.
             var chat: [Study.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Study.Video]?, searched = "", read: [Study.Entry] = [], texts: [(title: String, text: String)] = []
+            var hits: [Study.Hit]?, findWords = "", vaultRead: [(path: String, text: String)] = []
+            var shownDone: [String] = [], toldDone: [String] = [], steps: [SageUndo] = []
+            let known = await Task.detached { SageDesk.knownVaults() }.value
+            var contents = await vaultContents()
             do {
-                for round in 0 ..< 3 {
+                let rounds = 4
+                for round in 0 ..< rounds {
+                    let last = round == rounds - 1
+                    let topic = self.topic
                     let prompt = Study.chatPrompt(chat: chat, recipes: recipes, folder: folder != nil, canSearch: Self.key != nil, found: found, searched: searched,
-                                                  read: texts, last: round == 2, topic: topic)
-                    let reply = Study.reply(from: try await HelperBrain.ask(prompt, schema: Study.chatSchema))
+                                                  read: texts, last: last, topic: topic)
+                        + Study.abilitiesPrompt(vault: vault?.path ?? "", known: known, topics: topics, current: topic, folders: contents.folders,
+                                                findWords: findWords, found: hits, read: vaultRead, done: toldDone, last: last)
+                    let answer = try await HelperBrain.ask(prompt, schema: Study.chatSchema)
+                    let reply = Study.reply(from: answer)
                     var looked = false
-                    if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key, round < 2 {
-                        searched = reply.youtube
-                        found = try await videos(for: reply.youtube, key: key, count: 12)
-                        // What he found shows in Find too, to save from.
-                        results = found ?? []; resultsFor = reply.youtube; resultsBySage = true
-                        looked = true
-                    }
-                    let wanted = Study.named(reply.notes, in: recipes).filter { !read.contains($0) }
-                    if !wanted.isEmpty, round < 2 {
-                        let more = await Task.detached { wanted.map { (title: $0.title, text: (try? String(contentsOf: $0.file, encoding: .utf8)) ?? "") } }.value
-                        read += wanted; texts += more
-                        looked = true
+                    if !last {
+                        if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key {
+                            searched = reply.youtube
+                            found = try await videos(for: reply.youtube, key: key, count: 12)
+                            // What he found shows in Find too, to save from.
+                            results = found ?? []; resultsFor = reply.youtube; resultsBySage = true
+                            looked = true
+                        }
+                        let wanted = Study.named(reply.notes, in: recipes).filter { !read.contains($0) }
+                        if !wanted.isEmpty {
+                            let more = await Task.detached { wanted.map { (title: $0.title, text: (try? String(contentsOf: $0.file, encoding: .utf8)) ?? "") } }.value
+                            read += wanted; texts += more
+                            looked = true
+                        }
+                        if let vault {
+                            let words = (answer["find"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !words.isEmpty, words != findWords {
+                                let notes = contents.notes
+                                findWords = words
+                                hits = await Task.detached { Study.find(words, in: notes, vault: vault) }.value
+                                looked = true
+                            }
+                            let paths = (answer["read"] as? [Any] ?? []).compactMap { $0 as? String }
+                            let notes = paths.compactMap { Study.resolve($0, in: contents.notes) }.filter { note in !vaultRead.contains { $0.path == note.path } }.prefix(5)
+                            if !notes.isEmpty {
+                                let more = await Task.detached { notes.map { (path: $0.path, text: Study.noteText((try? Data(contentsOf: vault.appendingPathComponent($0.path))) ?? Data()).text) } }.value
+                                vaultRead += more
+                                looked = true
+                            }
+                        }
+                        let actions = Study.actions(from: answer)
+                        if !actions.isEmpty {
+                            let outcome = await perform(actions)
+                            shownDone += outcome.shown; toldDone += outcome.told; steps += outcome.undo
+                            contents = await vaultContents()
+                            looked = true
+                        }
                     }
                     if looked { continue }
                     let known = { (id: String) in found?.first { $0.id == id } ?? chat.reversed().lazy.flatMap(\.videos).first { $0.id == id } }
                     let shown = reply.show.compactMap(known)
                     for video in reply.save.compactMap(known).reversed() { save(video) }
-                    append(Study.Message(fromSage: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
-                                         videos: Array(shown.prefix(6)), notes: read.map(\.file.path)), to: id)
+                    let readPaths = read.map(\.file.path) + vaultRead.compactMap { note in vault.map { $0.appendingPathComponent(note.path).path } }
+                    var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? (shownDone.isEmpty ? L("I couldn't find an answer to that.") : L("Done.")) : reply.text,
+                                                videos: Array(shown.prefix(6)), notes: readPaths)
+                    message.done = shownDone.isEmpty ? nil : shownDone
+                    if !steps.isEmpty { undos[message.id] = steps }
+                    append(message, to: id)
                     return
                 }
-            } catch { failure = describe(error) }
+            } catch {
+                failure = describe(error)
+                // What he did before it failed stays said, with its undo.
+                if !shownDone.isEmpty {
+                    var message = Study.Message(fromSage: true, text: L("Done."))
+                    message.done = shownDone
+                    if !steps.isEmpty { undos[message.id] = steps }
+                    append(message, to: id)
+                }
+            }
         }
     }
 
@@ -250,7 +311,7 @@ import Security
         saveChats()
     }
 
-    private func append(_ message: Study.Message, to id: UUID) {
+    func append(_ message: Study.Message, to id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].messages.append(message)
         conversations[index].updated = message.date

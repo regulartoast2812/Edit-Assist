@@ -359,7 +359,7 @@ struct SagePage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if desk.chat.isEmpty {
-                        Text(md: L("Ask Sage about “%@”: a question, what to watch, or what's in your notes. He searches YouTube and reads your notes when he needs to.", desk.topic.name))
+                        Text(md: L("Ask Sage about “%@”: a question, what to watch, or what's in your notes. He searches YouTube and your whole vault when he needs to, and when you ask he connects your vault, sets up topics and writes, adds to, marks, moves or renames notes (each with Undo).", desk.topic.name))
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
                     }
                     ForEach(desk.chat) { message($0) }
@@ -402,6 +402,19 @@ struct SagePage: View {
                             let file = URL(fileURLWithPath: path)
                             Button { desk.show(file) } label: { Label(file.deletingPathExtension().lastPathComponent, systemImage: "doc.text") }
                                 .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).help(L("Read it in Notes"))
+                        }
+                    }
+                }
+                if let done = message.done, !done.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(done.enumerated()), id: \.offset) { _, line in
+                            Label(line, systemImage: line.hasPrefix(L("Couldn't")) ? "exclamationmark.circle" : "checkmark.circle")
+                                .font(.system(size: 10)).foregroundStyle(line.hasPrefix(L("Couldn't")) ? Color.orange : accent)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if desk.undos[message.id] != nil {
+                            Button(L("Undo")) { desk.undo(message.id) }.buttonStyle(.link).font(.system(size: 10))
+                                .help(L("Puts back what he did here, the last step first; anything changed since is left as it is"))
                         }
                     }
                 }
