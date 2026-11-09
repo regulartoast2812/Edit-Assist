@@ -108,7 +108,7 @@ struct SageRunCard: View {
             switch run.kind {
             case "fetch": return L("Couldn't fetch media")
             case "transcribe": return L("Couldn't transcribe")
-            default: return L("The agent couldn't finish")
+            default: return L("Sage couldn't finish")
             }
         }
         return L("Done")
@@ -129,7 +129,7 @@ struct SageRunCard: View {
             Spacer(minLength: 4)
             if running && desk.agentRun != nil {
                 Button { desk.stopAgent() } label: { Label(L("Stop"), systemImage: "stop.fill") }.controlSize(.small)
-                    .help(L("Stops the agent and the commands it started; what it changed so far stays, with Undo"))
+                    .help(L("Stops Sage and the commands he started; what he changed so far stays, with Undo"))
             }
         }
     }
@@ -204,7 +204,7 @@ struct SageRunCard: View {
         }
         if desk.undos[message.id] != nil {
             Button { desk.undo(message.id) } label: { Label(L("Undo"), systemImage: "arrow.uturn.backward") }.controlSize(.small)
-                .help(L("Puts back the files copied before the run, each only if it still reads as the agent left it"))
+                .help(L("Puts back the files copied before the run, each only if it still reads as Sage left it"))
         }
     }
 
@@ -329,7 +329,7 @@ struct SageModelMenu: View {
         let chosen = desk.chosenModel(provider), effort = desk.chosenEffort(provider)
         let efforts = models.first { $0.id == chosen }?.efforts ?? models.first?.efforts ?? []
         Menu {
-            Text(L("The agent's model (%@ CLI)", provider.rawValue))
+            Text(L("Sage's model (%@ CLI)", provider.rawValue))
             let aliases = models.filter(\.alias), exact = models.filter { !$0.alias }
             if !aliases.isEmpty {
                 Section(L("Always the newest")) { ForEach(aliases, id: \.id) { item(model: $0, chosen: chosen, effort: effort, efforts: efforts) } }
@@ -351,7 +351,7 @@ struct SageModelMenu: View {
             Label(chosen.map { effort.isEmpty ? $0 : "\($0) · \(L(Self.effortName(effort)))" } ?? L("Choose a model"), systemImage: "cpu")
         }
         .menuStyle(.borderlessButton).fixedSize().font(.system(size: 10))
-        .help(L("The model Sage works with as an agent in your vault (Vault Agent's commands, and work he hands over)"))
+        .help(L("The model Sage works with in your vault"))
         .task(id: provider.rawValue) { if models.isEmpty { await desk.loadAgentModels() } }
     }
 
@@ -397,7 +397,7 @@ struct SageQuickBar: View {
                 Divider()
                 button("memory")
             } label: { Image(systemName: "ellipsis.circle") }
-            .menuStyle(.borderlessButton).fixedSize().frame(height: 22).padding(.horizontal, 2).modifier(SageHoverLit()).help(L("More of Vault Agent's actions on this note"))
+            .menuStyle(.borderlessButton).fixedSize().frame(height: 22).padding(.horizontal, 2).modifier(SageHoverLit()).help(L("More actions on this note"))
         }
         .disabled(desk.thinking)
     }

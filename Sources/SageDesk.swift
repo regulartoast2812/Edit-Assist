@@ -290,7 +290,7 @@ import Security
                         let all = Study.actions(from: answer)
                         // Work only the agent can do: his words (and what he did so far), then the agent's run.
                         if let handoff = all.first(where: { $0.kind == "agent" && !$0.text.isEmpty }) {
-                            var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? L("I'll hand this to the agent.") : reply.text)
+                            var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? L("On it.") : reply.text)
                             message.done = shownDone.isEmpty ? nil : shownDone
                             if !steps.isEmpty { undos[message.id] = steps }
                             append(message, to: id)

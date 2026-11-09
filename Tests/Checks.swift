@@ -1699,7 +1699,7 @@ struct Checks {
             let abilities = Study.abilitiesPrompt(vault: "", known: known, topics: [Study.Topic(name: "Recipes", kind: .recipes)], current: Study.Topic(name: "Recipes", kind: .recipes),
                                                   folders: [], findWords: "", found: nil, read: [], done: ["Moved “Pho” to Soups"], last: false)
             check(abilities.contains("- Obsidian | /Users/me/Drive/Obsidian | open in Obsidian") && abilities.contains("folder: not chosen") && abilities.contains("- Moved “Pho” to Soups")
-                  && abilities.contains("to try, made, favourite") && abilities.contains("can't delete"),
+                  && abilities.contains("to try, made, favourite") && abilities.contains("Deleting: only when I clearly ask") && abilities.contains("never say you can't"),
                   "Sage's question says what he can do, Obsidian's vaults, your topics and what he did")
             let asked = [Study.Message(fromSage: false, text: "What's in my pho?")]
             let withNotes = Study.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",

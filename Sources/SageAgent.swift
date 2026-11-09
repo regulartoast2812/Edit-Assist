@@ -279,7 +279,7 @@ extension Study {
     /// What the agent is asked, built as Vault Agent builds it: the vault's instructions (Codex's first turn only), the
     /// note open in Sage, the memories that fit, the request, where memories are kept, and what the agent can do.
     static func agentPrompt(_ request: String, active: String?, memories: [AgentMemory], memoryFolder: String, instructions: String? = nil) -> String {
-        var prompt = ""
+        var prompt = "[Who you are] You are Sage, the research helper in my Edit Assist app, working in my Obsidian vault with your full tools. Do what I ask completely; don't stop to ask me to confirm something I asked for, and speak of the work as yours.\n\n"
         if let instructions = instructions?.trimmingCharacters(in: .whitespacesAndNewlines), !instructions.isEmpty {
             prompt += "[Project instructions — the single source of truth for this vault. Follow them exactly; they override your defaults and any AGENTS.md.]\n\n\(instructions)\n\n----\n\n"
         }

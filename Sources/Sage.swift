@@ -382,7 +382,7 @@ struct SagePage: View {
                     if desk.chat.isEmpty {
                         Text(md: L("Ask Sage about “%@”: a question, what to watch, or what's in your notes. He searches YouTube and your whole vault when he needs to, and when you ask he connects your vault, sets up topics and writes, adds to, marks, moves or renames notes (each with Undo).", desk.topic.name))
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
-                        Text(md: L("As an agent he works in your vault with real tools, as Vault Agent does. On the open note: **/process**, **/summarize**, **/review**, **/categorize**, **/links**, **/rename**, **/fetch**, **/transcribe**; **/memory** opens his memories. Words after a command are added to it."))
+                        Text(md: L("He works in your vault with full tools: any note, its properties, bases and canvases, many notes at once. On the open note: **/process**, **/summarize**, **/review**, **/categorize**, **/links**, **/rename**, **/fetch**, **/transcribe**; **/memory** opens his memories. Words after a command are added to it."))
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(desk.chat) { message($0) }
@@ -408,7 +408,7 @@ struct SagePage: View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField(L("Message Sage"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)
             if desk.agentRun != nil {
-                Button { desk.stopAgent() } label: { Label(L("Stop"), systemImage: "stop.fill") }.help(L("Stops the agent and the commands it started"))
+                Button { desk.stopAgent() } label: { Label(L("Stop"), systemImage: "stop.fill") }.help(L("Stops Sage and the commands he started"))
             } else {
                 Button(L("Send"), action: send).disabled(desk.thinking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

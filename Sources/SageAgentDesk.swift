@@ -106,8 +106,8 @@ extension SageDesk {
         edit(messageID, in: id) { message in
             request = message.ask
             message.ask = nil
-            message.text = effort.isEmpty ? L("I'll work as an agent with %@ from now on. Change it any time from the model menu at the top of the chat.", model)
-                                          : L("I'll work as an agent with %@ (%@ effort) from now on. Change it any time from the model menu at the top of the chat.", model, effort)
+            message.text = effort.isEmpty ? L("I'll use %@ from now on. Change it any time from the model menu at the top of the chat.", model)
+                                          : L("I'll use %@ (%@ effort) from now on. Change it any time from the model menu at the top of the chat.", model, effort)
         }
         choose(model: model, effort: effort)
         saveChats()
@@ -168,7 +168,7 @@ extension SageDesk {
         } else if exists {
             append(Study.Message(fromSage: true, text: L("Your memories are in %@ in your vault.", folder)), to: id)
         } else {
-            append(Study.Message(fromSage: true, text: L("No memories yet: the agent keeps them as notes in %@, made when it saves the first one.", folder)), to: id)
+            append(Study.Message(fromSage: true, text: L("No memories yet: I keep them as notes in %@, made when I save the first one.", folder)), to: id)
         }
     }
 
@@ -186,15 +186,15 @@ extension SageDesk {
     /// listed under it when done, with Undo.
     func runAgent(_ request: String, in id: UUID, retried: Bool = false) async {
         guard let root = workVault else {
-            refuse(L("Couldn't run the agent: no vault is connected. Choose your vault in Notes, or ask me to connect it."), in: id); return
+            refuse(L("I can't work in your vault yet: none is connected. Choose your vault in Notes, or ask me to connect it."), in: id); return
         }
         let provider = HelperBrain.provider
-        guard let executable = provider.executable else { refuse(L("Couldn't run the agent: %@ CLI is not installed on this Mac.", provider.rawValue), in: id); return }
+        guard let executable = provider.executable else { refuse(L("I can't work in your vault: %@ CLI is not installed on this Mac.", provider.rawValue), in: id); return }
         vaultAgentSettings = await Task.detached { SageDesk.vaultAgent(in: root) }.value
         guard let model = chosenModel(provider) else {
             await loadAgentModels()
             // The first run: which model, and how hard it thinks (you asked for no default, 2026-11-09).
-            var message = Study.Message(fromSage: true, text: L("Before I work as an agent in your vault: which model should I use, and with how much effort? I'll remember it; change it any time from the model menu at the top of the chat."))
+            var message = Study.Message(fromSage: true, text: L("Before I work in your vault: which model should I use, and with how much effort? I'll remember it; change it any time from the model menu at the top of the chat."))
             message.ask = request
             append(message, to: id)
             return
