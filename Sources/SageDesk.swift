@@ -19,8 +19,9 @@ import Security
     @Published var stage = UserDefaults.standard.string(forKey: "sageStage") ?? UserDefaults.standard.string(forKey: "basilStage") ?? "research" {
         didSet { UserDefaults.standard.set(stage, forKey: "sageStage") }
     }
-    /// The note open in the notes stage.
-    @Published var note: URL?
+    /// The notes stage: your vault, its tree and the files open in tabs (SageVaultDesk, 2026-11-09). The note shown is its tab's.
+    let vault = SageVaultDesk(place: SageDesk.place)
+    var note: URL? { vault.note }
     /// Your vault's look in Obsidian (theme, accent, fonts, snippets), read with the topic's folder.
     @Published private(set) var look = Study.Look()
     @Published private(set) var searching = false
@@ -83,6 +84,7 @@ import Security
             for index in saved.indices where saved[index].topic == nil { saved[index].topic = first }
             saveSaved()
         }
+        vault.desk = self
     }
 
     // MARK: Topics
@@ -91,7 +93,7 @@ import Security
         guard topics.contains(where: { $0.id == id }) else { return }
         topicID = id
         UserDefaults.standard.set(id.uuidString, forKey: "sageTopic")
-        note = nil; recipes = []; results = []; resultsFor = ""
+        recipes = []; results = []; resultsFor = ""
         reload()
     }
 
@@ -116,6 +118,13 @@ import Security
         topics.removeAll { $0.id == id }; saveTopics()
         saved.removeAll { $0.topic == id }; saveSaved()
         if topicID == id, let first = topics.first?.id { open(topic: first) }
+    }
+
+    /// The open topic's notes are written in this folder from now on ("Write … notes here" on a folder in the vault's tree).
+    func use(folder: URL) {
+        guard let index = topics.firstIndex(where: { $0.id == topic.id }) else { return }
+        topics[index].folder = folder.path; saveTopics()
+        reload()
     }
 
     private func saveTopics() {
@@ -456,13 +465,14 @@ import Security
         let file = folder.appendingPathComponent(Study.fileName(for: title, taken: taken))
         try Data(text.utf8).write(to: file, options: .withoutOverwriting)
         written = file
-        note = file; stage = "notes"
+        vault.show(file)
+        if vault.inVault(file) != nil { vault.reload() }
         reload()
         return file
     }
 
     /// A note opened in the notes stage.
-    func show(_ file: URL) { note = file; stage = "notes" }
+    func show(_ file: URL) { vault.show(file) }
 
     /// Where a note stands, written into its header.
     func set(_ status: String, for entry: Study.Entry) {

@@ -1477,13 +1477,14 @@ struct Checks {
                   && Study.thumbnail(of: "https://example.com/watch?v=x") == nil && Study.thumbnail(of: "") == nil,
                   "A recipe card shows its video's picture")
             let md = Study.markdown("## Steps\n\n1. Brown **chicken**\n2. Add `soy`\n   - nested *one*\n\n- [x] done\n- [ ] todo\n\n> [!tip] Swap\n> Use ==thighs==\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [[Pho|my pho]] and #soup <b>")
-            check(md.contains("<h2>Steps</h2>") && md.contains("<ol><li>Brown <strong>chicken</strong>") && md.contains("<code>soy</code>") && md.contains("<ul><li>nested <em>one</em>")
-                  && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td>2</td>")
-                  && md.contains("href=\"sage-note:Pho\">my pho</a>") && md.contains("class=\"tag\" href=\"#soup\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
+            check(md.contains("<h2 data-heading=\"Steps\" dir=\"auto\">Steps</h2>") && md.contains("<ol><li dir=\"auto\" data-sage-line=\"2\">Brown <strong>chicken</strong>") && md.contains("<code>soy</code>")
+                  && md.contains("<ul class=\"has-list-bullet\"><li dir=\"auto\" data-sage-line=\"4\"><span class=\"list-bullet\"></span>nested <em>one</em>")
+                  && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td dir=\"auto\">2</td>")
+                  && md.contains("href=\"sage-note:Pho\" class=\"internal-link\">my pho</a>") && md.contains("href=\"#soup\" class=\"tag\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
                   "Sage draws a note's Markdown as Obsidian's reading view does")
             let page = Study.page(note: note, look: Study.Look(dark: true, accent: "#ff8800", fontSize: 18, css: ".theme-dark{--x:1}"), dark: true)
-            check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("multi-select-pill\">#filipino-food") && page.contains("--accent: #ff8800")
-                  && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("<h2>Steps</h2>"),
+            check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("<span>filipino-food</span>") && page.contains("--accent-h: 32; --accent-s: 100%; --accent-l: 50%;")
+                  && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("data-heading=\"Steps\""),
                   "A note's page has its properties, the video, your accent, size and theme")
             let obsidian = vault.appendingPathComponent(".obsidian")
             try FileManager.default.createDirectory(at: obsidian.appendingPathComponent("themes/Minimal"), withIntermediateDirectories: true)
@@ -2029,6 +2030,10 @@ struct Checks {
               "With yours not at the counted row, the nearest close row is taken")
         check(Store.confirmedStyleRow(reported: 4, differences: [2: 72, 3: 563, 4: 600, 5: 590]) == 2, "A dark tile under the hover tint is still found when plainly the best")
         check(Store.confirmedStyleRow(reported: 2, differences: [0: 90, 1: 95, 2: 100]) == nil, "Nothing clear keeps the counted row")
+        // Sage's vault, note view, Bases and canvases (2026-11-09, brought back from Creative Assist).
+        try await sageVault(check)
+        try sageNotes(check)
+        try sageBases(check)
         // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
         do {
             let missing = (EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }
