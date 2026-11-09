@@ -46,12 +46,25 @@ struct PennyGrid: View {
     var gap: CGFloat = 2
     /// Rows on rounded washes (the hours) or plain with a line between (creatives, campaigns).
     var washed = true
+    /// Narrower than this, the table scrolls sideways rather than squeeze its columns.
+    var minWidth: CGFloat? = nil
 
     static let spacing: CGFloat = 6
     static let lead: CGFloat = 7
     static let trail: CGFloat = 4
 
     var body: some View {
+        if let minWidth {
+            ViewThatFits(in: .horizontal) {
+                table.frame(minWidth: minWidth)
+                ScrollView(.horizontal) { table.frame(width: minWidth) }
+            }
+        } else {
+            table
+        }
+    }
+
+    var table: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()

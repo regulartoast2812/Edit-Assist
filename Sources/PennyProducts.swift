@@ -125,6 +125,9 @@ final class PennyAnalysis {
     let history: [String]
     let hourProfit: Ledger.Profit
     let hourReads: [Ledger.HourRead]
+    /// The same hours over the last 7 of those days, to see which held up as the product scaled (2026-11-09).
+    let recentHours: [Ledger.HourRead]
+    let recentDays: Int
     /// The range's own hours, for where its budget went.
     let rangeHours: [Ledger.HourRead]
     let daySlots: [PennySlot]
@@ -154,6 +157,9 @@ final class PennyAnalysis {
         history = past.map(\.day).sorted(by: >)
         hourProfit = Ledger.Profit(summary.margin(of: product, on: history).margin) ?? .usual
         hourReads = Ledger.hourReads(past, profit: hourProfit)
+        let recent = past.sorted { $0.day > $1.day }.prefix(7)
+        recentHours = Ledger.hourReads(Array(recent), profit: hourProfit)
+        recentDays = recent.count
         hourSlots = PennySlot.hours(hourReads, days: Ledger.dayReads(past, profit: hourProfit), profit: hourProfit)
         report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit, against: against,
                                hours: (hourReads, history.count))
@@ -264,10 +270,12 @@ struct ProductDetail: View, Equatable {
                        note: hoursOver + L("Each hour, Alaska time: its average ROAS (the dot) and its bad to good stretch (the band: its days cut into runs long enough for about 3 orders, 10th to 90th percentile, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
                 PennyColumns(slots: a.hourSlots, profit: a.hourProfit, ranges: true, perDay: true, height: 170, grow: true)
             }
-            PennyPanel(title: L("Hour by hour"), note: hoursOver + L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
-                HoursEfficiency(reads: a.hourReads, profit: a.hourProfit, shows: .table)
+            PennyPanel(title: L("Hour by hour"), note: hoursOver + L("Last 7 days: the hour over the last 7 days the ads ran, ▲ or ▼ a tenth above or below its whole ROAS. CPM is what a thousand impressions cost, CTR the clicks on them, CR the orders from the page's views. ") + L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
+                HoursEfficiency(reads: a.hourReads, profit: a.hourProfit, shows: .table, recent: a.recentHours, recentDays: a.recentDays)
                 VerdictLegend().padding(.top, 6)
             }
+            // The whole row: fourteen columns don't fit half a wide window; narrower, the table scrolls sideways.
+            .layoutValue(key: PanelFull.self, value: true)
             if a.weeks.count >= 2 {
                 PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: a.weeks, profit: profit, grow: true) }
             }
@@ -819,6 +827,9 @@ struct HoursEfficiency: View {
     let profit: Ledger.Profit
     enum Shows { case budget, table }
     var shows = Shows.budget
+    /// Each hour over the last days the ads ran, and how many days those were.
+    var recent: [Ledger.HourRead] = []
+    var recentDays = 0
     @State private var sort = "Hour"
 
     static func name(_ verdict: Ledger.HourRead.Verdict) -> String {
@@ -851,16 +862,36 @@ struct HoursEfficiency: View {
 
     func color(_ roas: Double?) -> Color { PennyStyle.roas(roas, profit) }
 
-    struct Column { var name: String; var width: CGFloat; var value: (Ledger.HourRead) -> Double?; var text: (Ledger.HourRead) -> String }
+    struct Column {
+        var name: String; var width: CGFloat; var value: (Ledger.HourRead) -> Double?; var text: (Ledger.HourRead) -> String
+        var color: ((Ledger.HourRead) -> Color?)? = nil
+    }
+
+    func lately(_ read: Ledger.HourRead) -> Ledger.HourRead? {
+        recent.indices.contains(read.hour) && recent[read.hour].days > 0 ? recent[read.hour] : nil
+    }
+
+    /// The hour's ROAS over the last days, ▲ or ▼ when it is a tenth above or below its ROAS over them all.
+    func latelySaid(_ read: Ledger.HourRead) -> String {
+        guard let lately = lately(read), let now = lately.numbers.roas else { return "–" }
+        let all = read.numbers.roas ?? 0
+        return Ledger.ratio(now) + (now > all * 1.1 ? " ▲" : now < all * 0.9 ? " ▼" : "")
+    }
 
     var columns: [Column] {
         [Column(name: "Days", width: 36, value: { Double($0.days) }, text: { "\($0.days)" }),
-         Column(name: "Spent a day", width: 76, value: { $0.spentPerDay }, text: { Ledger.money($0.spentPerDay) }),
-         Column(name: "ROAS", width: 46, value: { $0.numbers.roas }, text: { Ledger.ratio($0.numbers.roas) }),
-         Column(name: "Bad → good stretch", width: 118, value: { $0.floor }, text: { "\(Ledger.ratio($0.floor)) → \(Ledger.ratio($0.ceiling))" }),
-         Column(name: "Orders a day", width: 76, value: { $0.days > 0 ? $0.numbers.orders / Double($0.days) : nil },
+         Column(name: "Spent a day", width: 74, value: { $0.spentPerDay }, text: { Ledger.money($0.spentPerDay) }),
+         Column(name: "ROAS", width: 44, value: { $0.numbers.roas }, text: { Ledger.ratio($0.numbers.roas) }, color: { color($0.numbers.roas) }),
+         // Added 2026-11-09 with orders, CPM, CTR and CR: the hours over the last days, as the product scaled.
+         Column(name: "Last 7 days", width: 76, value: { lately($0)?.numbers.roas }, text: latelySaid, color: { color(lately($0)?.numbers.roas) }),
+         Column(name: "Bad → good stretch", width: 112, value: { $0.floor }, text: { "\(Ledger.ratio($0.floor)) → \(Ledger.ratio($0.ceiling))" }),
+         Column(name: "Orders", width: 50, value: { $0.numbers.orders }, text: { Ledger.whole($0.numbers.orders) }),
+         Column(name: "Orders a day", width: 74, value: { $0.days > 0 ? $0.numbers.orders / Double($0.days) : nil },
                 text: { $0.days > 0 ? String(format: "%.1f", $0.numbers.orders / Double($0.days)) : "–" }),
-         Column(name: "CBH", width: 76, value: { $0.cbh }, text: { Ledger.money($0.cbh) })]
+         Column(name: "CBH", width: 76, value: { $0.cbh }, text: { Ledger.money($0.cbh) }, color: { PennyStyle.money($0.cbh) }),
+         Column(name: "CPM", width: 56, value: { $0.numbers.cpm }, text: { $0.numbers.cpm.map(Ledger.money) ?? "–" }),
+         Column(name: "CTR", width: 46, value: { $0.numbers.ctr }, text: { Ledger.percent($0.numbers.ctr) }),
+         Column(name: "CR", width: 46, value: { $0.numbers.cr }, text: { Ledger.percent($0.numbers.cr) })]
     }
 
     var body: some View {
@@ -905,8 +936,8 @@ struct HoursEfficiency: View {
         let shown = reads.filter { $0.days > 0 }
         let sorted = order.map { order in shown.sorted { (order.value($0) ?? -.infinity) > (order.value($1) ?? -.infinity) } } ?? shown
         let top = max(4, (profit.profitable * 2).rounded(.up))
-        let grid = [PennyGrid.Column(name: "Hour", width: 96, align: .leading)] + columns.map { PennyGrid.Column(name: $0.name, width: $0.width) }
-            + [PennyGrid.Column(name: "Range", width: 120, align: .center, sorts: false), PennyGrid.Column(name: "Verdict", width: nil, align: .leading, sorts: false, inset: 8)]
+        let grid = [PennyGrid.Column(name: "Hour", width: 90, align: .leading)] + columns.map { PennyGrid.Column(name: $0.name, width: $0.width) }
+            + [PennyGrid.Column(name: "Range", width: 110, align: .center, sorts: false), PennyGrid.Column(name: "Verdict", width: nil, align: .leading, sorts: false, inset: 8)]
         // Each row shaded by the hour's average against breakeven (2026-11-07: you asked to see at a glance which hours
         // pay on average), with a stripe in the same colour; an hour with too few days to judge stays plain.
         let rows = sorted.map { read in
@@ -915,7 +946,7 @@ struct HoursEfficiency: View {
                 id: "\(read.hour)",
                 cells: [PennyGrid.Cell(text: Ledger.hourName(read.hour))]
                     + columns.map { column in
-                        PennyGrid.Cell(text: column.text(read), color: column.name == "ROAS" ? tone : column.name == "CBH" ? PennyStyle.money(read.cbh) : nil)
+                        PennyGrid.Cell(text: column.text(read), color: column.color?(read))
                     }
                     + [PennyGrid.Cell(slider: PennyGrid.Slider(roas: read.numbers.roas, floor: read.floor, ceiling: read.ceiling, breakeven: profit.breakeven, top: top, color: tone)),
                        PennyGrid.Cell(text: Self.name(read.verdict), color: Self.color(read.verdict), size: 10, weight: .semibold)],
@@ -927,10 +958,15 @@ struct HoursEfficiency: View {
                     PennyTipLine(name: L("Good stretch"), value: PennyStyle.times(read.ceiling), color: read.ceiling.map { color($0) }),
                     PennyTipLine(name: L("Stretches"), value: read.floor == nil ? "–" : L("%@ × %@ days", String(read.stretches), String(read.stretch))),
                     PennyTipLine(name: L("Breakeven (white tick)"), value: PennyStyle.times(profit.breakeven)),
-                    PennyTipLine(name: L("CBH"), value: Ledger.money(read.cbh), color: PennyStyle.money(read.cbh))],
+                    PennyTipLine(name: L("CBH"), value: Ledger.money(read.cbh), color: PennyStyle.money(read.cbh)),
+                    PennyTipLine(name: L("Last %@ days the ads ran", String(recentDays)), value: latelySaid(read), color: color(lately(read)?.numbers.roas)),
+                    PennyTipLine(name: L("Orders then"), value: lately(read).map { Ledger.whole($0.numbers.orders) } ?? "–"),
+                    PennyTipLine(name: L("CPM"), value: read.numbers.cpm.map(Ledger.money) ?? "–"),
+                    PennyTipLine(name: L("CTR"), value: Ledger.percent(read.numbers.ctr)),
+                    PennyTipLine(name: L("CR"), value: Ledger.percent(read.numbers.cr))],
                 tipNote: Self.meaning(read.verdict))
         }
-        return PennyGrid(columns: grid, rows: rows, sort: $sort)
+        return PennyGrid(columns: grid, rows: rows, sort: $sort, minWidth: 1090)
     }
 }
 
