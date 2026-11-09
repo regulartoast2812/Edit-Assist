@@ -13,6 +13,9 @@ touches projects, Premiere, Grafana or any Crossian account.
 | `Sources/SageResearch.swift` | `Study` too: topics, web pages, the research note. Foundation only. | Same. |
 | `Sources/SageDesk.swift` | `SageDesk`: state, network calls, the key and the folder. | Rewrite: Keychain → Windows Credential Manager; `NSOpenPanel` → a folder picker; `UserDefaults` → the app's settings. |
 | `Sources/Sage.swift` | His pixel icon and page (SwiftUI). | Rewrite in the Windows app's UI; the sprite rows and colours copy over as they are. |
+| `Sources/SageVault.swift`, `SageFiles.swift`, `SageObsidian.swift`, `SageBases.swift`, `SageNotes.swift` | The vault as Obsidian shows it, link updating, Obsidian's own look, Bases and canvases, the note page and its editing script. Foundation only. | Built first in Creative Assist (`SageVault.cs`, `SageFiles.cs`, `SageObsidian.cs`, `SageBases.cs`, `SageNotes.cs`) and brought back 2026-11-09, function for function; checked in `Tests/SageVaultChecks.swift`, `SageNotesChecks.swift`, `SageBasesChecks.swift`. |
+| `Sources/SageVaultDesk.swift`, `SageDeskFiles.swift` | The notes stage's state (vault, tabs, tree settings in `sage/notes.json`, FSEvents) and the tree's changes to the vault with Undo. | Creative Assist's `SageDesk.cs` (vault and tabs parts) and `SageDeskFiles.cs`. |
+| `Sources/SageExplorer.swift`, `SageColors.swift`, `SageNoteView.swift` | The tree, quick switcher, path bar and preview; the WKWebView note view (one per tab, served by a `WKURLSchemeHandler` under `sage://sage/`), the tab row and the bar. | Creative Assist's `SageExplorer.cs`, `SageColors.cs` and `Sage.cs` (`NoteView`, tabs). |
 
 ## How he works
 
@@ -57,21 +60,34 @@ touches projects, Premiere, Grafana or any Crossian account.
    asks the brain once which results are real recipe videos worth saving (`Study.pickPrompt`, `Study.pickSchema`;
    at most five, only ids it was shown, `Study.picks`) and saves those, each with its reason. A saved video's recipe
    is written (steps 2–4) only when you press Write recipe or Write all; the vault folder is asked for then.
-8. **Notes stage.** Beside the chat, the page has two stages: Research (Find, Saved, Write your own) and Notes (the
-   recipes list and the open note). The note is drawn by `Study.page` (`Sources/SageNotes.swift`, Foundation only) as
-   Obsidian's reading view: the same classes (`theme-dark`/`theme-light`, `markdown-preview-view markdown-rendered`,
-   `metadata-container` for the properties, `callout`, `task-list-item`, `internal-link`, `tag`) and CSS variables, then
-   the vault's look from `Study.look(vault:)`: `.obsidian/appearance.json` (`theme` obsidian/moonstone/system,
-   `accentColor`, `baseFontSize`, `textFontFamily`, `monospaceFontFamily`), the community theme
-   (`.obsidian/themes/<cssTheme>/theme.css`) and enabled snippets (`.obsidian/snippets/<name>.css`). The vault is the
-   nearest folder up from the recipes folder holding `.obsidian` (`Study.vault`). `Study.markdown` covers what recipe
-   notes use: headings, paragraphs, nested lists, tasks, quotes and callouts, code, tables, bold/italic/strike/highlight,
-   links, pictures, YouTube embeds (drawn as the video's picture, opening YouTube), [[wikilinks]] (`sage-note:` links)
-   and #tags. On Windows, show the page in WebView2. The chat's answer can also carry `save` (video ids to keep in Saved).
+8. **Notes stage** (2026-11-07 in Creative Assist, on the Mac 2026-11-09). Beside the chat, the page has two stages:
+   Research (Find, Saved, Write your own) and Notes: your **whole vault** as Obsidian's file explorer shows it
+   (`Study.vaultItems`, `explorerOrder` from workspace.json, `children`, `natural`), chosen once (Sage offers the one he
+   finds), the tree on the left (resizable) and the open file beside it in tabs. A file is drawn by `Study.notePage`
+   (`Sources/SageNotes.swift`) as Obsidian's reading view builds it, dressed by **Obsidian's own app.css, fonts and
+   icons**, copied once per version from `/Applications/Obsidian.app/Contents/Resources/obsidian.asar` (or the newer
+   one Obsidian downloads into `~/Library/Application Support/obsidian`, read only; `Study.obsidianStyle`) into the
+   app's cache, then your enabled plugins' styles.css, theme and snippets; body `mod-macos`, no styled-scrollbars (as
+   Obsidian on the Mac). Without Obsidian, `Study.baseCSS` stands in. Reading settings follow app.json (properties
+   shown/hidden/source, inline title, readable line width, default view mode, spellcheck, tabs) and types.json.
+   [[Links]] resolve as Obsidian resolves them (`Study.resolve`: by name, nearest first, by path); pictures keep their
+   |size (`Study.withPictures`). Bases (`.base`: views, filters, formulas, sort, groups, chips), canvases and Vault
+   Agent's file embeds are drawn by `Sources/SageBases.swift`. **Editing**: a block you click becomes Obsidian-style live
+   preview; only its lines are written, and only if they still read as when the page was drawn (`Study.editLines`), the
+   note kept first in `sage/edited/` and replaced in one step keeping its line endings, BOM and created date
+   (`Study.writeNote`). A canvas opened on its own is edited as in Obsidian and saved only over the version shown
+   (`Study.saveCanvas`). **The tree** changes the vault too: move, rename, new note or folder, duplicate, delete (app.json
+   `trashOption`: the vault's .trash, else the Mac's Trash, a copy kept first), copy files in; links follow as Obsidian's
+   "update internal links" does (`Study.relink`, `movedPath`); every change can be undone, each step only if nothing
+   changed it since. Keys: Cmd+O quick switcher, Cmd+W, Cmd+Shift+T, Ctrl+Tab, Cmd+[ and ], Cmd+E edit or read; Cmd+click
+   or the middle button opens in a new tab. The topic's folder is still where Sage writes: right-click a folder, "Write …
+   notes here". The chat's answer can also carry `save` (video ids to keep in Saved).
 9. **Opening.** `obsidian://open?path=<absolute path>` opens a note in Obsidian; without Obsidian the file opens as it is.
 
 ## Rules carried from Edit Assist
 
-- He reads only the folder you chose and writes only there.
+- He (the model) writes only new notes, only into a topic's folder, never over a note. You edit notes and change the
+  vault yourself, in the note view and the tree; those writes follow the vault-editing rule in AGENTS.md.
+- Checks use temp folders, never your vault.
 - The API key never goes in settings files or git.
 - Every on-screen string has its Vietnamese.
