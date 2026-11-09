@@ -688,8 +688,10 @@ extension Study {
       color: var(--text-normal); font-family: var(--font-text); font-size: var(--font-text-size); line-height: var(--line-height-normal); tab-size: 4;
       caret-color: var(--caret-color, var(--text-normal)); }
     .sage-source[readonly] { opacity: .7; }
-    .sage-editing > .sage-live { margin: 0 -10px; padding: 6px 10px; border-radius: var(--radius-s, 4px); background: var(--background-primary-alt, rgba(127,127,127,.06));
-      box-shadow: 0 0 0 1px var(--background-modifier-border-focus, var(--interactive-accent)); }
+    /* Editing looks as Obsidian's Live Preview does (2026-11-09): no box around the block, the text staying exactly where
+       it was, and only the line the caret is on lit (a box drawn round the block first clicked kept growing with Enter). */
+    .sage-editing > .sage-live { margin: 0; padding: 0; background: none; box-shadow: none; border-radius: 0; }
+    .sage-live .cm-line.cm-active { background: var(--sage-active-line, rgba(127, 127, 127, .07)); box-shadow: -8px 0 0 var(--sage-active-line, rgba(127, 127, 127, .07)), 8px 0 0 var(--sage-active-line, rgba(127, 127, 127, .07)); border-radius: 2px; }
     .sage-live, .sage-live .cm-editor, .sage-live .cm-scroller, .sage-live .cm-contentContainer { height: auto; margin: 0; padding: 0 !important; overflow: visible; background: none; border: none; }
     .sage-live { display: block; width: 100%; min-width: 0; }
     .sage-live .cm-editor, .sage-live .cm-scroller, .sage-live .cm-contentContainer, .sage-live .cm-content { display: block !important; width: 100% !important; min-width: 0; flex: none !important; position: static; }
