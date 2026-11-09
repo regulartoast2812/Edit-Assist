@@ -307,9 +307,9 @@ enum SageUndo: Equatable {
 
 @MainActor
 extension SageDesk {
-    /// The vault he works in: the one you connected, else the one the open topic's folder is in.
-    var vault: URL? {
-        if !vaultPath.isEmpty { return URL(fileURLWithPath: vaultPath, isDirectory: true) }
+    /// The vault he works in: the Notes stage's (chosen there or connected from the chat), else the one a topic's folder is in.
+    var workVault: URL? {
+        if let chosen = vault.vault { return chosen }
         return folder.flatMap(Study.vault(of:)) ?? topics.lazy.compactMap { $0.folder.isEmpty ? nil : Study.vault(of: URL(fileURLWithPath: $0.folder, isDirectory: true)) }.first
     }
 
@@ -320,7 +320,7 @@ extension SageDesk {
 
     /// The vault's notes and folders, read off the main thread.
     func vaultContents() async -> (notes: [Study.VaultNote], folders: [String]) {
-        guard let vault else { return ([], []) }
+        guard let vault = workVault else { return ([], []) }
         return await Task.detached { Study.contents(ofVault: vault) }.value
     }
 
@@ -358,7 +358,7 @@ extension SageDesk {
         }
 
         for action in actions {
-            let vault = self.vault
+            let vault = workVault
             do {
                 switch action.kind {
                 case "connect_vault":
@@ -367,8 +367,9 @@ extension SageDesk {
                         say(known.isEmpty ? "Couldn't connect a vault: Obsidian lists none on this Mac" : "Couldn't tell which vault “%@” is", action.value); continue
                     }
                     guard FileManager.default.fileExists(atPath: found.path) else { say("Couldn't connect “%@”: its folder isn't there (%@)", found.name, found.path); continue }
-                    undo.append(.vault(from: vaultPath))
-                    vaultPath = found.path
+                    let before = self.vault.vault?.path ?? ""
+                    guard self.vault.use(URL(fileURLWithPath: found.path, isDirectory: true)) else { say("Couldn't connect “%@”: it isn't an Obsidian vault (no .obsidian folder)", found.name); continue }
+                    undo.append(.vault(from: before))
                     contents = await vaultContents()
                     say("Connected your vault “%@”", found.name)
 
@@ -465,7 +466,7 @@ extension SageDesk {
                         try FileManager.default.moveItem(at: file, to: moved)
                         undo.append(.file(.moved(from: file, to: moved)))
                         contents = await vaultContents()
-                        if note.path == self.note.map({ Study.relative($0, to: vault) }) { self.note = moved }
+                        self.vault.repath([note.path: Study.relative(moved, to: vault)])
                         say("Moved “%@” to %@", note.title, path.isEmpty ? L("the vault") : path)
                     default: // rename
                         let place = file.deletingLastPathComponent()
@@ -491,7 +492,7 @@ extension SageDesk {
                             if try change(otherFile, { Study.relinked($0, from: old, to: new) }) { relinked += 1 }
                         }
                         contents = await vaultContents()
-                        if self.note?.standardizedFileURL.path == file.standardizedFileURL.path { self.note = renamed }
+                        self.vault.repath([note.path: Study.relative(renamed, to: vault)])
                         say(relinked == 0 ? "Renamed “%@” to “%@”" : "Renamed “%@” to “%@” (links in %@ notes follow it)", old, new, relinked)
                     }
                 default: continue
@@ -512,11 +513,11 @@ extension SageDesk {
             switch step {
             case let .file(change):
                 if !Study.undo(change) { left.append(change.file.lastPathComponent) }
-                if case let .moved(from, to) = change, note?.standardizedFileURL.path == to.standardizedFileURL.path { note = from }
+                if case let .moved(from, to) = change, let root = workVault { vault.repath([Study.relative(to, to: root): Study.relative(from, to: root)]) }
             case let .topicAdded(topic): remove(topic: topic)
             case let .topicRenamed(topic, from): rename(topic: topic, to: from)
             case let .topicFolder(topic, from): setFolder(from, for: topic)
-            case let .vault(from): vaultPath = from
+            case let .vault(from): if !from.isEmpty { vault.use(URL(fileURLWithPath: from, isDirectory: true)) }
             }
         }
         reload()

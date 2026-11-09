@@ -19,8 +19,9 @@ import Security
     @Published var stage = UserDefaults.standard.string(forKey: "sageStage") ?? UserDefaults.standard.string(forKey: "basilStage") ?? "research" {
         didSet { UserDefaults.standard.set(stage, forKey: "sageStage") }
     }
-    /// The note open in the notes stage.
-    @Published var note: URL?
+    /// The notes stage: your vault, its tree and the files open in tabs (SageVaultDesk, 2026-11-09). The note shown is its tab's.
+    let vault = SageVaultDesk(place: SageDesk.place)
+    var note: URL? { vault.note }
     /// Your vault's look in Obsidian (theme, accent, fonts, snippets), read with the topic's folder.
     @Published private(set) var look = Study.Look()
     @Published private(set) var searching = false
@@ -58,10 +59,6 @@ import Security
         didSet { UserDefaults.standard.set(playerExpanded, forKey: "sagePlayerExpanded") }
     }
 
-    /// The vault you had Sage connect from the chat (Obsidian's list); empty: the one the topic's folder is in (SageActions.swift).
-    @Published var vaultPath = UserDefaults.standard.string(forKey: "sageVault") ?? "" {
-        didSet { UserDefaults.standard.set(vaultPath, forKey: "sageVault") }
-    }
     /// What he did for each of his messages, to undo it (this run only).
     @Published var undos: [UUID: [SageUndo]] = [:]
     var busy: Bool { searching || thinking || picking || adding || !writing.isEmpty }
@@ -99,6 +96,7 @@ import Security
             for index in saved.indices where saved[index].topic == nil { saved[index].topic = first }
             saveSaved()
         }
+        vault.desk = self
     }
 
     // MARK: Topics
@@ -107,7 +105,7 @@ import Security
         guard topics.contains(where: { $0.id == id }) else { return }
         topicID = id
         UserDefaults.standard.set(id.uuidString, forKey: "sageTopic")
-        note = nil; recipes = []; results = []; resultsFor = ""
+        recipes = []; results = []; resultsFor = ""
         reload()
     }
 
@@ -139,6 +137,13 @@ import Security
         guard let index = topics.firstIndex(where: { $0.id == id }) else { return }
         topics[index].folder = path; saveTopics()
         if id == topic.id { reload() }
+    }
+
+    /// The open topic's notes are written in this folder from now on ("Write … notes here" on a folder in the vault's tree).
+    func use(folder: URL) {
+        guard let index = topics.firstIndex(where: { $0.id == topic.id }) else { return }
+        topics[index].folder = folder.path; saveTopics()
+        reload()
     }
 
     private func saveTopics() {
@@ -233,7 +238,7 @@ import Security
                     let topic = self.topic
                     let prompt = Study.chatPrompt(chat: chat, recipes: recipes, folder: folder != nil, canSearch: Self.key != nil, found: found, searched: searched,
                                                   read: texts, last: last, topic: topic)
-                        + Study.abilitiesPrompt(vault: vault?.path ?? "", known: known, topics: topics, current: topic, folders: contents.folders,
+                        + Study.abilitiesPrompt(vault: workVault?.path ?? "", known: known, topics: topics, current: topic, folders: contents.folders,
                                                 findWords: findWords, found: hits, read: vaultRead, done: toldDone, last: last)
                     let answer = try await HelperBrain.ask(prompt, schema: Study.chatSchema)
                     let reply = Study.reply(from: answer)
@@ -252,7 +257,7 @@ import Security
                             read += wanted; texts += more
                             looked = true
                         }
-                        if let vault {
+                        if let vault = workVault {
                             let words = (answer["find"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                             if !words.isEmpty, words != findWords {
                                 let notes = contents.notes
@@ -280,7 +285,7 @@ import Security
                     let known = { (id: String) in found?.first { $0.id == id } ?? chat.reversed().lazy.flatMap(\.videos).first { $0.id == id } }
                     let shown = reply.show.compactMap(known)
                     for video in reply.save.compactMap(known).reversed() { save(video) }
-                    let readPaths = read.map(\.file.path) + vaultRead.compactMap { note in vault.map { $0.appendingPathComponent(note.path).path } }
+                    let readPaths = read.map(\.file.path) + vaultRead.compactMap { note in workVault.map { $0.appendingPathComponent(note.path).path } }
                     var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? (shownDone.isEmpty ? L("I couldn't find an answer to that.") : L("Done.")) : reply.text,
                                                 videos: Array(shown.prefix(6)), notes: readPaths)
                     message.done = shownDone.isEmpty ? nil : shownDone
@@ -503,13 +508,14 @@ import Security
         let file = folder.appendingPathComponent(Study.fileName(for: title, taken: taken))
         try Data(text.utf8).write(to: file, options: .withoutOverwriting)
         written = file
-        note = file; stage = "notes"
+        vault.show(file)
+        if vault.inVault(file) != nil { vault.reload() }
         reload()
         return file
     }
 
     /// A note opened in the notes stage.
-    func show(_ file: URL) { note = file; stage = "notes" }
+    func show(_ file: URL) { vault.show(file) }
 
     /// Where a note stands, written into its header.
     func set(_ status: String, for entry: Study.Entry) {
