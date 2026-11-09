@@ -215,10 +215,10 @@ struct SageRunCard: View {
                 SageFlow(spacing: 6) {
                     ForEach(paths, id: \.self) { path in
                         if link {
-                            Button { desk.vault.show(path: path) } label: { Label(SageViewer.title(URL(fileURLWithPath: path)), systemImage: SageViewer.symbol(URL(fileURLWithPath: path))) }
+                            Button { desk.vault.show(path: path) } label: { Label(SageViewer.title(URL(fileURLWithPath: path)), systemImage: SageViewer.symbol(URL(fileURLWithPath: path))).lineLimit(1).truncationMode(.middle) }
                                 .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(accent).help(path)
                         } else {
-                            Text(SageViewer.title(URL(fileURLWithPath: path))).font(.system(size: 10)).strikethrough().foregroundStyle(.secondary).help(path)
+                            Text(SageViewer.title(URL(fileURLWithPath: path))).font(.system(size: 10)).strikethrough().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(path)
                         }
                     }
                 }
@@ -227,14 +227,20 @@ struct SageRunCard: View {
     }
 }
 
-/// Views laid out in rows, wrapping to the next row when the width runs out.
+/// Views laid out in rows, wrapping to the next row when the width runs out; one wider than a whole row is offered the
+/// row's width, so a long name shortens (…) instead of running past the edge (2026-11-09).
 struct SageFlow: Layout {
     var spacing: CGFloat = 6
+    static func size(_ view: LayoutSubview, _ width: CGFloat) -> CGSize {
+        let ideal = view.sizeThatFits(.unspecified)
+        guard width.isFinite, ideal.width > width else { return ideal }
+        return view.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0, widest: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = Self.size(view, width)
             if x > 0 && x + size.width > width { y += row + spacing; x = 0; row = 0 }
             x += size.width + spacing; row = max(row, size.height); widest = max(widest, x - spacing)
         }
@@ -243,7 +249,7 @@ struct SageFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, row: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = Self.size(view, bounds.width)
             if x > bounds.minX && x + size.width > bounds.maxX { y += row + spacing; x = bounds.minX; row = 0 }
             view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing; row = max(row, size.height)

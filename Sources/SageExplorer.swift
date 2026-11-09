@@ -480,19 +480,26 @@ struct SageExplorer: View {
         let isDrop = dropTarget.map { Study.same($0, item.path) && item.folder } ?? false
         let isCursor = treeFocused && cursor == key
         let rest: Color = isMarked ? accent.opacity(0.22) : isPicked ? accent.opacity(0.13) : (item.folder ? look.tint(item.path) : nil) ?? .clear
+        // The marks (open, picked, hover, drop, the flash) start where the item does, after the folder lines, as
+        // Obsidian's do (2026-11-09: they ran under the lines to the tree's left edge).
+        let marks = ZStack {
+            rest
+            hovered == key || isCursor ? Color.white.opacity(0.06) : .clear
+            isDrop ? accent.opacity(0.2) : .clear
+            flashKey == key ? accent.opacity(0.45 * flashLevel) : .clear
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(isDrop ? accent : .clear))
         return Button { click(row) } label: {
             HStack(spacing: 0) {
                 if row.section == nil { guides(row, open: open) }
                 rowContent(row, item)
+                    .padding(.trailing, 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .background(marks.padding(.leading, -4))
             }
-            .padding(.leading, 4).padding(.trailing, 6)
+            .padding(.leading, 4)
             .frame(maxHeight: .infinity)
-            .background(rest)
-            .background(hovered == key || isCursor ? Color.white.opacity(0.06) : .clear)
-            .background(isDrop ? accent.opacity(0.2) : .clear)
-            .overlay(flashKey == key ? accent.opacity(0.45 * flashLevel) : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(isDrop ? accent : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
