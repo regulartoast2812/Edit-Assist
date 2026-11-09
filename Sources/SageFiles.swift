@@ -19,9 +19,22 @@ extension Study {
     static func relink(_ items: [VaultItem], moves: [String: String], read: (String) -> String?) -> [(path: String, text: String)] {
         let after = items.map { item -> VaultItem in var moved = item; moved.path = movedPath(item.path, moves); return moved }
         var changed: [(path: String, text: String)] = []
+        // A note that doesn't move and doesn't mention anything that moved can't link to it: left alone without parsing.
+        var names: Set<String> = []
+        for old in moves.keys {
+            let last = (old as NSString).lastPathComponent
+            for name in [last, (last as NSString).deletingPathExtension] where !name.isEmpty {
+                names.insert(name.lowercased())
+                if let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) { names.insert(encoded.lowercased()) }
+            }
+        }
         for note in items where !note.folder && note.ext == ".md" {
             guard let text = read(note.path) else { continue }
             let notePath = note.path, noteAfter = movedPath(notePath, moves)
+            if noteAfter == notePath {
+                let lowered = text.lowercased()
+                if !names.contains(where: { lowered.contains($0) }) { continue }
+            }
             var result = substitute(#"(!?)\[\[([^\]\|#\^\n]*)([#\^][^\]\|\n]*)?(\|[^\]\n]*)?\]\]"#, in: text) { g in
                 let target = g[2]
                 if target.trimmingCharacters(in: .whitespaces).isEmpty { return g[0] }

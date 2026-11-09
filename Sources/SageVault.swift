@@ -29,7 +29,7 @@ extension Study {
             self.path = path; self.folder = folder; self.modified = modified; self.created = created
         }
 
-        var name: String { path.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? path }
+        var name: String { path.lastIndex(of: "/").map { String(path[path.index(after: $0)...]) } ?? path }
         var parent: String { path.lastIndex(of: "/").map { String(path[..<$0]) } ?? "" }
         /// The extension with its dot, lower case (".md"); "" for a folder or a name without one.
         var ext: String { folder ? "" : Study.extensionOf(name) }
@@ -100,9 +100,21 @@ extension Study {
 
     /// A setting from the vault's .obsidian/app.json (nil when it keeps none, as Obsidian's default applies).
     static func appSetting(_ vault: URL, _ name: String) -> Any? {
-        guard let data = try? Data(contentsOf: vault.appendingPathComponent(".obsidian/app.json")) else { return nil }
-        return json(data)?[name]
+        settingsFile(vault.appendingPathComponent(".obsidian/app.json"))?[name]
     }
+
+    /// A JSON settings file read once and kept until it changes on disk (2026-11-09: the tree's menus read app.json and
+    /// templates.json on every redraw, from Google Drive).
+    static func settingsFile(_ file: URL) -> [String: Any]? {
+        let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        settingsLock.lock(); defer { settingsLock.unlock() }
+        if let kept = settingsKept[file.path], kept.modified == modified { return kept.value }
+        let value = (try? Data(contentsOf: file)).flatMap(json)
+        settingsKept[file.path] = (modified, value)
+        return value
+    }
+    private nonisolated(unsafe) static var settingsKept: [String: (modified: Date, value: [String: Any]?)] = [:]
+    private static let settingsLock = NSLock()
 
     /// Names compared as Obsidian (and a person) does: case aside, numbers by value ("K2" before "K10"). Negative when
     /// `a` comes first.
@@ -163,6 +175,35 @@ extension Study {
     /// The file a [[link]] or ![[embed]] means, as Obsidian finds it: "#heading" and "|alias" aside; a bare name is a note
     /// ("Pho" is Pho.md) or a file with its extension, wherever it is, the one nearest the linking note first; a path
     /// ("Recipes/Pho") matches from the vault's top, then as the end of a path. Nil when nothing matches.
+    /// The vault's files by lower-cased name and path, for `resolve`. Kept for the last few lists of items it was asked
+    /// about (each list told apart by its storage, size and the length of its paths), so a page or a relink makes it once.
+    final class NameIndex: @unchecked Sendable {
+        let byName: [String: [VaultItem]]
+        let byPath: [String: VaultItem]
+        init(_ items: [VaultItem]) {
+            var names: [String: [VaultItem]] = [:], paths: [String: VaultItem] = [:]
+            for item in items where !item.folder {
+                names[item.name.lowercased(), default: []].append(item)
+                paths[item.path.lowercased()] = item
+            }
+            byName = names; byPath = paths
+        }
+
+        private nonisolated(unsafe) static var kept: [(key: [Int], index: NameIndex)] = []
+        private static let lock = NSLock()
+
+        static func of(_ items: [VaultItem]) -> NameIndex {
+            let address = items.withUnsafeBufferPointer { Int(bitPattern: $0.baseAddress) }
+            let key = [address, items.count, items.reduce(0) { $0 &+ $1.path.utf8.count &* 31 &+ ($1.folder ? 1 : 0) }]
+            lock.lock(); defer { lock.unlock() }
+            if let found = kept.first(where: { $0.key == key }) { return found.index }
+            let made = NameIndex(items)
+            kept.insert((key, made), at: 0)
+            if kept.count > 4 { kept.removeLast() }
+            return made
+        }
+    }
+
     static func resolve(_ link: String, in items: [VaultItem], from: String? = nil) -> VaultItem? {
         var target = String(link.split(separator: "|", omittingEmptySubsequences: false).first ?? "")
         target = String(target.split(separator: "#", omittingEmptySubsequences: false).first ?? "")
@@ -170,14 +211,16 @@ extension Study {
         while target.hasPrefix("/") { target.removeFirst() }
         if target.isEmpty { return nil }
         target = target.removingPercentEncoding ?? target
-        let files = items.filter { !$0.folder }
+        // Looked up in an index of the vault's files by name and path, made once per list of items (2026-11-09: scanning
+        // every file for every link made moving a file, which relinks the whole vault, take seconds).
+        let index = NameIndex.of(items)
         let hasExtension = !extensionOf((target as NSString).lastPathComponent).isEmpty && !target.hasSuffix(".")
         let names = hasExtension ? [target, target + ".md"] : [target + ".md"]
         for name in names {
-            if name.contains("/"), let exact = files.first(where: { same($0.path, name) }) { return exact }
+            if name.contains("/"), let exact = index.byPath[name.lowercased()] { return exact }
             let bare = name.lastIndex(of: "/").map { String(name[name.index(after: $0)...]) } ?? name
             let suffix = "/" + name.lowercased()
-            let matches = files.filter { same($0.name, bare) && (!name.contains("/") || $0.path.lowercased().hasSuffix(suffix)) }
+            let matches = (index.byName[bare.lowercased()] ?? []).filter { !name.contains("/") || $0.path.lowercased().hasSuffix(suffix) }
             if matches.isEmpty { continue }
             let near = from.map { VaultItem(path: $0, folder: false).parent } ?? ""
             return matches.min { a, b in

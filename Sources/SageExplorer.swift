@@ -862,11 +862,7 @@ struct SageExplorer: View {
     }
 
     /// The notes in your Templates folder (core Templates' templates.json).
-    func templates() -> [Study.VaultItem] {
-        guard let folder = vault.templatesFolder else { return [] }
-        return vault.items.filter { !$0.folder && $0.ext == ".md" && $0.path.lowercased().hasPrefix(folder.lowercased() + "/") }
-            .sorted { Study.natural($0.title, $1.title) < 0 }
-    }
+    func templates() -> [Study.VaultItem] { vault.templateNotes() }
 
     /// A new note: in the folder given, else where the vault puts new notes (app.json newFileLocation), opened and named in place.
     func newNoteHere(_ folder: String?, template: String? = nil) {
