@@ -119,6 +119,7 @@ struct FileChange: Identifiable {
     init(place: URL) {
         settingsFile = place.appendingPathComponent("notes.json")
         settings = (try? Data(contentsOf: settingsFile)).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) } ?? Settings()
+        shownRecent = settings.recent
         tabs = settings.tabs.filter { !$0.isEmpty }.map { SageTab(file: URL(fileURLWithPath: $0)) }
         activeTab = min(max(0, settings.activeTab), max(0, tabs.count - 1))
     }
@@ -364,6 +365,11 @@ struct FileChange: Identifiable {
         return here
     }
 
+    /// The recent notes as the tree shows them: taken when you come to the Notes stage and kept while you move from note
+    /// to note, so the list above the tree doesn't reorder (and the tree jump down a row) on every click (2026-11-09).
+    @Published private(set) var shownRecent: [String] = []
+    func refreshRecent() { if shownRecent != settings.recent { shownRecent = settings.recent } }
+
     /// A file you opened, first among the recent ones (eight kept).
     private func seen(_ path: String) {
         if let first = settings.recent.first, Study.same(first, path) { return }
@@ -512,6 +518,7 @@ struct FileChange: Identifiable {
             tabs[index].forward = tabs[index].forward.map(moved)
         }
         settings.recent = settings.recent.map { Study.movedPath($0, moves) }
+        shownRecent = shownRecent.map { Study.movedPath($0, moves) }
         settings.pinned = settings.pinned.map { Study.movedPath($0, moves) }
         settings.expanded = settings.expanded.map { Study.movedPath($0, moves) }
         if !settings.folderColors.isEmpty {
@@ -532,7 +539,7 @@ struct FileChange: Identifiable {
             if let before = tabs[index].back.popLast() { tabs[index].file = before; tabs[index].forward = [] } else { closing.append(tabs[index].id) }
         }
         settings.pinned.removeAll(where: gone)
-        settings.recent.removeAll(where: gone)
+        settings.recent.removeAll(where: gone); shownRecent.removeAll(where: gone)
         if !closing.isEmpty { closeTabs(closing) } else {
             if let tab { reveal(tab.file) }
             save()

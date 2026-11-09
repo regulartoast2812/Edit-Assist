@@ -56,7 +56,7 @@ struct SageExplorer: View {
         .padding(10)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .overlay(alignment: .bottom) { toastView }
-        .onAppear { look.read(vault); listen() }
+        .onAppear { look.read(vault); listen(); vault.refreshRecent() }
         .onDisappear { monitors.forEach(NSEvent.removeMonitor); monitors = [] }
         .onChange(of: vault.version) { _, _ in look.read(vault) }
         .onChange(of: vault.settings.folderColors) { _, _ in look.read(vault) }
@@ -214,7 +214,7 @@ struct SageExplorer: View {
     func cachedRows() -> [Row] {
         let s = vault.settings
         let key = [String(vault.version), vault.sort, "\(s.foldersFirst)\(s.notesOnly)\(s.pinnedOpen)\(s.recentOpen)\(vault.reading)\(searchText)",
-                   s.expanded.joined(separator: "\u{1}"), s.pinned.joined(separator: "\u{1}"), s.recent.joined(separator: "\u{1}"),
+                   s.expanded.joined(separator: "\u{1}"), s.pinned.joined(separator: "\u{1}"), vault.shownRecent.joined(separator: "\u{1}"),
                    search, filter, String(textHits?.count ?? -1), textHits?.first?.item.path ?? "", desk.recipes.map(\.id).joined(separator: "\u{1}"),
                    desk.recipes.map(\.status).joined(), desk.folder?.path ?? ""].joined(separator: "\u{2}")
         if let cached = look.rowCache, cached.key == key { return cached.rows }
@@ -236,7 +236,7 @@ struct SageExplorer: View {
         let words = search.trimmingCharacters(in: .whitespaces)
         if !words.isEmpty { return found(words) }
         section(&rows, "pinned", L("PINNED"), "pin", vault.settings.pinned, vault.pinnedOpen)
-        section(&rows, "recent", L("RECENT"), "clock", Array(vault.settings.recent.filter { !vault.isPinned($0) }.prefix(6)), vault.recentOpen)
+        section(&rows, "recent", L("RECENT"), "clock", Array(vault.shownRecent.filter { !vault.isPinned($0) }.prefix(6)), vault.recentOpen)
         func walk(_ folder: String, _ depth: Int, _ ancestors: [String]) {
             for item in vault.children(of: folder) {
                 if item.folder {

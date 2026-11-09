@@ -57,7 +57,9 @@ import WebKit
 
     private func answer(_ task: WKURLSchemeTask, url: URL, data: Data, type: String) {
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                                       headerFields: ["Content-Type": type, "Content-Length": "\(data.count)", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache"])!
+                                       headerFields: ["Content-Type": type, "Content-Length": "\(data.count)", "Access-Control-Allow-Origin": "*",
+                                                    // Obsidian's own files never change within a version: kept, not fetched again for every note.
+                                                    "Cache-Control": url.path.hasPrefix("/obsidian/") ? "max-age=86400, immutable" : "no-cache"])!
         task.didReceive(response)
         task.didReceive(data)
         task.didFinish()
