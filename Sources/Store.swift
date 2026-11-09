@@ -925,7 +925,13 @@ final class Store: ObservableObject {
         log("Script: removed “\(tab.name)” from “\(project.name)”")
     }
     func resetContext() { attachments = []; scriptDraft = nil; showScriptDraft = false; observation = nil; proposal = nil; previous = nil; activity = []; detect() }
-    func refreshPermissions() { screenAllowed = desktop.canCapture; controlAllowed = desktop.canControl }
+    /// Written only when they change: every write to a published value redraws the whole window, and this runs every
+    /// 1.5 s from `detect()` (2026-11-09: it kept every page, Sage's notes most of all, re-laying itself out).
+    func refreshPermissions() {
+        let screen = desktop.canCapture, control = desktop.canControl
+        if screenAllowed != screen { screenAllowed = screen }
+        if controlAllowed != control { controlAllowed = control }
+    }
 
     /// Premiere's window for a run when none is followed yet, or a message saying which thing is missing:
     /// the Screen Recording permission (which macOS applies only after the app is reopened), Premiere
@@ -1057,18 +1063,21 @@ final class Store: ObservableObject {
         Task {
             defer { detecting = false }
             refreshPermissions()
+            // Each value is written only when it changed (see refreshPermissions): this runs every 1.5 s.
+            @MainActor func note(_ text: String) { if detectNote != text { detectNote = text } }
             guard screenAllowed else {
-                target = nil; detectNote = "Enable Screen recording so Edit Assist can see your editor."; return
+                if target != nil { target = nil }
+                note("Enable Screen recording so Edit Assist can see your editor."); return
             }
             do {
                 let found = try await desktop.detectTarget()
                 guard !running else { return }
                 // A capture of a window we are no longer pointed at would mislead both you and the model.
                 if found?.id != target?.id { observation = nil; proposal = nil; previous = nil }
-                target = found
-                detectNote = found == nil ? "Open \(TargetApp.label) and click its window." : ""
+                if found?.id != target?.id || found?.frame != target?.frame || found?.title != target?.title || found?.app != target?.app { target = found }
+                note(found == nil ? "Open \(TargetApp.label) and click its window." : "")
                 if let found, projects[index].app != found.app { projects[index].app = found.app; save() }
-            } catch { detectNote = error.localizedDescription }
+            } catch { note(error.localizedDescription) }
         }
     }
     func capture() {
