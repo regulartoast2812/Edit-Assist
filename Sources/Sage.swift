@@ -63,7 +63,6 @@ struct SagePage: View {
     @State private var own = ""
     @State private var addingKey = false
     @State private var width: CGFloat = 1400
-    @State private var noteHTML = ""
     /// The topic sheet: a new topic, or the open one renamed.
     @State private var topicSheet = false
     @State private var renaming = false
@@ -108,7 +107,7 @@ struct SagePage: View {
                     Label(L("Research"), systemImage: "magnifyingglass").tag("research")
                     Label(L("Notes"), systemImage: "doc.richtext").tag("notes")
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
-                Text(desk.stage == "notes" ? L("Your notes on “%@”, read as in Obsidian", desk.topic.name) : L("Find videos and pages, save the good ones, write them up"))
+                Text(desk.stage == "notes" ? (desk.vault.vault.map { L("Your vault “%@”, read as in Obsidian", $0.lastPathComponent) } ?? L("Your notes on “%@”, read as in Obsidian", desk.topic.name)) : L("Find videos and pages, save the good ones, write them up"))
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
             }
@@ -413,136 +412,8 @@ struct SagePage: View {
 
     // MARK: Notes stage
 
-    @ViewBuilder var notesStage: some View {
-        if desk.folder == nil {
-            panel(notesTitle, trailing: { EmptyView() }) {
-                Text(md: L("Choose the folder in your vault for this topic. Sage reads the notes in it and writes new ones there; he never writes anywhere else."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button(L("Choose the topic's folder…")) { _ = desk.chooseFolder() }
-            }
-        } else if width >= 1100 {
-            HStack(alignment: .top, spacing: 14) {
-                noteList.frame(width: 270)
-                viewer.frame(maxWidth: .infinity)
-            }
-        } else {
-            VStack(spacing: 14) { noteList; viewer }
-        }
-    }
-
-    var shownRecipes: [Study.Entry] {
-        desk.recipes.filter { entry in
-            (filter.isEmpty || entry.status == filter)
-                && (search.isEmpty || entry.title.localizedCaseInsensitiveContains(search) || entry.tags.contains { $0.localizedCaseInsensitiveContains(search) }
-                    || entry.cuisine.localizedCaseInsensitiveContains(search))
-        }
-    }
-
-    var notesTitle: String { desk.topic.kind == .recipes ? L("YOUR RECIPES") : L("YOUR NOTES") }
-
-    /// The topic's notes as a list, like Obsidian's file list: the picture, title, status and cuisine (or when it was added).
-    var noteList: some View {
-        let shown = shownRecipes
-        return panel(notesTitle, trailing: { Text("\(shown.count)").font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary) }) {
-            TextField(L("Search your notes"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
-            Picker("", selection: $filter) {
-                Text(L("All")).tag("")
-                ForEach(desk.topic.statuses, id: \.self) { Text(L(Self.statusName($0))).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden().controlSize(.small)
-            if desk.recipes.isEmpty {
-                Text(L("No notes in this folder yet. Find something worth keeping, or write your own.")).font(.system(size: 11)).foregroundStyle(.secondary)
-            } else if shown.isEmpty {
-                Text(L("No note matches.")).font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(shown) { entry in
-                        let open = entry.file == desk.note
-                        Button { desk.show(entry.file) } label: {
-                            HStack(spacing: 8) {
-                                ZStack {
-                                    if let picture = entry.picture {
-                                        AsyncImage(url: picture) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
-                                    } else {
-                                        accent.opacity(0.18).overlay(Image(systemName: desk.topic.kind == .recipes ? "fork.knife" : "doc.text").font(.system(size: 11)).foregroundStyle(accent))
-                                    }
-                                }.frame(width: 52, height: 30).clipShape(RoundedRectangle(cornerRadius: 4))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.title).font(.system(size: 11, weight: open ? .semibold : .medium)).lineLimit(1)
-                                    HStack(spacing: 4) {
-                                        if !entry.status.isEmpty { Circle().fill(Self.statusColor(entry.status)).frame(width: 6, height: 6) }
-                                        Text(([entry.status.isEmpty ? "" : L(Self.statusName(entry.status)), desk.topic.kind == .recipes ? entry.cuisine : entry.added]).filter { !$0.isEmpty }.joined(separator: " · "))
-                                            .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(5)
-                            .background(open ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }.frame(height: 560)
-        }
-    }
-
-    /// The open note, drawn as Obsidian draws it with your vault's look, and what can be done with it.
-    @ViewBuilder var viewer: some View {
-        let entry = desk.recipes.first { $0.file == desk.note }
-        VStack(alignment: .leading, spacing: 8) {
-            if let entry {
-                HStack(spacing: 10) {
-                    Text(entry.file.deletingPathExtension().lastPathComponent).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    Spacer(minLength: 6)
-                    Menu {
-                        ForEach(desk.topic.statuses, id: \.self) { status in Button(L(Self.statusName(status))) { desk.set(status, for: entry) } }
-                    } label: { Label(entry.status.isEmpty ? L("No status") : L(Self.statusName(entry.status)), systemImage: "circle.fill") }
-                    .menuStyle(.borderlessButton).fixedSize().font(.system(size: 11)).tint(Self.statusColor(entry.status))
-                    Button { desk.send(desk.topic.kind == .recipes ? L("Tell me about my recipe “%@”: what's in it, and tips for making it.", entry.title)
-                                                                   : L("Tell me about my note “%@”: the main points, and what to look into next.", entry.title)) } label: { Image(systemName: "bubble.left") }
-                        .buttonStyle(.plain).help(L("Ask Sage about it")).disabled(desk.thinking)
-                    if let source = URL(string: entry.source), source.scheme?.hasPrefix("http") == true {
-                        Button { NSWorkspace.shared.open(source) } label: { Image(systemName: Study.videoID(of: entry.source) == nil ? "safari" : "play.rectangle") }
-                            .buttonStyle(.plain).help(Study.videoID(of: entry.source) == nil ? L("Open the page") : L("Watch the video"))
-                    }
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) } label: { Image(systemName: "folder") }.buttonStyle(.plain).help(L("Show in Finder"))
-                    Button { open(entry.file) } label: { Label(L("Open in Obsidian"), systemImage: "arrow.up.forward.app") }.controlSize(.small)
-                }.foregroundStyle(.secondary)
-                NoteView(html: noteHTML, link: follow)
-                    .frame(height: 640).clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.06)))
-                    .task(id: "\(entry.file.path)|\(entry.modified.timeIntervalSince1970)|\(desk.look.css.count)|\(desk.look.accent)|\(scheme == .dark)") { await render(entry.file) }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.richtext").font(.system(size: 28)).foregroundStyle(.secondary)
-                    Text(desk.recipes.isEmpty ? L("Notes you write show here, read as in Obsidian.") : L("Choose a note to read it."))
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, minHeight: 300)
-            }
-        }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    /// The note read off the main thread and made into its page.
-    func render(_ file: URL) async {
-        let look = desk.look, dark = desk.look.dark ?? (scheme == .dark)
-        noteHTML = await Task.detached { Study.page(note: (try? String(contentsOf: file, encoding: .utf8)) ?? "", look: look, dark: dark) }.value
-    }
-
-    /// A link pressed in the note: a [[wikilink]] opens that recipe here, a web link in the browser.
-    func follow(_ url: URL) {
-        if url.scheme == "sage-note" {
-            let name = url.absoluteString.dropFirst("sage-note:".count).removingPercentEncoding ?? ""
-            let bare = (name as NSString).lastPathComponent.replacingOccurrences(of: ".md", with: "")
-            if let entry = Study.named([bare], in: desk.recipes, count: 1).first ?? desk.recipes.first(where: { $0.file.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(bare) == .orderedSame }) {
-                desk.show(entry.file)
-            }
-        } else if ["http", "https"].contains(url.scheme ?? "") {
-            NSWorkspace.shared.open(url)
-        }
-    }
+    /// Your vault as Obsidian's explorer and reading view show it, the files open in tabs (SageNoteView.swift, 2026-11-09).
+    var notesStage: some View { SageNotesStage(desk: desk, vault: desk.vault, filter: $filter) }
 
     static func statusName(_ status: String) -> String {
         ["to try": "To try", "made": "Made", "favourite": "Favourite", "to read": "To read", "read": "Read", "key": "Key"][status] ?? status
@@ -747,44 +618,6 @@ struct SagePage: View {
             Image(systemName: good == nil ? "info.circle" : good == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(good == nil ? Color.secondary : good == true ? accent : .orange)
             Text(md: text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-/// A note's page in a web view, as Obsidian's reading view is one: links go to `link` instead of loading here.
-struct NoteView: NSViewRepresentable {
-    let html: String
-    let link: (URL) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(link: link) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        view.navigationDelegate = context.coordinator
-        view.setValue(false, forKey: "drawsBackground")
-        return view
-    }
-
-    func updateNSView(_ view: WKWebView, context: Context) {
-        context.coordinator.link = link
-        guard context.coordinator.shown != html else { return }
-        context.coordinator.shown = html
-        view.loadHTMLString(html, baseURL: nil)
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        var link: (URL) -> Void
-        var shown = ""
-        init(link: @escaping (URL) -> Void) { self.link = link }
-
-        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-            if action.navigationType == .linkActivated, let url = action.request.url {
-                decisionHandler(.cancel)
-                if url.fragment != nil, url.scheme == "about" { return }
-                link(url)
-            } else {
-                decisionHandler(.allow)
-            }
         }
     }
 }

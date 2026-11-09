@@ -230,13 +230,7 @@ extension SageVaultDesk {
         guard let change = changes.popLast() else { return false }
         var back: [String: String] = [:], skipped = 0
         do {
-            for edit in change.edits {
-                let file = full(edit.file)
-                guard FileManager.default.fileExists(atPath: file.path) else { skipped += 1; continue }
-                let now = try Study.readNote(file)
-                guard now.text == edit.after else { skipped += 1; continue }
-                try Study.writeNote(file, text: edit.before, was: now, keep: editsKept)
-            }
+            for edit in change.edits where try !Study.undoEdit(full(edit.file), before: edit.before, after: edit.after, keep: editsKept) { skipped += 1 }
             for (from, to) in change.moves.reversed() {
                 if !exists(to) || (exists(from) && !Study.same(from, to)) { skipped += 1; continue }
                 try relocate(to, from)

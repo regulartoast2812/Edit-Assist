@@ -133,6 +133,13 @@ extension Checks {
         check(desk.note?.lastPathComponent == "K10.md" && desk.canReopen, "Closing the shown tab shows the one to its right")
         desk.reopenClosedTab()
         check(desk.note?.lastPathComponent == "K2.md" && desk.tabs.count == 3, "A closed tab opens again where it was")
+        try put("Undo/a.md", "after")
+        let undone = try Study.undoEdit(vault.appendingPathComponent("Undo/a.md"), before: "before", after: "after", keep: Study.editsKept(in: place))
+        try put("Undo/b.md", "changed since")
+        let left = try Study.undoEdit(vault.appendingPathComponent("Undo/b.md"), before: "before", after: "after", keep: Study.editsKept(in: place))
+        check(undone && !left && (try? String(contentsOf: vault.appendingPathComponent("Undo/a.md"), encoding: .utf8)) == "before"
+              && (try? String(contentsOf: vault.appendingPathComponent("Undo/b.md"), encoding: .utf8)) == "changed since",
+              "A note's edit is undone only if it still reads as it was left")
         let again = SageVaultDesk(place: place)
         check(again.tabs.map(\.file.lastPathComponent) == ["Untitled.md", "K2.md", "K10.md"] && again.note?.lastPathComponent == "K2.md", "The tabs are kept for the next time")
     }

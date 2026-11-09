@@ -270,6 +270,19 @@ extension Study {
         return NoteText(text: text.replacingOccurrences(of: "\r\n", with: "\n"), crlf: text.contains("\r\n"), bom: bom)
     }
 
+    /// Undo for one note: put back as it was (`before`) only if it still reads as Sage left it (`after`), through
+    /// `writeNote` (kept first, one step). False when it changed since (or is gone): then it's left as it is now.
+    @discardableResult static func undoEdit(_ file: URL, before: String, after: String, keep: URL?) throws -> Bool {
+        guard FileManager.default.fileExists(atPath: file.path) else { return false }
+        let now = try readNote(file)
+        guard now.text == after else { return false }
+        try writeNote(file, text: before, was: now, keep: keep)
+        return true
+    }
+
+    /// Where notes are kept as they were before Sage or you change them (sage/edited/ beside Sage's other files).
+    static func editsKept(in place: URL) -> URL { place.appendingPathComponent("edited", isDirectory: true) }
+
     /// The notes already copied this run, so each is kept once.
     private static let kept = Kept()
     private final class Kept: @unchecked Sendable {

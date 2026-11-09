@@ -119,7 +119,7 @@ struct FileChange: Identifiable {
     }
 
     /// Where a note you edit is kept as it was first (for 30 days), in Sage's own folder.
-    var editsKept: URL { settingsFile.deletingLastPathComponent().appendingPathComponent("edited", isDirectory: true) }
+    var editsKept: URL { Study.editsKept(in: settingsFile.deletingLastPathComponent()) }
 
     private func save() {
         settings.tabs = tabs.map(\.file.path)
