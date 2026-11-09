@@ -493,9 +493,10 @@ struct SageExplorer: View {
         return Button { click(row) } label: {
             HStack(spacing: 0) {
                 if row.section == nil { guides(row, open: open) }
-                rowContent(row, item)
+                // One row of its parts (chevron, icon, name, count): the marks go behind them together.
+                HStack(spacing: 0) { rowContent(row, item) }
                     .padding(.trailing, 6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(maxHeight: .infinity)
                     .background(marks.padding(.leading, -4))
             }
             .padding(.leading, 4)
