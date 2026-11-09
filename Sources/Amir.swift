@@ -37,14 +37,56 @@ struct AnimatedSprite: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Moved on when a working spell ends, so the sprite goes back to resting.
+    @State private var settled = 0
+
+    /// At rest a sprite only wakes to blink (twice every 4 s); it ticks six times a second only while its helper works or
+    /// the pointer is over it. It used to tick six times a second always, every sprite in the sidebar, and each tick laid
+    /// the window out again (2026-11-09: most of what the app did while you read a note).
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.16)) { context in
-            let tick = Int(context.date.timeIntervalSinceReferenceDate / 0.16)
-            let busy = hovering || busyUntil.map { context.date < $0 } == true
-            PixelSprite(rows: reduceMotion ? rest : busy ? working[tick % working.count] : blink != nil && tick % 25 == 0 ? blink! : rest,
-                        colors: colors, pixel: pixel)
+        let working = !reduceMotion && (hovering || busyUntil.map { $0 > Date() } == true)
+        Group {
+            if working {
+                TimelineView(.periodic(from: .now, by: 0.16)) { context in
+                    let tick = Int(context.date.timeIntervalSinceReferenceDate / 0.16)
+                    let busy = hovering || busyUntil.map { context.date < $0 } == true
+                    PixelSprite(rows: busy ? self.working[tick % self.working.count] : rest, colors: colors, pixel: pixel)
+                }
+            } else if let blink, !reduceMotion {
+                TimelineView(SpriteBlink()) { context in
+                    PixelSprite(rows: SpriteBlink.blinking(at: context.date) ? blink : rest, colors: colors, pixel: pixel)
+                }
+            } else {
+                PixelSprite(rows: rest, colors: colors, pixel: pixel)
+            }
         }
+        .id(settled)
         .onHover { if previewOnHover { hovering = $0 } }
+        .task(id: busyUntil) {
+            // A spell that ends on its own (a time, not "until told"): rest again when it does.
+            guard let until = busyUntil, until > Date(), until < .distantFuture else { return }
+            try? await Task.sleep(nanoseconds: UInt64(max(0, until.timeIntervalSinceNow) * 1_000_000_000) + 50_000_000)
+            settled += 1
+        }
+    }
+}
+
+/// When a resting sprite blinks: for 0.16 s every 4 s (all of them together, as before), and the view wakes only then.
+struct SpriteBlink: TimelineSchedule {
+    static let every: TimeInterval = 4, length: TimeInterval = 0.16
+
+    static func blinking(at date: Date) -> Bool { date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: every) < length }
+
+    func entries(from start: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        var k = (start.timeIntervalSinceReferenceDate / Self.every).rounded(.down)
+        var pending = [start]
+        return AnyIterator {
+            if pending.isEmpty {
+                k += 1
+                pending = [Date(timeIntervalSinceReferenceDate: k * Self.every), Date(timeIntervalSinceReferenceDate: k * Self.every + Self.length)]
+            }
+            return pending.removeFirst()
+        }
     }
 }
 

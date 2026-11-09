@@ -11,16 +11,17 @@ import Security
     @Published private(set) var topicID: UUID?
     /// The open topic's notes.
     @Published private(set) var recipes: [Study.Entry] = []
-    @Published private(set) var results: [Study.Video] = []
+    @Published var results: [Study.Video] = []
     /// What the results are for, and whether Sage searched it from the chat.
-    @Published private(set) var resultsFor = ""
+    @Published var resultsFor = ""
     @Published private(set) var resultsBySage = false
     /// Which half of the page shows beside the chat: research (Find, Saved, Write your own) or notes (your notes, one open).
     @Published var stage = UserDefaults.standard.string(forKey: "sageStage") ?? UserDefaults.standard.string(forKey: "basilStage") ?? "research" {
         didSet { UserDefaults.standard.set(stage, forKey: "sageStage") }
     }
-    /// The note open in the notes stage.
-    @Published var note: URL?
+    /// The notes stage: your vault, its tree and the files open in tabs (SageVaultDesk, 2026-11-09). The note shown is its tab's.
+    let vault = SageVaultDesk(place: SageDesk.place)
+    var note: URL? { vault.note }
     /// Your vault's look in Obsidian (theme, accent, fonts, snippets), read with the topic's folder.
     @Published private(set) var look = Study.Look()
     @Published private(set) var searching = false
@@ -46,8 +47,20 @@ import Security
     /// Why writing a saved source failed, by id.
     @Published private(set) var refused: [String: String] = [:]
     /// Sage choosing videos for you.
-    @Published private(set) var picking = false
+    @Published var picking = false
+    /// What the last Pick did: what it saved and why, and what it passed over and why not. Cleared by a new search.
+    @Published var lastPick: Study.PickOutcome?
+    /// Pick's steps so far, the last one the step it is on ("Searching 3 angles…").
+    @Published var pickSteps: [String] = []
+    /// The video playing in the mini player, or nil when it is closed (SageDeskPick.swift).
+    @Published var playing: Study.Video?
+    /// The mini player shown large over the stage (true) or docked small in the corner (false).
+    @Published var playerExpanded = UserDefaults.standard.bool(forKey: "sagePlayerExpanded") {
+        didSet { UserDefaults.standard.set(playerExpanded, forKey: "sagePlayerExpanded") }
+    }
 
+    /// What he did for each of his messages, to undo it (this run only).
+    @Published var undos: [UUID: [SageUndo]] = [:]
     var busy: Bool { searching || thinking || picking || adding || !writing.isEmpty }
     var topic: Study.Topic { topics.first { $0.id == topicID } ?? topics.first ?? Study.Topic(name: "Research") }
     var folder: URL? { topic.folder.isEmpty ? nil : URL(fileURLWithPath: topic.folder, isDirectory: true) }
@@ -83,6 +96,7 @@ import Security
             for index in saved.indices where saved[index].topic == nil { saved[index].topic = first }
             saveSaved()
         }
+        vault.desk = self
     }
 
     // MARK: Topics
@@ -91,7 +105,7 @@ import Security
         guard topics.contains(where: { $0.id == id }) else { return }
         topicID = id
         UserDefaults.standard.set(id.uuidString, forKey: "sageTopic")
-        note = nil; recipes = []; results = []; resultsFor = ""
+        recipes = []; results = []; resultsFor = ""
         reload()
     }
 
@@ -116,6 +130,20 @@ import Security
         topics.removeAll { $0.id == id }; saveTopics()
         saved.removeAll { $0.topic == id }; saveSaved()
         if topicID == id, let first = topics.first?.id { open(topic: first) }
+    }
+
+    /// A topic's folder set from the chat (a path; empty: none).
+    func setFolder(_ path: String, for id: UUID) {
+        guard let index = topics.firstIndex(where: { $0.id == id }) else { return }
+        topics[index].folder = path; saveTopics()
+        if id == topic.id { reload() }
+    }
+
+    /// The open topic's notes are written in this folder from now on ("Write … notes here" on a folder in the vault's tree).
+    func use(folder: URL) {
+        guard let index = topics.firstIndex(where: { $0.id == topic.id }) else { return }
+        topics[index].folder = folder.path; saveTopics()
+        reload()
     }
 
     private func saveTopics() {
@@ -185,7 +213,8 @@ import Security
 
     // MARK: Chat
 
-    /// Your message, then his answer: up to three rounds, each of which may search YouTube or read notes before he answers.
+    /// Your message, then his answer: up to four rounds, each of which may search YouTube, read notes, look in the whole
+    /// vault or do what you asked (SageActions.swift) before he answers.
     func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !thinking else { return }
@@ -193,40 +222,87 @@ import Security
         if current == nil { conversations.append(Study.Conversation(id: id)); current = id }
         append(Study.Message(fromSage: false, text: text), to: id)
         thinkingIn = id; failure = nil
-        let topic = topic
         Task {
             defer { thinkingIn = nil }
             // The conversation asked in, even if you open another meanwhile.
             var chat: [Study.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Study.Video]?, searched = "", read: [Study.Entry] = [], texts: [(title: String, text: String)] = []
+            var hits: [Study.Hit]?, findWords = "", vaultRead: [(path: String, text: String)] = []
+            var shownDone: [String] = [], toldDone: [String] = [], steps: [SageUndo] = []
+            let known = await Task.detached { SageDesk.knownVaults() }.value
+            var contents = await vaultContents()
             do {
-                for round in 0 ..< 3 {
+                let rounds = 4
+                for round in 0 ..< rounds {
+                    let last = round == rounds - 1
+                    let topic = self.topic
                     let prompt = Study.chatPrompt(chat: chat, recipes: recipes, folder: folder != nil, canSearch: Self.key != nil, found: found, searched: searched,
-                                                  read: texts, last: round == 2, topic: topic)
-                    let reply = Study.reply(from: try await HelperBrain.ask(prompt, schema: Study.chatSchema))
+                                                  read: texts, last: last, topic: topic)
+                        + Study.abilitiesPrompt(vault: workVault?.path ?? "", known: known, topics: topics, current: topic, folders: contents.folders,
+                                                findWords: findWords, found: hits, read: vaultRead, done: toldDone, last: last)
+                    let answer = try await HelperBrain.ask(prompt, schema: Study.chatSchema)
+                    let reply = Study.reply(from: answer)
                     var looked = false
-                    if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key, round < 2 {
-                        searched = reply.youtube
-                        found = try await videos(for: reply.youtube, key: key, count: 12)
-                        // What he found shows in Find too, to save from.
-                        results = found ?? []; resultsFor = reply.youtube; resultsBySage = true
-                        looked = true
-                    }
-                    let wanted = Study.named(reply.notes, in: recipes).filter { !read.contains($0) }
-                    if !wanted.isEmpty, round < 2 {
-                        let more = await Task.detached { wanted.map { (title: $0.title, text: (try? String(contentsOf: $0.file, encoding: .utf8)) ?? "") } }.value
-                        read += wanted; texts += more
-                        looked = true
+                    if !last {
+                        if !reply.youtube.isEmpty, reply.youtube != searched, let key = Self.key {
+                            searched = reply.youtube
+                            found = try await videos(for: reply.youtube, key: key, count: 12)
+                            // What he found shows in Find too, to save from.
+                            results = found ?? []; resultsFor = reply.youtube; resultsBySage = true
+                            looked = true
+                        }
+                        let wanted = Study.named(reply.notes, in: recipes).filter { !read.contains($0) }
+                        if !wanted.isEmpty {
+                            let more = await Task.detached { wanted.map { (title: $0.title, text: (try? String(contentsOf: $0.file, encoding: .utf8)) ?? "") } }.value
+                            read += wanted; texts += more
+                            looked = true
+                        }
+                        if let vault = workVault {
+                            let words = (answer["find"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !words.isEmpty, words != findWords {
+                                let notes = contents.notes
+                                findWords = words
+                                hits = await Task.detached { Study.find(words, in: notes, vault: vault) }.value
+                                looked = true
+                            }
+                            let paths = (answer["read"] as? [Any] ?? []).compactMap { $0 as? String }
+                            let notes = paths.compactMap { Study.resolve($0, in: contents.notes) }.filter { note in !vaultRead.contains { $0.path == note.path } }.prefix(5)
+                            if !notes.isEmpty {
+                                let more = await Task.detached { notes.map { (path: $0.path, text: Study.noteText((try? Data(contentsOf: vault.appendingPathComponent($0.path))) ?? Data()).text) } }.value
+                                vaultRead += more
+                                looked = true
+                            }
+                        }
+                        let actions = Study.actions(from: answer)
+                        if !actions.isEmpty {
+                            let outcome = await perform(actions)
+                            shownDone += outcome.shown; toldDone += outcome.told; steps += outcome.undo
+                            contents = await vaultContents()
+                            looked = true
+                        }
                     }
                     if looked { continue }
                     let known = { (id: String) in found?.first { $0.id == id } ?? chat.reversed().lazy.flatMap(\.videos).first { $0.id == id } }
                     let shown = reply.show.compactMap(known)
                     for video in reply.save.compactMap(known).reversed() { save(video) }
-                    append(Study.Message(fromSage: true, text: reply.text.isEmpty ? L("I couldn't find an answer to that.") : reply.text,
-                                         videos: Array(shown.prefix(6)), notes: read.map(\.file.path)), to: id)
+                    let readPaths = read.map(\.file.path) + vaultRead.compactMap { note in workVault.map { $0.appendingPathComponent(note.path).path } }
+                    var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? (shownDone.isEmpty ? L("I couldn't find an answer to that.") : L("Done.")) : reply.text,
+                                                videos: Array(shown.prefix(6)), notes: readPaths)
+                    message.done = shownDone.isEmpty ? nil : shownDone
+                    if !steps.isEmpty { undos[message.id] = steps }
+                    append(message, to: id)
                     return
                 }
-            } catch { failure = describe(error) }
+            } catch {
+                failure = describe(error)
+                // What he did before it failed stays said, with its undo.
+                if !shownDone.isEmpty {
+                    var message = Study.Message(fromSage: true, text: L("Done."))
+                    message.done = shownDone
+                    if !steps.isEmpty { undos[message.id] = steps }
+                    append(message, to: id)
+                }
+            }
         }
     }
 
@@ -240,7 +316,7 @@ import Security
         saveChats()
     }
 
-    private func append(_ message: Study.Message, to id: UUID) {
+    func append(_ message: Study.Message, to id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].messages.append(message)
         conversations[index].updated = message.date
@@ -255,7 +331,7 @@ import Security
     // MARK: Finding
 
     /// Search, then each video's details, in the search's order.
-    private func videos(for words: String, key: String, count: Int = 24) async throws -> [Study.Video] {
+    func videos(for words: String, key: String, count: Int = 24) async throws -> [Study.Video] {
         let ids = Study.ids(inSearch: try await fetch(Study.searchURL(words, key: key, count: count)))
         guard !ids.isEmpty else { return [] }
         let videos = Study.videos(in: try await fetch(Study.videosURL(ids, key: key)))
@@ -265,7 +341,7 @@ import Security
     func search(_ words: String) {
         let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty, let key = Self.key, !searching else { return }
-        searching = true; failure = nil
+        searching = true; failure = nil; lastPick = nil
         let query = Study.search(words, in: topic)
         Task {
             defer { searching = false }
@@ -273,31 +349,7 @@ import Security
         }
     }
 
-    /// Sage searches for your words, picks the videos most worth saving (at most five), and saves them here to review.
-    func pick(_ words: String) {
-        let words = words.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let key = Self.key, !picking, !searching else { return }
-        picking = true; failure = nil
-        let topic = topic, query = Study.search(words, in: topic)
-        Task {
-            defer { picking = false }
-            do {
-                results = try await videos(for: query, key: key); resultsFor = query; resultsBySage = false
-                let kept = Set(savedHere.map(\.id))
-                let fresh = results.filter { !sources.contains($0.url.absoluteString) && !kept.contains($0.id) }
-                guard !fresh.isEmpty else { return }
-                let answer = try await HelperBrain.ask(Study.pickPrompt(query, videos: fresh, count: 5, topic: topic), schema: Study.pickSchema)
-                let picks = Study.picks(from: answer, among: fresh, count: 5)
-                if picks.isEmpty {
-                    failure = topic.kind == .recipes ? L("Sage found no real recipe among these videos. Try other words.") : L("Sage found nothing worth saving among these videos. Try other words.")
-                    return
-                }
-                for pick in picks.reversed() {
-                    if let video = fresh.first(where: { $0.id == pick.id }) { save(video, why: pick.why, in: topic.id) }
-                }
-            } catch { failure = describe(error) }
-        }
-    }
+    // Pick for me: SageDeskPick.swift.
 
     // MARK: Saved
 
@@ -456,13 +508,14 @@ import Security
         let file = folder.appendingPathComponent(Study.fileName(for: title, taken: taken))
         try Data(text.utf8).write(to: file, options: .withoutOverwriting)
         written = file
-        note = file; stage = "notes"
+        vault.show(file)
+        if vault.inVault(file) != nil { vault.reload() }
         reload()
         return file
     }
 
     /// A note opened in the notes stage.
-    func show(_ file: URL) { note = file; stage = "notes" }
+    func show(_ file: URL) { vault.show(file) }
 
     /// Where a note stands, written into its header.
     func set(_ status: String, for entry: Study.Entry) {
@@ -473,7 +526,7 @@ import Security
 
     // MARK: Network
 
-    private func fetch(_ url: URL) async throws -> Data {
+    func fetch(_ url: URL) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 20))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200 ..< 300).contains(status) else {
@@ -500,7 +553,7 @@ import Security
         return Study.recipeData(inHTML: String(decoding: data, as: UTF8.self))
     }
 
-    private func describe(_ error: Error) -> String {
+    func describe(_ error: Error) -> String {
         if case AssistError.message(let text) = error { return text }
         return error.localizedDescription
     }

@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import AppKit
 
 /// Penny's own dashboard, from his copy of the ads' numbers (`PennyLedger`), not Grafana's: the products that ran in
@@ -7,52 +6,55 @@ import AppKit
 /// sell in which hours, and its campaigns (2026-11-05). Hours are Alaska time, the company's day.
 struct ProductsView: View {
     @ObservedObject var ledger: PennyLedger
-    /// 0 today, -1 yesterday, -2 the dates you picked, else the last that many days.
+    /// 0 today, -1 yesterday, -2 the dates you picked, else the last that many days. Picked in the product's header
+    /// (`DayRangeSelector`).
     @AppStorage("pennyProductsRange") private var range = 7
     @AppStorage("pennyProductsFrom") private var from = ""
     @AppStorage("pennyProductsTo") private var to = ""
-    @State private var picking = false
     @AppStorage("pennyProduct") private var chosen = ""
     @State private var search = ""
     /// The chosen product worked out off the main thread (2026-11-06: the page was slow when every redraw worked it
     /// out again); the last one stays up while the next is read.
     @State private var analysis: PennyAnalysis?
 
-    static let ranges: [(days: Int, name: String)] = [(0, "Today"), (-1, "Yesterday"), (7, "Last 7 days"), (14, "Last 14 days"), (30, "Last 30 days")]
-
     /// The days in the range, newest first, and as many before them to compare with.
-    var days: (now: [String], before: [String]) {
-        if range == -2, case let picked = Ledger.days(from: from, to: to), let first = picked.last, let start = Ledger.start(of: first) {
-            let before = Ledger.days(back: picked.count + 1, from: start).dropFirst()
-            return (picked, Array(before))
+    static func days(range: Int, from: String, to: String, now: Date = Date()) -> (now: [String], before: [String]) {
+        if range == -2, case let picked = Ledger.days(from: from, to: to), !picked.isEmpty {
+            return (picked, Ledger.shift(picked, by: -1, now: now))
         }
         let count = range <= 0 ? 1 : range
-        let all = Ledger.days(back: (range < 0 ? 1 : 0) + count * 2, from: Date())
+        let all = Ledger.days(back: (range < 0 ? 1 : 0) + count * 2, from: now)
         let shift = range < 0 ? 1 : 0
         return (Array(all.dropFirst(shift).prefix(count)), Array(all.dropFirst(shift + count).prefix(count)))
     }
 
     var body: some View {
-        let days = days
+        let days = Self.days(range: range, from: from, to: to)
         let products = ledger.products(on: days.now)
         let product = products.first(where: { $0.name == chosen })?.name ?? products.first?.name
         let copied = ledger.summary.copied.values.max()?.timeIntervalSince1970 ?? 0
         let key = PennyAnalysis.key(product ?? "", days.now, copied)
         VStack(alignment: .leading, spacing: 12) {
-            toolbar
+            HStack(spacing: 8) {
+                // With a product open the range lives in its header; here only while no product ran in it.
+                if products.isEmpty { DayRangeSelector(ledger: ledger) }
+                Spacer()
+                Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
+            }.controlSize(.small)
             card(L("DATA")) { DataState(ledger: ledger, days: days.now) }
             if products.isEmpty {
                 Text(ledger.summary.copied.isEmpty ? L("Penny is making his first copy of the ads' numbers; products show here as each day comes in.") : L("No product ran in these days."))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
+                // A gap under the Data card, so the search and the product's header don't touch it.
                 HStack(alignment: .top, spacing: 16) {
                     list(products, selected: product)
                     if let analysis, product != nil {
-                        ProductDetail(analysis: analysis, loading: analysis.key != key).equatable()
+                        ProductDetail(analysis: analysis, loading: analysis.key != key, ledger: ledger).equatable()
                     } else {
                         ProgressView().controlSize(.small).frame(maxWidth: .infinity)
                     }
-                }
+                }.padding(.top, 2)
             }
         }
         .task(id: key) {
@@ -62,34 +64,6 @@ struct ProductsView: View {
             let read = await Task.detached(priority: .userInitiated) { PennyAnalysis(product: product, days: days, summary: summary, key: key) }.value
             if !Task.isCancelled { analysis = read }
         }
-    }
-
-    var toolbar: some View {
-        HStack(spacing: 8) {
-            Menu {
-                ForEach(Self.ranges, id: \.days) { item in Button(L(item.name)) { range = item.days } }
-                Divider()
-                Button(L("Pick dates…")) { picking = true }
-            } label: {
-                Label(rangeName, systemImage: "clock")
-            }.fixedSize()
-            .popover(isPresented: $picking, arrowEdge: .bottom) {
-                DatesPicker(from: Ledger.start(of: from) ?? Date(), to: Ledger.start(of: to) ?? Date()) { first, last in
-                    from = Ledger.name(of: first); to = Ledger.name(of: last); range = -2; picking = false
-                    ledger.ask(for: Ledger.days(from: from, to: to))
-                }
-            }
-            Spacer()
-            Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
-        }.controlSize(.small)
-    }
-
-    var rangeName: String {
-        guard range == -2, case let picked = Ledger.days(from: from, to: to), let first = picked.last, let last = picked.first else {
-            return L(Self.ranges.first(where: { $0.days == range })?.name ?? "Last 7 days")
-        }
-        let written = { (day: String) in Ledger.start(of: day)?.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: Ledger.zone)) ?? day }
-        return first == last ? written(first) : "\(written(first)) – \(written(last))"
     }
 
     func list(_ products: [(name: String, numbers: Ledger.Numbers)], selected: String?) -> some View {
@@ -139,6 +113,8 @@ final class PennyAnalysis {
     let days: [String]
     let total: Ledger.Numbers
     let before: Ledger.Numbers
+    /// What `before` is: which days, and how they were cut or scaled to compare fairly.
+    let against: Ledger.Against
     let profit: Ledger.Profit
     let margin: (margin: Ledger.Margin, days: Int)
     let marginBefore: (margin: Ledger.Margin, days: Int)
@@ -161,11 +137,12 @@ final class PennyAnalysis {
         self.days = days.now
         let loaded = PennyLedger.days(of: product, days.now)
         total = Ledger.total(loaded)
-        before = summary.numbers(of: product, on: days.before)
+        (before, against) = Ledger.before(product, now: days.now, before: days.before, summary: summary, clock: Date(),
+                                          load: { PennyLedger.days(of: product, [$0]).first })
         margin = summary.margin(of: product, on: days.now)
         marginBefore = summary.margin(of: product, on: days.before)
         profit = Ledger.Profit(margin.margin) ?? .usual
-        report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit)
+        report = Ledger.report(loaded, before: before.spent > 0 ? before : nil, profit: profit, against: against)
         dayReads = Ledger.dayReads(loaded, profit: profit)
         hourReads = Ledger.hourReads(loaded, profit: profit)
         daySlots = PennySlot.days(dayReads, profit: profit)
@@ -179,39 +156,65 @@ final class PennyAnalysis {
 }
 
 /// The chosen product's page. It redraws only when its analysis changes or you open a day: typing in the search,
-/// a copy coming in for another day and the minute ticking on the data strip leave it alone.
+/// a copy coming in for another day and the minute ticking on the data strip leave it alone. Its panels sit two to a
+/// row in a wide window (`PanelFlow`). New days or another product grow the charts in; a fresh copy of the same days
+/// only redraws them, keeping the day you had open.
 struct ProductDetail: View, Equatable {
     let analysis: PennyAnalysis
     let loading: Bool
+    /// For the range selector in the header, which watches the range itself.
+    let ledger: PennyLedger
     /// The day opened hour by hour, from the chart or the calendar.
     @State private var openDay: String?
+    /// The day's column or calendar day under the pointer, shared by the days' charts and the calendar.
+    @State private var dayHover = PennyHover()
 
     static func == (a: Self, b: Self) -> Bool { a.analysis === b.analysis && a.loading == b.loading }
 
+    /// Another product or other days: the page starts again (charts grow in, no day open).
+    var shown: String { analysis.product + "|" + analysis.days.joined(separator: ",") }
+
     var body: some View {
-        let a = analysis, profit = a.profit, total = a.total, before = a.before
-        let change = { (now: Double?, then: Double?) -> Double? in
-            guard before.spent > 0, let now, let then, then != 0 else { return nil }
-            return (now - then) / abs(then)
+        let a = analysis, profit = a.profit, total = a.total, before = a.before, against = a.against
+        // Against the days before, named in the header; a total (spend, orders) a day when fewer of those days were copied.
+        let change = { (now: Double?, then: Double?, totalled: Bool) -> Double? in before.spent > 0 ? against.change(now, then, total: totalled) : nil }
+        let was = { (then: String) in L("Against %@: %@", against.said, then) }
+        // CBH comes a whole day at a time, so it can't be cut to today's hours; a day when the two sides differ.
+        let cbhChange = { (now: Double, then: Double) -> Double? in
+            guard against.upTo == nil, a.marginBefore.days > 0, a.margin.days > 0 else { return nil }
+            var (now, then) = (now, then)
+            if a.margin.days != a.marginBefore.days { now /= Double(a.margin.days); then /= Double(a.marginBefore.days) }
+            return then == 0 ? nil : (now - then) / abs(then)
         }
         VStack(alignment: .leading, spacing: 16) {
             header
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 8)], spacing: 8) {
-                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent), neutral: true)
-                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue))
-                PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas))
+                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)))
+                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)))
+                PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas, false), was: was(PennyStyle.times(before.roas)))
                 if a.margin.days > 0 {
                     PennyFigure(name: "CBH", value: Ledger.money(a.margin.margin.cbh), color: PennyStyle.money(a.margin.margin.cbh),
-                                change: a.marginBefore.days > 0 ? change(a.margin.margin.cbh, a.marginBefore.margin.cbh) : nil)
-                    PennyFigure(name: "%CBH", value: Ledger.percent(a.margin.margin.share), change: a.marginBefore.days > 0 ? change(a.margin.margin.share, a.marginBefore.margin.share) : nil)
+                                change: cbhChange(a.margin.margin.cbh, a.marginBefore.margin.cbh), was: was(Ledger.money(a.marginBefore.margin.cbh)))
+                    PennyFigure(name: "%CBH", value: Ledger.percent(a.margin.margin.share),
+                                change: a.marginBefore.days > 0 ? change(a.margin.margin.share, a.marginBefore.margin.share, false) : nil, was: was(Ledger.percent(a.marginBefore.margin.share)))
                 }
-                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders))
-                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp), upIsGood: false)
-                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov))
-                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr))
-                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr))
-                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm), upIsGood: false)
+                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)))
+                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp, false), upIsGood: false, was: was(before.cpp.map(Ledger.money) ?? "–"))
+                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov, false), was: was(before.aov.map(Ledger.money) ?? "–"))
+                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr, false), was: was(Ledger.percent(before.cr)))
+                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr, false), was: was(Ledger.percent(before.ctr)))
+                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm, false), upIsGood: false, was: was(before.cpm.map(Ledger.money) ?? "–"))
             }
+            panels.id(shown)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: shown) { _, _ in openDay = nil }
+    }
+
+    /// Two to a row when the window is wide enough (`PanelFlow`); in this order one under the other when it isn't.
+    var panels: some View {
+        let a = analysis, profit = a.profit
+        return PanelFlow {
             PennyPanel(title: L("Penny's read")) {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(Array(a.report.enumerated()), id: \.offset) { _, line in
@@ -222,77 +225,515 @@ struct ProductDetail: View, Equatable {
                     }
                 }.textSelection(.enabled)
             }
-            PennyPanel(title: L("Days"), note: L("Press a day, on the charts or the calendar, to see it hour by hour")) {
-                if a.dayReads.count == 1, let day = a.dayReads.first {
-                    DayDrill(day: day, profit: profit)
-                } else {
-                    PennyColumns(slots: a.daySlots, profit: profit, selected: $openDay)
-                    if let open = openDay, let day = a.dayReads.first(where: { $0.day == open }) {
-                        DayDrill(day: day, profit: profit) { openDay = nil }
-                    }
-                    DaysCalendar(days: a.dayReads, profit: profit, selected: $openDay)
-                }
-            }
-            PennyPanel(title: L("Hours of the day"),
-                       note: L("Each hour over the days read, Alaska time: its average ROAS and its bad to good day (10th to 90th percentile of its days), what it spends a day and the CBH it makes a day")) {
-                PennyColumns(slots: a.hourSlots, profit: profit, ranges: true, perDay: true, height: 170)
-            }
             PennyPanel(title: L("Where the budget went"), note: L("Each hour's average against breakeven, then every hour of every day by the ROAS it brought back")) {
                 HoursEfficiency(reads: a.hourReads, profit: profit, shows: .budget)
                 Divider().opacity(0.4)
                 BandsView(bands: a.bands, profit: profit)
             }
-            PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means")) {
+            PennyPanel(title: L("Days"), note: L("Press a day, on the charts or the calendar, to see it hour by hour")) {
+                if a.dayReads.count == 1, let day = a.dayReads.first {
+                    DayDrill(day: day, profit: profit)
+                } else {
+                    PennyColumns(slots: a.daySlots, profit: profit, selected: $openDay, grow: true, hover: dayHover)
+                    DaysCalendar(days: a.dayReads, profit: profit, selected: $openDay, hover: dayHover)
+                }
+            }
+            // The day opened hour by hour: the whole width, under the row the Days panel is in.
+            if a.dayReads.count > 1, let open = openDay, let day = a.dayReads.first(where: { $0.day == open }) {
+                DayDrill(day: day, profit: profit, overall: a.hourReads, days: a.dayReads.count) { openDay = nil }
+                    .id(open)
+                    .layoutValue(key: PanelFull.self, value: true)
+            }
+            PennyPanel(title: L("Hours of the day"),
+                       note: L("Each hour over the days read, Alaska time: its average ROAS (the dot) and its bad to good day (the band, 10th to 90th percentile of its days, coloured where it falls against breakeven), what it spends a day and the CBH it makes a day. Each hour's column is shaded by its average: green profitable, yellow above breakeven, red below")) {
+                PennyColumns(slots: a.hourSlots, profit: profit, ranges: true, perDay: true, height: 170, grow: true)
+            }
+            PennyPanel(title: L("Hour by hour"), note: L("Press a column to sort by it; hold the pointer on a verdict for what it means. Each row is shaded by the hour's average: green profitable, yellow above breakeven, red below")) {
                 HoursEfficiency(reads: a.hourReads, profit: profit, shows: .table)
                 VerdictLegend().padding(.top, 6)
             }
             if a.weeks.count >= 2 {
-                PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: a.weeks, profit: profit) }
+                PennyPanel(title: L("Weeks"), note: L("Weeks from Monday, as many as the days read reach")) { WeeksView(weeks: a.weeks, profit: profit, grow: true) }
             }
             PennyPanel(title: L("Creatives by hour"), note: L("Each creative's orders hour by hour, darker for more")) { CreativeHours(lines: Array(a.creatives.prefix(12))) }
             PennyPanel(title: L("Creatives")) { LedgerTable(lines: a.creatives, counted: L("Campaigns")) }
             PennyPanel(title: L("Campaigns")) { LedgerTable(lines: a.campaigns, counted: L("Ads")) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: analysis.product) { _, _ in openDay = nil }
     }
 
     var header: some View {
         let a = analysis, profit = a.profit
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(a.product).font(.system(size: 24, weight: .bold)).textSelection(.enabled)
-                Text(profit.measured ? L("Breakeven %@ from CBH", PennyStyle.times(profit.breakeven)) : L("Breakeven %@ (usual line)", PennyStyle.times(profit.breakeven)))
-                    .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(PennyStyle.red.opacity(0.16), in: Capsule()).foregroundStyle(PennyStyle.red)
-                    .help(L("Profitable from %@ (CBH 5%)", PennyStyle.times(profit.profitable)))
-                if loading { ProgressView().controlSize(.small) }
+        let name = Text(a.product).font(.system(size: 24, weight: .bold)).textSelection(.enabled)
+        let pill = Text(profit.measured ? L("Breakeven %@ from CBH", PennyStyle.times(profit.breakeven)) : L("Breakeven %@ (usual line)", PennyStyle.times(profit.breakeven)))
+            .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 4)
+            .background(PennyStyle.red.opacity(0.16), in: Capsule()).foregroundStyle(PennyStyle.red)
+            .help(L("Profitable from %@ (CBH 5%)", PennyStyle.times(profit.profitable)))
+        var span = a.days.count == 1 ? L("%@ · Alaska time", PennyStyle.day(a.days.first ?? ""))
+            : L("%@ days · %@ – %@ · Alaska time", a.days.count, PennyStyle.day(a.days.last ?? ""), PennyStyle.day(a.days.first ?? ""))
+        // What the ▲ and ▼ under the figures are against (2026-11-07: you asked what the 7 days were set against).
+        if a.before.spent > 0 { span += L(" · ▲▼ against %@", a.against.said) }
+        return VStack(alignment: .leading, spacing: 6) {
+            // The range selector sits in the name's row, right after the breakeven pill (2026-11-07: you pointed there);
+            // on its own line, flush with the name, when the row hasn't room.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    name; pill
+                    DayRangeSelector(ledger: ledger).padding(.leading, 4)
+                    if loading { ProgressView().controlSize(.small) }
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .center, spacing: 10) {
+                        name; pill
+                        if loading { ProgressView().controlSize(.small) }
+                    }
+                    DayRangeSelector(ledger: ledger)
+                }
             }
-            Text(a.days.count == 1 ? L("%@ · Alaska time", PennyStyle.day(a.days.first ?? ""))
-                 : L("%@ days · %@ – %@ · Alaska time", a.days.count, PennyStyle.day(a.days.last ?? ""), PennyStyle.day(a.days.first ?? "")))
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(span).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }.padding(.top, 4)
+    }
+}
+
+/// The product page's panels, two to a row when the width holds two (2026-11-07, first in the Windows app: one panel
+/// stretched across a wide window looked ridiculous), one under the other when it doesn't. Panels pair in order; a
+/// full-width one (`PanelFull`: the day opened hour by hour) waits for the row being filled and goes under it; a panel
+/// left over takes the whole row. The two in a row take its height, so their edges line up.
+struct PanelFlow: Layout {
+    /// The narrowest a panel gets beside another: the Hour by hour table and Creatives by hour (904 points of cells
+    /// and names here, 860 was the Windows app's) fit at this.
+    var minColumn: CGFloat = 940
+    var gap: CGFloat = 14
+
+    func rows(_ subviews: Subviews, two: Bool) -> [[Int]] {
+        guard two else { return subviews.indices.map { [$0] } }
+        var rows: [[Int]] = [], waiting: Int?, after: [Int] = []
+        for index in subviews.indices {
+            if subviews[index][PanelFull.self] {
+                if waiting != nil { after.append(index) } else { rows.append([index]) }
+            } else if let first = waiting {
+                rows.append([first, index]); waiting = nil
+                rows += after.map { [$0] }; after = []
+            } else {
+                waiting = index
+            }
         }
+        if let waiting { rows.append([waiting]) }
+        return rows + after.map { [$0] }
+    }
+
+    func width(_ proposal: ProposedViewSize, _ subviews: Subviews) -> CGFloat {
+        proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = width(proposal, subviews), two = width >= minColumn * 2 + gap
+        var height: CGFloat = 0
+        for (number, row) in rows(subviews, two: two).enumerated() {
+            let column = row.count == 2 ? (width - gap) / 2 : width
+            height += (row.map { subviews[$0].sizeThatFits(ProposedViewSize(width: column, height: nil)).height }.max() ?? 0) + (number > 0 ? gap : 0)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let two = bounds.width >= minColumn * 2 + gap
+        var y = bounds.minY
+        for row in rows(subviews, two: two) {
+            let column = row.count == 2 ? (bounds.width - gap) / 2 : bounds.width
+            let tallest = row.map { subviews[$0].sizeThatFits(ProposedViewSize(width: column, height: nil)).height }.max() ?? 0
+            for (place, index) in row.enumerated() {
+                subviews[index].place(at: CGPoint(x: bounds.minX + CGFloat(place) * (column + gap), y: y), proposal: ProposedViewSize(width: column, height: tallest))
+            }
+            y += tallest + gap
+        }
+    }
+}
+
+/// A view that takes the whole row in `PanelFlow`, under the row being filled.
+struct PanelFull: LayoutValueKey { static let defaultValue = false }
+
+/// The day range selector in the product's header, beside its name (2026-11-07, first in the Windows app): ‹ steps back
+/// a range, › forward (never past today); Today, Yesterday, 7D, 14D, 30D pick one; Custom opens `RangePicker`. The
+/// highlight slides from the old choice to the new one. It reads and writes the range itself, so it moves even while
+/// the product's page waits for its new days.
+struct DayRangeSelector: View {
+    let ledger: PennyLedger
+    @AppStorage("pennyProductsRange") private var range = 7
+    @AppStorage("pennyProductsFrom") private var from = ""
+    @AppStorage("pennyProductsTo") private var to = ""
+    @State private var picking = false
+    @Namespace private var slide
+
+    /// The choices, as the range counts them: 0 today, -1 yesterday, else the last that many days; -2 picked dates.
+    static let choices: [(days: Int, short: String, long: String)] = [(0, "Today", "Today"), (-1, "Yesterday", "Yesterday"), (7, "7D", "Last 7 days"),
+                                                                       (14, "14D", "Last 14 days"), (30, "30D", "Last 30 days")]
+    static let motion = Animation.spring(response: 0.32, dampingFraction: 0.86)
+
+    var body: some View {
+        let now = Date()
+        let shown = ProductsView.days(range: range, from: from, to: to, now: now).now
+        let endsToday = Ledger.endsToday(shown, now: now)
+        HStack(spacing: 0) {
+            arrow("chevron.left", L("The same number of days before")) { step(-1) }
+            HStack(spacing: 0) {
+                ForEach(Self.choices, id: \.days) { choice in
+                    RangeSegment(label: L(choice.short), tip: L(choice.long), on: range == choice.days, slide: slide) {
+                        withAnimation(Self.motion) { range = choice.days }
+                    }
+                }
+                RangeSegment(label: range == -2 ? pickedName(now: now) : L("Custom"), icon: "calendar", tip: L("Pick the first and last day"), on: range == -2, slide: slide) {
+                    picking = true
+                }
+            }
+            .popover(isPresented: $picking, arrowEdge: .bottom) {
+                // Opens on the days you're looking at, not dates picked some time before.
+                RangePicker(from: shown.last, to: shown.first, apply: { first, last in
+                    picking = false
+                    withAnimation(Self.motion) { from = first; to = last; range = -2 }
+                    ledger.ask(for: Ledger.days(from: first, to: last))
+                }, cancel: { picking = false })
+            }
+            arrow("chevron.right", L("The same number of days after")) { step(1) }
+                .disabled(endsToday).opacity(endsToday ? 0.35 : 1)
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.1)))
+        .fixedSize()
+    }
+
+    func arrow(_ symbol: String, _ tip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).frame(width: 22, height: 22).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(.secondary).help(tip)
+    }
+
+    /// ‹ and ›: the same number of days before or after, as picked dates; back on a preset when it lands on one.
+    func step(_ direction: Int) {
+        let now = Date()
+        let days = Ledger.shift(ProductsView.days(range: range, from: from, to: to, now: now).now, by: direction, now: now)
+        guard let newest = days.first, let oldest = days.last else { return }
+        let today = Ledger.endsToday(days, now: now)
+        withAnimation(Self.motion) {
+            if today, days.count > 1, Self.choices.contains(where: { $0.days == days.count }) { range = days.count }
+            else if today, days.count == 1 { range = 0 }
+            else if days.count == 1, newest == Ledger.days(back: 2, from: now).last { range = -1 }
+            else { from = oldest; to = newest; range = -2 }
+        }
+        ledger.ask(for: days)
+    }
+
+    /// The picked dates: no year when it's this year ("Oct 25 – Oct 31"), so the selector stays narrow.
+    func pickedName(now: Date) -> String {
+        let picked = Ledger.days(from: from, to: to)
+        guard let first = picked.last, let last = picked.first else { return L("Custom") }
+        let year = Ledger.calendar.component(.year, from: now)
+        func written(_ day: String) -> String {
+            guard let start = Ledger.start(of: day) else { return day }
+            var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            if Ledger.calendar.component(.year, from: start) != year { style = style.year() }
+            style.timeZone = Ledger.zone
+            return start.formatted(style)
+        }
+        return first == last ? written(first) : "\(written(first)) – \(written(last))"
+    }
+}
+
+/// A choice in the range selector: the highlight (shared by all of them, so it slides) when it is on, a faint wash
+/// under the pointer.
+struct RangeSegment: View {
+    let label: String
+    var icon: String? = nil
+    let tip: String
+    let on: Bool
+    let slide: Namespace.ID
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon { Image(systemName: icon).font(.system(size: 10.5)) }
+            Text(label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+        }
+        .foregroundStyle(on ? Color.primary : Color.secondary)
+        .padding(.horizontal, 11).padding(.vertical, 5)
+        .background {
+            if on {
+                RoundedRectangle(cornerRadius: 7).fill(PixelPenny.theme.opacity(0.16))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(PixelPenny.theme.opacity(0.55)))
+                    .shadow(color: PixelPenny.theme.opacity(0.18), radius: 4)
+                    .matchedGeometryEffect(id: "on", in: slide)
+            } else if hovering {
+                RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.05))
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { inside in withAnimation(.easeOut(duration: 0.12)) { hovering = inside } }
+        .onTapGesture(perform: action)
+        .help(tip)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(tip)
+    }
+}
+
+/// Custom range (2026-11-07, first in the Windows app): two months side by side, the first day then the last picked
+/// with two clicks, the days between shaded as you hover, a rounded ribbon for the range; quick picks for whole months,
+/// which the selector's buttons don't cover; Cancel and Apply. Days are Alaska's, as the dashboards count them; days
+/// after today can't be picked.
+struct RangePicker: View {
+    let apply: (String, String) -> Void
+    let cancel: () -> Void
+    let today: String
+    @State private var start: String?
+    @State private var end: String?
+    @State private var hover: String?
+    /// The first day of the right-hand month.
+    @State private var month: Date
+    static let cell = CGSize(width: 36, height: 34)
+    static let dot: CGFloat = 28, ribbon: CGFloat = 26
+
+    init(from: String?, to: String?, apply: @escaping (String, String) -> Void, cancel: @escaping () -> Void) {
+        self.apply = apply; self.cancel = cancel
+        today = Ledger.name(of: Date())
+        _start = State(initialValue: from); _end = State(initialValue: to)
+        _month = State(initialValue: Self.first(of: Ledger.start(of: to ?? Ledger.name(of: Date())) ?? Date()))
+    }
+
+    static func first(of date: Date) -> Date { Ledger.calendar.date(from: Ledger.calendar.dateComponents([.year, .month], from: date)) ?? date }
+    static func month(_ count: Int, from date: Date) -> Date { Ledger.calendar.date(byAdding: .month, value: count, to: date) ?? date }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                presets.frame(width: 118, alignment: .leading).padding(.trailing, 16)
+                Rectangle().fill(.white.opacity(0.1)).frame(width: 1).padding(.trailing, 16)
+                monthView(Self.month(-1, from: month), back: true)
+                Spacer().frame(width: 22)
+                monthView(month, back: false)
+            }
+            Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.top, 14)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary).font(.system(size: 12)).foregroundStyle(start == nil ? .secondary : .primary)
+                    Text(L("Alaska time, as the dashboards count days")).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                Button(L("Cancel"), action: cancel).keyboardShortcut(.cancelAction)
+                Button(L("Apply")) { done() }.keyboardShortcut(.defaultAction).disabled(start == nil)
+            }.padding(.top, 14)
+        }
+        .padding(16)
+    }
+
+    var presets: some View {
+        let thisMonth = Self.first(of: Ledger.start(of: today) ?? Date())
+        let dayBefore = { (date: Date) in Ledger.name(of: date.addingTimeInterval(-12 * 3600)) }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(L("QUICK PICKS")).font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary).padding(.leading, 8).padding(.bottom, 6)
+            preset(L("This month"), Ledger.name(of: thisMonth), today)
+            preset(L("Last month"), Ledger.name(of: Self.month(-1, from: thisMonth)), dayBefore(thisMonth))
+            preset(L("Month before"), Ledger.name(of: Self.month(-2, from: thisMonth)), dayBefore(Self.month(-1, from: thisMonth)))
+        }.padding(.top, 2)
+    }
+
+    func preset(_ name: String, _ first: String, _ last: String) -> some View {
+        PresetRow(name: name) {
+            let last = min(last, today)
+            start = first; end = last; hover = nil
+            month = Self.first(of: Ledger.start(of: last) ?? Date())
+        }
+    }
+
+    func monthView(_ first: Date, back: Bool) -> some View {
+        var title = Date.FormatStyle.dateTime.month(.wide).year()
+        title.timeZone = Ledger.zone
+        let later = month < Self.first(of: Ledger.start(of: today) ?? Date())
+        let lead = (Ledger.calendar.component(.weekday, from: first) + 5) % 7  // Monday first, as Penny's weeks are
+        let count = Ledger.calendar.range(of: .day, in: .month, for: first)?.count ?? 30
+        let parts = Ledger.calendar.dateComponents([.year, .month], from: first)
+        return VStack(spacing: 0) {
+            ZStack {
+                Text(first.formatted(title)).font(.system(size: 13, weight: .semibold))
+                HStack {
+                    if back { nav("chevron.left", L("Earlier months")) { month = Self.month(-1, from: month) } }
+                    Spacer()
+                    if !back { nav("chevron.right", L("Later months")) { month = Self.month(1, from: month) }.disabled(!later).opacity(later ? 1 : 0.3) }
+                }
+            }.frame(height: 30).padding(.bottom, 6)
+            HStack(spacing: 0) {
+                ForEach(["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"], id: \.self) {
+                    Text(L($0)).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary).frame(width: Self.cell.width)
+                }
+            }.padding(.bottom, 4)
+            VStack(spacing: 0) {
+                ForEach(0 ..< 6, id: \.self) { row in
+                    HStack(spacing: 0) {
+                        ForEach(0 ..< 7, id: \.self) { column in
+                            let number = row * 7 + column - lead + 1
+                            if number >= 1, number <= count {
+                                cell(String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, number), number: number, column: column, last: count)
+                            } else {
+                                Color.clear.frame(width: Self.cell.width, height: Self.cell.height)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func nav(_ symbol: String, _ tip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).frame(width: 24, height: 24).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(.secondary).help(tip)
+    }
+
+    /// The range being shown: the one picked, or the one being picked as the pointer moves.
+    var shownRange: (low: String?, high: String?, previewing: Bool) {
+        guard let start else { return (nil, nil, false) }
+        if end == nil, let hover { return (min(hover, start), max(hover, start), true) }
+        return (start, end ?? start, false)
+    }
+
+    func cell(_ day: String, number: Int, column: Int, last: Int) -> some View {
+        let (low, high, previewing) = shownRange
+        let future = day > today
+        let isEnd = low != nil && (day == low || day == high)
+        let inside = low.map { day > $0 } == true && high.map { day < $0 } == true
+        // Ends are solid; while previewing, the hovered end is only outlined until it's clicked.
+        let solid = isEnd && !(previewing && day == hover && day != start)
+        let theme = PixelPenny.theme
+        return ZStack {
+            if let low, let high, low != high, inside || isEnd {
+                // Rounded where a week or the month starts and ends, so a range reads as one ribbon, not stacked bricks.
+                let opens = (column == 0 || number == 1) && day != low, closes = (column == 6 || number == last) && day != high
+                let radius = Self.ribbon / 2
+                UnevenRoundedRectangle(topLeadingRadius: opens ? radius : 0, bottomLeadingRadius: opens ? radius : 0,
+                                       bottomTrailingRadius: closes ? radius : 0, topTrailingRadius: closes ? radius : 0)
+                    .fill(theme.opacity(previewing ? 0.1 : 0.2))
+                    .frame(height: Self.ribbon)
+                    .padding(.leading, day == low ? Self.cell.width / 2 : 0).padding(.trailing, day == high ? Self.cell.width / 2 : 0)
+            }
+            Circle().fill(solid ? theme : .clear).frame(width: Self.dot, height: Self.dot)
+                .overlay(Circle().strokeBorder(day == hover && !future ? theme : day == today && !solid ? PennyStyle.muted : .clear, lineWidth: 1.5))
+            Text("\(number)").font(.system(size: 12, weight: solid || day == today ? .bold : .regular).monospacedDigit())
+                .foregroundStyle(solid ? Color.black : Color.primary).opacity(future ? 0.35 : 1)
+        }
+        .frame(width: Self.cell.width, height: Self.cell.height)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            guard !future else { return }
+            if inside { hover = day } else if hover == day { hover = nil }
+        }
+        .onTapGesture { if !future { pick(day) } }
+    }
+
+    /// First click starts a range, the second ends it (either order); a third starts a new one.
+    func pick(_ day: String) {
+        if start == nil || end != nil { start = day; end = nil }
+        else if let first = start, day < first { end = first; start = day }
+        else { end = day }
+    }
+
+    func done() {
+        guard let start else { return }
+        let last = end ?? start
+        apply(min(start, last), max(start, last))
+    }
+
+    var summary: String {
+        let year = Ledger.calendar.component(.year, from: Date())
+        func name(_ day: String) -> String {
+            guard let date = Ledger.start(of: day) else { return day }
+            var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            if Ledger.calendar.component(.year, from: date) != year { style = style.year() }
+            style.timeZone = Ledger.zone
+            return date.formatted(style)
+        }
+        guard let start else { return L("Pick the first day") }
+        guard let end else { return L("%@ – now pick the last day", name(start)) }
+        return start == end ? name(start) : L("%@ – %@  ·  %@ days", name(start), name(end), Ledger.days(from: start, to: end).count)
+    }
+}
+
+/// A quick pick in the range picker: a row that lights under the pointer.
+struct PresetRow: View {
+    let name: String
+    let action: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        Text(name).font(.system(size: 12)).padding(.horizontal, 8).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering ? Color.white.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture(perform: action)
     }
 }
 
 /// Whether Penny's copy is up to date: when he last copied and copies next, how far today's numbers reach in Grafana,
 /// and each day you're looking at: final, updated in the last hour, behind, or not copied. A day still coming in counts
-/// as up to date when it was copied in the last hour.
+/// as up to date when it was copied in the last hour. The days are one row, newest first, so the latest end is what you
+/// see first, with arrows either side when there are more than fit (2026-11-07, first in the Windows app: thirty days
+/// wrapped into four rows). The minute's refresh keeps where you scrolled; a new range goes back to the newest day.
 struct DataState: View {
     @ObservedObject var ledger: PennyLedger
     let days: [String]
+    @State private var offset: CGFloat = 0
+    @State private var viewport: CGFloat = 0
     static let fresh: TimeInterval = 3600
+    static let tile: CGFloat = 104, gap: CGFloat = 6
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let today = Ledger.name(of: context.date)
             VStack(alignment: .leading, spacing: 8) {
                 headline(today: today, now: context.date).font(.system(size: 11))
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
-                    ForEach(days, id: \.self) { day in tile(day, today: today, now: context.date) }
-                }
+                strip(today: today, now: context.date)
             }
         }
+    }
+
+    func strip(today: String, now: Date) -> some View {
+        let content = CGFloat(days.count) * (Self.tile + Self.gap) - Self.gap
+        let more = content > viewport + 1
+        let atStart = offset >= -1, atEnd = offset <= -(content - viewport) + 1
+        let edge = min(0.45, 36 / max(viewport, 1))
+        return ScrollViewReader { reader in
+            HStack(spacing: 6) {
+                if more { pager("chevron.left", L("Newer days"), enabled: !atStart) { page(-1, reader) } }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Self.gap) {
+                        ForEach(days, id: \.self) { day in tile(day, today: today, now: now).frame(width: Self.tile).id(day) }
+                    }
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: StripOffset.self, value: geometry.frame(in: .named("strip")).minX)
+                    })
+                }
+                .coordinateSpace(name: "strip")
+                .background(GeometryReader { geometry in Color.clear.onAppear { viewport = geometry.size.width }.onChange(of: geometry.size.width) { _, width in viewport = width } })
+                .onPreferenceChange(StripOffset.self) { offset = $0 }
+                // The edge with more days fades out.
+                .mask(LinearGradient(stops: [.init(color: more && !atStart ? .clear : .black, location: 0), .init(color: .black, location: more && !atStart ? edge : 0),
+                                             .init(color: .black, location: more && !atEnd ? 1 - edge : 1), .init(color: more && !atEnd ? .clear : .black, location: 1)],
+                                     startPoint: .leading, endPoint: .trailing))
+                if more { pager("chevron.right", L("Older days"), enabled: !atEnd) { page(1, reader) } }
+            }
+            .onChange(of: days) { _, new in if let first = new.first { reader.scrollTo(first, anchor: .leading) } }
+        }
+    }
+
+    func pager(_ symbol: String, _ tip: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).frame(width: 22).frame(maxHeight: .infinity).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(.secondary).disabled(!enabled).opacity(enabled ? 1 : 0.3).help(tip)
+    }
+
+    /// A page at a time, less one tile so the last one seen stays in view.
+    func page(_ direction: Int, _ reader: ScrollViewProxy) {
+        let step = Self.tile + Self.gap
+        let first = Int((-offset / step).rounded())
+        let pageSize = max(1, Int((viewport - step) / step))
+        let target = min(max(first + direction * pageSize, 0), max(days.count - 1, 0))
+        guard days.indices.contains(target) else { return }
+        withAnimation(.easeOut(duration: 0.35)) { reader.scrollTo(days[target], anchor: .leading) }
     }
 
     @ViewBuilder func headline(today: String, now: Date) -> some View {
@@ -343,13 +784,15 @@ struct DataState: View {
         .help(help)
     }
 
-    static func written(_ day: String) -> String {
-        var style = Date.FormatStyle.dateTime.month(.abbreviated).day()
-        style.timeZone = Ledger.zone
-        return Ledger.start(of: day)?.formatted(style) ?? day
-    }
+    static func written(_ day: String) -> String { Ledger.short(day) }
 
     static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
+}
+
+/// Where the Data strip's row sits as it scrolls.
+struct StripOffset: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// The hours as a media buyer reads them (2026-11-06), the Campaign Breakdown dashboard's way with breakeven from CBH:
@@ -467,8 +910,17 @@ struct HoursEfficiency: View {
                     RangeBar(read: read, profit: profit).frame(width: 120, height: 14)
                     Text(Self.name(read.verdict)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Self.color(read.verdict))
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8).help(Self.meaning(read.verdict))
-                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 4).padding(.horizontal, 4)
-                .background(Self.color(read.verdict).opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
+                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 4).padding(.horizontal, 4).padding(.leading, 3)
+                // Shaded by the hour's average against breakeven (2026-11-07: you asked to see at a glance which hours pay
+                // on average), with a stripe in the same colour; an hour with too few days to judge stays plain.
+                .background {
+                    let shade = Ledger.shade(read, profit).map(PennyStyle.tone)
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4).fill(shade?.opacity(0.1) ?? Color.white.opacity(0.02))
+                        if let shade { UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 4).fill(shade.opacity(0.9)).frame(width: 3) }
+                    }
+                }
+                .padding(.vertical, 1)
                 .textSelection(.enabled)
             }
         }
@@ -618,36 +1070,5 @@ struct LedgerTable: View {
                 Button(L("Show %@ more", min(25, sorted.count - shown))) { shown += 25 }.buttonStyle(.link).font(.system(size: 11)).padding(.top, 6)
             }
         }
-    }
-}
-
-/// From and To on two calendars, as Grafana's absolute time range, in the company's (Alaska) days. Dates older than
-/// the copy are copied from Grafana when applied, if Grafana still has them.
-struct DatesPicker: View {
-    @State var from: Date
-    @State var to: Date
-    let apply: (Date, Date) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L("From")).font(.system(size: 11, weight: .semibold))
-                    DatePicker("", selection: $from, in: ...Date(), displayedComponents: .date).datePickerStyle(.graphical).labelsHidden()
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L("To")).font(.system(size: 11, weight: .semibold))
-                    DatePicker("", selection: $to, in: ...Date(), displayedComponents: .date).datePickerStyle(.graphical).labelsHidden()
-                }
-            }
-            HStack {
-                Text(L("Alaska time, as the dashboards count days")).font(.system(size: 10)).foregroundStyle(.secondary)
-                Spacer()
-                Button(L("Apply dates")) { apply(min(from, to), max(from, to)) }.keyboardShortcut(.defaultAction)
-            }
-        }
-        .environment(\.timeZone, Ledger.zone)
-        .environment(\.calendar, Ledger.calendar)
-        .padding(14)
     }
 }

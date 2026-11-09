@@ -1392,6 +1392,60 @@ struct Checks {
             let bands = Ledger.bands(week, profit: profit)
             check(bands.map(\.cells) == [0, 5, 4, 0, 0, 9] && bands[2].high == profit.breakeven && bands[5].numbers.spent == 230,
                   "Every hour of every day falls in a band by the ROAS it brought back")
+            // The range selector's ‹ and ›, the hours' shading, what the days are compared with (2026-11-07, from the Windows app).
+            let evening = Date(timeIntervalSince1970: 1_793_869_200 - 4 * 3600)  // Nov 4, 8 PM in Alaska
+            let lastSeven = Ledger.days(back: 7, from: evening)
+            let stepped = Ledger.shift(lastSeven, by: -1, now: evening)
+            check(stepped.count == 7 && stepped.first == "2026-10-28" && stepped.last == "2026-10-22" && Ledger.shift(stepped, by: 1, now: evening) == lastSeven
+                  && Ledger.endsToday(lastSeven, now: evening) && !Ledger.endsToday(stepped, now: evening) && Ledger.shift(lastSeven, by: 1, now: evening) == lastSeven
+                  && Ledger.shift(["2026-11-04"], by: -1, now: evening) == ["2026-11-03"],
+                  "‹ and › step the same number of days back or forward, never past today")
+            let nearToday = Ledger.shift(Ledger.days(from: "2026-10-25", to: "2026-10-31"), by: 1, now: evening)
+            check(nearToday.first == "2026-11-04" && nearToday.count == 7
+                  && Ledger.shift(Ledger.days(from: "2026-11-01", to: "2026-11-03"), by: -1, now: evening) == ["2026-10-31", "2026-10-30", "2026-10-29"],
+                  "› into today ends the range on today, keeping its length; ‹ steps across daylight saving")
+            func hourRead(_ hour: Int, _ spent: Double, _ revenue: Double, days: Int, _ verdict: Ledger.HourRead.Verdict) -> Ledger.HourRead {
+                var read = Ledger.HourRead(hour: hour); read.numbers.spent = spent; read.numbers.revenue = revenue; read.days = days; read.verdict = verdict; return read
+            }
+            let usual = Ledger.Profit.usual
+            let shaded = [hourRead(0, 100, 100 * (usual.profitable + 0.1), days: 5, .reliable), hourRead(1, 100, 100 * (usual.breakeven + usual.profitable) / 2, days: 5, .thin),
+                          hourRead(2, 100, 100 * (usual.breakeven - 0.3), days: 5, .costly), hourRead(3, 100, 100 * (usual.profitable + 1), days: 2, .few), hourRead(4, 0, 0, days: 0, .idle)]
+            check(shaded.map { Ledger.shade($0, usual) } == [.good, .fair, .bad, nil, nil]
+                  && Ledger.shade(Ledger.Numbers([50, 0, 0, 0, 0, 0, 0, 0, 50 * (usual.breakeven - 0.5)]), usual) == .bad && Ledger.shade(Ledger.Numbers(), usual) == nil,
+                  "Each hour's column and row is shaded by its average against breakeven; idle hours and too few days are not")
+            check(Ledger.shade(shaded, hour: 0, usual) == .good && Ledger.shade(shaded, hour: 2, usual) == .bad && Ledger.shade(nil, hour: 0, usual) == nil,
+                  "A day opened hour by hour is shaded by each hour over all the days, not its own")
+            let weekBefore = Ledger.shift(lastSeven, by: -1, now: evening)
+            var compared = Ledger.Summary()
+            for name in lastSeven + weekBefore {
+                compared.copied[name] = name == lastSeven[0] ? evening.addingTimeInterval(-600) : evening.addingTimeInterval(-86_400)
+                compared.products["P", default: [:]][name] = Ledger.Numbers([24, 0, 0, 0, 0, 0, 0, 0, 48])
+            }
+            compared.latest[lastSeven[0]] = 9  // Grafana has today to 10 AM
+            let metDay = Ledger.Day(product: "P", day: weekBefore[0], copied: evening, ads: [],
+                                    hours: (0 ..< 24).map { Ledger.Hour(ad: "a", hour: $0, numbers: Ledger.Numbers([1, 0, 0, 0, 0, 0, 0, 0, 2])) })
+            let (cut, against) = Ledger.before("P", now: lastSeven, before: weekBefore, summary: compared, clock: evening, load: { $0 == weekBefore[0] ? metDay : nil })
+            check(against.upTo == 9 && cut.spent == 6 * 24 + 10 && against.name == L("the week before")
+                  && against.said == "\(L("the week before")) (\(Ledger.span(weekBefore)); \(L("to %@ on its last day, as far as today has come", "10 AM")))",
+                  "The days are set against the week before, dated, its last day cut to the hours today has")
+            check(Ledger.beforeName(1) == L("the day before") && Ledger.beforeName(14) == L("the %@ days before", 14)
+                  && Ledger.before("P", now: weekBefore, before: Ledger.shift(weekBefore, by: -1, now: evening), summary: compared, clock: evening, load: { _ in metDay }).against.upTo == nil,
+                  "Days before are named by how many; a range not ending today isn't cut")
+            let partial = Ledger.Against(days: weekBefore, copied: 3, nowCopied: 7, upTo: nil)
+            check(abs((partial.change(700, 150, total: true) ?? 0) - 1) < 1e-9 && abs((partial.change(2.4, 2.0) ?? 0) - 0.2) < 1e-9
+                  && partial.said.contains(L("only %@ of its %@ days copied, so totals a day", 3, 7)) && Ledger.Against(days: weekBefore, copied: 0, nowCopied: 7).change(10, 5) == nil
+                  && Ledger.report(week, before: Ledger.Numbers([40, 0, 0, 0, 0, 0, 0, 1, 80]), against: partial).contains { $0.contains(partial.said) },
+                  "With fewer earlier days copied, totals are compared a day and Penny's read says so")
+            // Penny's sign-ins log (2026-11-08): a line each, kept short.
+            let log = FileManager.default.temporaryDirectory.appendingPathComponent("penny-checks-\(UUID().uuidString)/sign-ins.log")
+            Grafana.note("Signed out: test", in: log)
+            let first = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+            try String(repeating: String(repeating: "x", count: 99) + "\n", count: 700).write(to: log, atomically: true, encoding: .utf8)
+            Grafana.note("Signed in again by himself", in: log)
+            let trimmed = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n")
+            check(first.hasSuffix("  Signed out: test\n") && trimmed.count == 201 && trimmed.last?.hasSuffix("  Signed in again by himself") == true,
+                  "Penny's sign-ins log takes a line each, cut to its last 200 lines when it grows")
+            try? FileManager.default.removeItem(at: log.deletingLastPathComponent())
         }
         // Pix's chat history (2026-11-06): boards saved before it still read, each earlier chat titled by your first message.
         do {
@@ -1399,6 +1453,132 @@ struct Checks {
             check(before.chat.count == 1 && before.past.isEmpty && before.ctaFrom == "x", "Pix's boards saved before the chat history still load")
             check(PixChat(messages: before.chat).title == "Make the CTA red" && PixChat(messages: [PixMessage(fromPix: false, text: "", pictures: ["a.jpg"])]).title == "",
                   "An earlier chat with Pix is titled by your first message")
+        }
+        // Sage's Pick for me as a curator and his mini player (Creative Assist's SagePick.cs, brought back 2026-11-09), on the
+        // fixtures in Tests/Fixtures/Sage (the same ones EDIT_ASSIST_SAGE_PICK_FIXTURE reads): 12 videos for "speed ramp premiere
+        // pro" and the brain's marks for them.
+        do {
+            let folder = URL(fileURLWithPath: "Tests/Fixtures/Sage", isDirectory: true)
+            let fixture = { (name: String) in Study.json((try? Data(contentsOf: folder.appendingPathComponent(name))) ?? Data()) }
+            let found = Study.videos(in: (try? Data(contentsOf: folder.appendingPathComponent("videos.json"))) ?? Data())
+            let ask = "speed ramp premiere pro"
+            let editing = Study.Topic(name: "Editing techniques"), recipes = Study.Topic(name: "Recipes", kind: .recipes)
+            let day = Study.day("2026-11-06")!
+            func V(_ id: String, _ title: String, _ channel: String = "Ch", duration: String = "10:00", views: Int = 10000) -> Study.Video {
+                Study.Video(id: id, title: title, channel: channel, duration: duration, views: views)
+            }
+            func M(_ r: Int, _ s: Int, _ c: Int, _ d: Int, covers: String = "", same: String = "", reject: String = "") -> Study.Marks {
+                Study.Marks(relevance: r, substance: s, credibility: c, density: d, covers: covers, sameAs: same, why: "why", reject: reject)
+            }
+            func O(_ json: String) -> [String: Any]? { Study.json(Data(json.utf8)) }
+            func strict(_ schema: [String: Any]) -> Bool {
+                (schema["additionalProperties"] as? Bool) == false && (schema["required"] as? [String])?.count == (schema["properties"] as? [String: Any])?.count
+            }
+            let scoreItem = ((Study.scoreSchema["properties"] as? [String: Any])?["scores"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
+            check(strict(Study.anglesSchema) && strict(Study.scoreSchema) && strict(scoreItem), "Pick's brain calls use strict schemas")
+            check(found.count == 12 && found[0].likes == 30000 && found[0].comments == 120 && found[0].views == 900000, "Pick reads likes and comments with each video")
+            let angles = Study.angles(from: O(#"{"angles":["Speed ramp premiere pro!","time remapping tutorial"," ","optical flow ramps","fourth one"],"short":false,"timely":true}"#), words: ask, topic: editing)
+            let junk = Study.angles(from: O(#"{"angles":"nope","short":"yes"}"#), words: ask, topic: editing)
+            let recipeAngles = Study.angles(from: O(#"{"angles":["vietnamese beef noodle soup"],"short":false,"timely":false}"#), words: "pho", topic: recipes)
+            check(angles.searches == [ask, "time remapping tutorial", "optical flow ramps"] && angles.timely && !angles.wantsShort
+                  && junk.searches == [ask] && !junk.wantsShort && Study.angles(from: nil, words: ask, topic: editing).searches.count == 1
+                  && recipeAngles.searches == ["pho recipe", "vietnamese beef noodle soup recipe"],
+                  "Pick's angles: your words first, the brain's distinct ones after, three at most; junk leaves your words")
+            check(Study.merged([["a", "b", "c"], ["b", "d"], ["e"]]) == ["a", "b", "e", "d", "c"], "Pick merges its searches in turn, each video once")
+            let (kept, dropped) = Study.screen(found, topic: editing, words: ask, saved: ["ramp0000011"], written: ["https://www.youtube.com/watch?v=ramp0000012"], wantsShort: false)
+            let droppedWhy = { (id: String) in dropped.first { $0.video.id == id }?.reason.english ?? "" }
+            check(kept.map(\.id) == ["ramp0000001", "ramp0000002", "ramp0000003", "ramp0000004", "ramp0000005", "ramp0000010"]
+                  && droppedWhy("ramp0000006").hasPrefix("Too short") && droppedWhy("ramp0000007").contains("reupload") && droppedWhy("ramp0000008").contains("reaction")
+                  && droppedWhy("ramp0000009").contains("compilation") && droppedWhy("ramp0000011") == "Already in Saved" && droppedWhy("ramp0000012") == "Already in your notes",
+                  "Pick's filters drop Shorts, reuploads, reactions, compilations, and what's already saved or written")
+            let shorts = Study.screen([V("s1", "Quick tip", duration: "0:40")], topic: editing, words: "quick tip", saved: [], written: [], wantsShort: true).kept
+            let reactions = Study.screen([V("r1", "Reaction GIFs in Premiere")], topic: editing, words: "reaction gifs", saved: [], written: [], wantsShort: false).kept
+            let mukbang = Study.screen([V("m1", "Spicy noodle MUKBANG")], topic: recipes, words: "noodles", saved: [], written: [], wantsShort: false).dropped
+            check(shorts.count == 1 && reactions.count == 1 && mukbang.count == 1 && mukbang[0].reason.english.contains("Not a recipe"),
+                  "Pick keeps short videos when you ask for them, and a word you asked for is not a filter")
+            check(Study.rubricScore(M(3, 3, 3, 3)) == 60 && Study.rubricScore(M(4, 4, 3, 3)) >= Study.Rubric.bar && Study.rubricScore(M(5, 5, 5, 5)) == 100,
+                  "Pick's rubric: all 3s is mediocre and below the bar; 4,4,3,3 clears it")
+            let three = [V("a", "A"), V("b", "B", "Other"), V("c", "C", "Third")]
+            let barred = Study.choose(ask: ask, searches: [ask], lookedAt: three, candidates: three, screened: [], marks: ["a": M(5, 5, 4, 4), "b": M(3, 3, 3, 3), "c": M(2, 5, 5, 5)], timely: false, today: day)
+            check(barred.picked.map(\.video.id) == ["a"] && barred.passedOver.contains { $0.video.id == "b" && $0.reason.english.hasPrefix("Below the bar") }
+                  && barred.passedOver.contains { $0.video.id == "c" && $0.reason.english.hasPrefix("Off the ask") } && barred.headline == "Saved 1 of 3 looked at",
+                  "Pick's threshold passes over the mediocre and the off-topic, each with why")
+            let five = [V("a", "A", "Cinecom"), V("b", "B", "cinecom"), V("c", "C", "Riot"), V("d", "D", "Fourth"), V("e", "E", "Fifth")]
+            let diverse = Study.choose(ask: ask, searches: [ask], lookedAt: five, candidates: five, screened: [], marks: [
+                "a": M(5, 5, 5, 5, covers: "speed ramps in premiere"), "b": M(5, 5, 5, 4, covers: "nesting and motion blur"),
+                "c": M(5, 5, 4, 4, covers: "optical flow ramps", same: "a"), "d": M(5, 4, 4, 4, covers: "Speed ramps in Premiere!"), "e": M(4, 4, 4, 4, covers: "bezier easing for ramps"),
+            ], timely: false, today: day)
+            let diverseWhy = { (id: String) in diverse.passedOver.first { $0.video.id == id }?.reason.english ?? "" }
+            check(diverse.picked.map(\.video.id) == ["a", "e"] && diverseWhy("b").contains("one video per channel") && diverseWhy("c").contains("covers the same")
+                  && diverseWhy("d").contains("covers the same"),
+                  "Pick keeps one per channel and never two covering the same thing")
+            let eight = (1 ... 8).map { V("v\($0)", "V\($0)", "Ch\($0)") }
+            var eightMarks: [String: Study.Marks] = [:]
+            for (index, video) in eight.enumerated() { eightMarks[video.id] = M(5, 5, 5 - index % 2, 4) }
+            let most = Study.choose(ask: ask, searches: [ask], lookedAt: eight, candidates: eight, screened: [], marks: eightMarks, timely: false, today: day)
+            check(most.picked.count == 5 && zip(most.picked, most.picked.dropFirst()).allSatisfy { $0.score >= $1.score }
+                  && most.passedOver.filter { $0.reason.english.contains("better ones") }.count == 3,
+                  "Pick saves at most five, best first")
+            let meh = [V("a", "Meh one"), V("b", "Meh two", "Other")]
+            let none = Study.choose(ask: ask, searches: [ask], lookedAt: meh, candidates: meh, screened: [], marks: ["a": M(3, 3, 3, 3), "b": M(4, 3, 3, 2)], timely: false, today: day)
+            let filtered = Study.choose(ask: ask, searches: [ask], lookedAt: meh, candidates: [], screened: [Study.Passed(video: meh[0], reason: Study.Says("Too short (%@) to teach much", [.plain("0:30")])),
+                                                                                                         Study.Passed(video: meh[1], reason: Study.Says("Too short (%@) to teach much", [.plain("0:20")]))],
+                                        marks: [:], timely: false, today: Date())
+            let empty = Study.choose(ask: ask, searches: [ask], lookedAt: [], candidates: [], screened: [], marks: [:], timely: false, today: Date())
+            let noneWhy = none.why?.english ?? "", filteredWhy = filtered.why?.english ?? ""
+            check(none.picked.isEmpty && noneWhy.hasPrefix("Nothing cleared the bar") && noneWhy.contains("Meh") && none.headline == "Saved 0 of 2 looked at"
+                  && filteredWhy.contains("All 2 were filtered out") && filteredWhy.contains("too short") && (empty.why?.english ?? "").contains("found nothing"),
+                  "When nothing passes, Pick saves nothing and says why")
+            let shown = [V("abc123def45", "A"), V("xyz", "B")]
+            let read = Study.marks(from: O(#"""
+                {"scores":[
+                  {"id":"id abc123def45","relevance":"4","substance":9,"credibility":-2,"density":3.6,"covers":" ramps ","same_as":"xyz","why":" Good ","reject":""},
+                  {"id":"abc123def45","relevance":0,"substance":0,"credibility":0,"density":0,"covers":"","same_as":"","why":"twice","reject":"x"},
+                  {"id":"<script>","relevance":5,"substance":5,"credibility":5,"density":5,"covers":"","same_as":"","why":"","reject":""},
+                  "junk", 7, null,
+                  {"id":"xyz","relevance":"lots","substance":null,"credibility":true,"density":{},"covers":"","same_as":"xyz","why":"","reject":""}
+                ]}
+                """#), videos: shown)
+            check(read.count == 2 && read["abc123def45"] == Study.Marks(relevance: 4, substance: 5, credibility: 0, density: 4, covers: "ramps", sameAs: "xyz", why: "Good", reject: "")
+                  && read["xyz"] == Study.Marks(relevance: 0, substance: 0, credibility: 0, density: 0, covers: "", sameAs: "", why: "", reject: "")
+                  && Study.marks(from: O(#"{"nothing":1}"#), videos: shown).isEmpty && Study.marks(from: nil, videos: shown).isEmpty,
+                  "Pick's scores are read only for videos it was shown, once each, marks clamped 0-5, junk ignored")
+            let fixtureAngles = Study.angles(from: fixture("angles.json"), words: ask, topic: editing)
+            let (fixtureKept, fixtureDropped) = Study.screen(found, topic: editing, words: ask, saved: [], written: [], wantsShort: fixtureAngles.wantsShort)
+            let fixtureMarks = Study.marks(from: fixture("scores.json"), videos: fixtureKept)
+            let outcome = Study.choose(ask: ask, searches: fixtureAngles.searches, lookedAt: found, candidates: fixtureKept, screened: fixtureDropped, marks: fixtureMarks,
+                                       timely: fixtureAngles.timely, today: day)
+            check(outcome.headline == "Saved 3 of 12 looked at" && outcome.picked.map(\.video.id) == ["ramp0000001", "ramp0000002", "ramp0000004"]
+                  && outcome.picked.allSatisfy { !$0.why.isEmpty } && outcome.passedOver.count == 9 && outcome.passedOver.allSatisfy { !$0.reason.english.isEmpty } && outcome.why == nil,
+                  "Pick on the fixtures: 3 of 12 saved, each with why; the rest passed over with why not")
+            let have = found.filter { ["ramp0000001", "ramp0000002", "ramp0000004"].contains($0.id) }
+            let (secondKept, secondDropped) = Study.screen(found, topic: editing, words: ask, saved: Set(have.map(\.id)), written: [], wantsShort: false)
+            let secondMarks = Study.marks(from: fixture("scores.json"), videos: secondKept, have: have.map(\.id))
+            let second = Study.choose(ask: ask, searches: [ask], lookedAt: found, candidates: secondKept, screened: secondDropped, marks: secondMarks, timely: true, today: day, have: have)
+            let without3 = Study.choose(ask: ask, searches: [ask], lookedAt: found, candidates: secondKept.filter { $0.id != "ramp0000003" }, screened: secondDropped, marks: secondMarks,
+                                        timely: true, today: day, have: have)
+            check(secondMarks["ramp0000005"]?.sameAs == "ramp0000001" && second.picked.map(\.video.id) == ["ramp0000003"]
+                  && (second.passedOver.first { $0.video.id == "ramp0000005" }?.reason.english ?? "").contains("which you already have")
+                  && Study.scorePrompt(ask, topic: editing, videos: secondKept, have: have).contains("Already in my Saved")
+                  && (without3.why?.english ?? "").hasPrefix("Nothing new worth saving"),
+                  "A second Pick never saves what covers a video you already have")
+            let fresh = Study.Video(id: "n", published: "2026-09-01"), stale = Study.Video(id: "o", published: "2020-01-01")
+            check(Study.signals(fresh, among: [fresh], timely: true, today: day) > 0 && Study.signals(stale, among: [stale], timely: true, today: day) < 0
+                  && Study.signals(stale, among: [stale], timely: false, today: day) == 0,
+                  "Recent videos count for more only when the topic moves fast")
+            // Every reason and outcome Pick can show has its Vietnamese, the titles and the brain's words left as they are.
+            let says = (dropped + barred.passedOver + diverse.passedOver + most.passedOver + second.passedOver + mukbang).map(\.reason)
+                + [none.why, filtered.why, empty.why, without3.why].compactMap { $0 }
+            func untranslated(_ says: Study.Says) -> [String] {
+                (says.verbatim || Vietnamese.text[says.template] != nil ? [] : [says.template]) + says.values.flatMap(untranslated)
+            }
+            let missing = Set(says.flatMap(untranslated)).sorted()
+            check(missing.isEmpty, "Pick's reasons all have their Vietnamese" + (missing.isEmpty ? "" : ": " + missing.joined(separator: " | ")))
+            check(Study.playerURL("wwapBsT0oc8")?.absoluteString == "https://sage-player.example/player.html?v=wwapBsT0oc8" && Study.playerURL("x\"><script>") == nil
+                  && Study.playerURL("../../etc") == nil && Study.playerURL("") == nil
+                  && Study.embedURL("abc123def45").hasPrefix("https://www.youtube-nocookie.com/embed/abc123def45?autoplay=1&rel=0&modestbranding=1")
+                  && Study.playerPage.contains("youtube-nocookie.com/embed/") && Study.playerPage.contains("origin=") && Study.playerPage.contains("strict-origin-when-cross-origin"),
+                  "The mini player plays only video ids, through YouTube's privacy-enhanced embed with an origin")
         }
         // Sage, the research helper (Basil, the recipe helper, before): YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {
@@ -1444,6 +1624,69 @@ struct Checks {
             let reply = Study.reply(from: ["reply": " Looking ", "youtube": "pho recipe", "notes": ["pho", " "], "show": []])
             check(reply.text == "Looking" && reply.notes == ["pho"] && reply.looksUp && !Study.reply(from: ["reply": "Hi"]).looksUp, "Sage's chat answer says what he looks up")
             check(Study.named(["PHO", "adobo!", "Nothing"], in: entries).map(\.title) == ["Pho", "Adobo"], "Notes the chat names are found by title, case and marks aside")
+            // Sage acting from the chat (SageActions.swift): Obsidian's vaults, the whole vault, safe changes and their undo.
+            let list = Data(#"{"vaults":{"a":{"path":"/Users/me/Drive/Obsidian","ts":1,"open":true},"b":{"path":"/Users/me/Work Notes","ts":2}}}"#.utf8)
+            let known = Study.knownVaults(in: list)
+            check(known.map(\.name) == ["Obsidian", "Work Notes"] && known[0].open && Study.vault(named: "", in: known)?.name == "Obsidian"
+                  && Study.vault(named: "work notes", in: known)?.path == "/Users/me/Work Notes" && Study.vault(named: "my obsidian vault", in: known)?.name == "Obsidian"
+                  && Study.vault(named: "anything", in: [known[1]])?.name == "Work Notes" && Study.knownVaults(in: Data("x".utf8)).isEmpty,
+                  "Sage connects the vault your words mean from Obsidian's list: by name, else the only one, else the one open")
+            let (vaultNotes, vaultFolders) = Study.contents(ofVault: vault)
+            check(vaultNotes.map(\.path) == ["Adobo.md", "Soups/Pho.md"] && vaultFolders == ["Soups"] && vaultNotes[1].title == "Pho",
+                  "The whole vault's notes and folders, by their paths, .obsidian left out")
+            check(Study.resolve("[[pho]]", in: vaultNotes)?.path == "Soups/Pho.md" && Study.resolve("Soups/Pho.md", in: vaultNotes) != nil && Study.resolve("Ramen", in: vaultNotes) == nil
+                  && Study.folder("soups/", in: vaultFolders) == "Soups" && Study.folder("", in: vaultFolders) == "" && Study.folder("New", in: vaultFolders) == nil
+                  && Study.folderPath(" Cooking / Soups: hot ") == "Cooking/Soups hot",
+                  "A note is found by its path or name as a link would, a folder by its path or name")
+            let vaultHits = Study.find("pho", in: vaultNotes, vault: vault)
+            check(vaultHits.first?.path == "Soups/Pho.md" && Study.find("simmer", in: vaultNotes, vault: vault).first.map { $0.path == "Adobo.md" && $0.line.contains("Simmer") } == true
+                  && Study.find("x", in: vaultNotes, vault: vault).isEmpty,
+                  "Finding in the vault: names first, then the text, with the line it's on")
+            let doing = Study.actions(from: ["actions": [["kind": "append", "target": " Pho ", "value": "", "text": "\nMore\n"], ["kind": "delete", "target": "Pho", "value": "", "text": ""]]])
+            check(doing == [Study.Action(kind: "append", target: "Pho", value: "", text: "More")] && (Study.chatSchema["required"] as? [String])?.contains("actions") == true,
+                  "Sage's actions are read from his answer; one he can't do (delete) is dropped")
+            check(Study.adding("More", to: "Text\n\n\n") == "Text\n\nMore\n" && Study.adding("More", to: "A\r\nB\r\n") == "A\r\nB\r\n\r\nMore\r\n" && Study.adding("x", to: "") == "x\n",
+                  "Adding to a note: after a blank line, in the note's own line endings")
+            let crlfNote = "---\r\nstatus: to try\r\n---\r\nText"
+            check(Study.setting("status", to: "made", keepingEndingsIn: crlfNote) == "---\r\nstatus: made\r\n---\r\nText", "A status set keeps the note's line endings")
+            check(Study.relinked("See [[Pho]], [[pho|soup]], ![[Soups/Pho#Broth]], [[Pho.md]], [[Phony]] and [[Other]].", from: "Pho", to: "Pho Bo")
+                  == "See [[Pho Bo]], [[Pho Bo|soup]], ![[Soups/Pho Bo#Broth]], [[Pho Bo.md]], [[Phony]] and [[Other]].",
+                  "Links to a renamed note follow it, as Obsidian's do; other links are left")
+            let bomData = Data([0xEF, 0xBB, 0xBF]) + Data("Hi".utf8)
+            check(Study.noteText(bomData).text == "Hi" && Study.noteText(bomData).bom && Study.noteData("Hi", bom: true) == bomData, "A note's byte-order mark is kept")
+            let pho = vault.appendingPathComponent("Soups/Pho.md")
+            let phoBefore = try Data(contentsOf: pho)
+            let phoAfter = Data(Study.adding("Broth", to: String(decoding: phoBefore, as: UTF8.self)).utf8)
+            try Study.replace(pho, with: phoAfter)
+            let edit = Study.Change.edited(pho, before: phoBefore, after: phoAfter)
+            let phoNow = try Data(contentsOf: pho)
+            let phoUndone = Study.undo(edit)
+            let phoBack = try Data(contentsOf: pho)
+            check(phoNow == phoAfter && phoUndone && phoBack == phoBefore, "A change to a note is undone while it still reads as Sage left it")
+            try Study.replace(pho, with: phoAfter)
+            try Data("Changed in Obsidian".utf8).write(to: pho)
+            let notUndone = !Study.undo(edit)
+            let phoKept = try Data(contentsOf: pho)
+            check(notUndone && String(decoding: phoKept, as: UTF8.self) == "Changed in Obsidian", "A note changed since isn't undone: what you wrote stays")
+            let deeper = vault.appendingPathComponent("Cooking/Soups", isDirectory: true)
+            let madeFolders = try Study.make(deeper)
+            let movedPho = deeper.appendingPathComponent("Pho.md")
+            try FileManager.default.moveItem(at: pho, to: movedPho)
+            check(madeFolders.map(\.file.lastPathComponent) == ["Cooking", "Soups"] && Study.undo(.moved(from: pho, to: movedPho))
+                  && FileManager.default.fileExists(atPath: pho.path) && madeFolders.reversed().allSatisfy(Study.undo) && !FileManager.default.fileExists(atPath: vault.appendingPathComponent("Cooking").path),
+                  "A move and the folders made for it are undone")
+            let written = vault.appendingPathComponent("New.md")
+            try Data("x".utf8).write(to: written)
+            check(Study.undo(.created(written, Data("x".utf8))) && !FileManager.default.fileExists(atPath: written.path), "A note he wrote is taken back while it's as he wrote it")
+            let keptFolder = vault.appendingPathComponent("sage-kept", isDirectory: true)
+            Study.keep(phoBefore, of: pho, in: keptFolder)
+            check(((try? FileManager.default.contentsOfDirectory(atPath: keptFolder.appendingPathComponent("edited").path)) ?? []).first?.hasSuffix(" Pho.md") == true,
+                  "A note is copied to Sage's edited folder before he first changes it")
+            let abilities = Study.abilitiesPrompt(vault: "", known: known, topics: [Study.Topic(name: "Recipes", kind: .recipes)], current: Study.Topic(name: "Recipes", kind: .recipes),
+                                                  folders: [], findWords: "", found: nil, read: [], done: ["Moved “Pho” to Soups"], last: false)
+            check(abilities.contains("- Obsidian | /Users/me/Drive/Obsidian | open in Obsidian") && abilities.contains("folder: not chosen") && abilities.contains("- Moved “Pho” to Soups")
+                  && abilities.contains("to try, made, favourite") && abilities.contains("can't delete"),
+                  "Sage's question says what he can do, Obsidian's vaults, your topics and what he did")
             let asked = [Study.Message(fromSage: false, text: "What's in my pho?")]
             let withNotes = Study.chatPrompt(chat: asked, recipes: entries, folder: true, canSearch: false, found: [video!], searched: "mac",
                                                read: [("Pho", "Pho text")], last: true)
@@ -1454,9 +1697,10 @@ struct Checks {
                   "Without a recipes folder Sage still chats, and says where to choose one")
             check(Study.recipeSearch(" chicken ") == "chicken recipe" && Study.recipeSearch("how to make pho") == "how to make pho" && Study.recipeSearch("Adobo Recipe") == "Adobo Recipe",
                   "Sage searches for recipes, not anything with the word in it")
-            let picked = Study.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
-            check(picked == [Study.Pick(id: "v2", why: "Clear method")] && Study.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
-                  "Sage's picks are only videos he was shown, once each")
+            let recipesTopic = Study.Topic(name: "Recipes", kind: .recipes)
+            check(Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("method and amounts") && Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("mukbang")
+                  && Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("id v2 | Mac & Cheese"),
+                  "Pick's recipe rubric asks for a real recipe, not a mukbang")
             let kept = Study.Saved(video: video!, why: "Clear method")
             let back = try? JSONDecoder().decode([Study.Saved].self, from: JSONEncoder().encode([kept]))
             check(back?.first?.video?.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
@@ -1477,13 +1721,14 @@ struct Checks {
                   && Study.thumbnail(of: "https://example.com/watch?v=x") == nil && Study.thumbnail(of: "") == nil,
                   "A recipe card shows its video's picture")
             let md = Study.markdown("## Steps\n\n1. Brown **chicken**\n2. Add `soy`\n   - nested *one*\n\n- [x] done\n- [ ] todo\n\n> [!tip] Swap\n> Use ==thighs==\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nSee [[Pho|my pho]] and #soup <b>")
-            check(md.contains("<h2>Steps</h2>") && md.contains("<ol><li>Brown <strong>chicken</strong>") && md.contains("<code>soy</code>") && md.contains("<ul><li>nested <em>one</em>")
-                  && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td>2</td>")
-                  && md.contains("href=\"sage-note:Pho\">my pho</a>") && md.contains("class=\"tag\" href=\"#soup\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
+            check(md.contains("<h2 data-heading=\"Steps\" dir=\"auto\">Steps</h2>") && md.contains("<ol><li dir=\"auto\" data-sage-line=\"2\">Brown <strong>chicken</strong>") && md.contains("<code>soy</code>")
+                  && md.contains("<ul class=\"has-list-bullet\"><li dir=\"auto\" data-sage-line=\"4\"><span class=\"list-bullet\"></span>nested <em>one</em>")
+                  && md.contains("task-list-item is-checked") && md.contains("data-callout=\"tip\"") && md.contains("<mark>thighs</mark>") && md.contains("<td dir=\"auto\">2</td>")
+                  && md.contains("href=\"sage-note:Pho\" class=\"internal-link\">my pho</a>") && md.contains("href=\"#soup\" class=\"tag\"") && md.contains("&lt;b&gt;") && !md.contains("<b>"),
                   "Sage draws a note's Markdown as Obsidian's reading view does")
             let page = Study.page(note: note, look: Study.Look(dark: true, accent: "#ff8800", fontSize: 18, css: ".theme-dark{--x:1}"), dark: true)
-            check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("multi-select-pill\">#filipino-food") && page.contains("--accent: #ff8800")
-                  && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("<h2>Steps</h2>"),
+            check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("<span>filipino-food</span>") && page.contains("--accent-h: 32; --accent-s: 100%; --accent-l: 50%;")
+                  && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("data-heading=\"Steps\""),
                   "A note's page has its properties, the video, your accent, size and theme")
             let obsidian = vault.appendingPathComponent(".obsidian")
             try FileManager.default.createDirectory(at: obsidian.appendingPathComponent("themes/Minimal"), withIntermediateDirectories: true)
@@ -1521,7 +1766,7 @@ struct Checks {
             let pageSaved = Study.Saved(page: read, topic: editing.id)
             check(older.first?.topic == nil && older.first?.id == "v2" && pageSaved.id == "https://www.cuts.example/guide" && pageSaved.title == "Speed ramps & you"
                   && pageSaved.origin == "cuts.example" && pageSaved.thumbnail?.lastPathComponent == "pic.jpg"
-                  && Study.pickPrompt("speed ramp", videos: [video!], count: 5, topic: editing).contains("researching \"Editing techniques\""),
+                  && Study.scorePrompt("speed ramp", topic: editing, videos: [video!]).contains("researching \"Editing techniques\""),
                   "Saved holds videos and pages, each in its topic")
             try? FileManager.default.removeItem(at: vault)
         }
@@ -1793,6 +2038,29 @@ struct Checks {
                       "Each role has its own / command in the prompt, called by its usual words (/startframe is /start)")
                 desk.watch(outputs[1].path)
                 check(desk.takes(of: "K12")[1].seen && !desk.takes(of: "K12")[0].seen, "A take played counts as watched")
+                // The media's × and many files picked at once (Creative Assist, 2026-11-08).
+                let other = KinoDesk()
+                other.add([at("K1.png"), at("K1.1.png"), at("K2.png"), at("loose.png")])
+                other.add([at("K1.png")], into: "K2")
+                let used = other.using([at("K1.png").path, at("loose.png").path, at("K2.png").path])
+                let named = used.map { $0.shot + ":" + $0.files.map(\.handle).joined(separator: ",") }.joined(separator: ";")
+                other.remove([at("K1.png").path, at("loose.png").path])
+                check(named == "K1:K1;K2:K2,K2.1" && other.media.count == 2 && other.files(in: "K1").map(\.handle) == ["K1.1"]
+                      && other.files(in: "K2").map(\.handle) == ["K2"] && other.using([at("loose.png").path]).isEmpty,
+                      "Removing many files says first which shots use them, then takes each out of the media and every shot (\(named))")
+            }
+            do {
+                let order = ["a", "b", "c", "d", "e"]
+                let one = KinoPick.click(order, picked: [], anchor: nil, "b", command: false, shift: false)
+                let run = KinoPick.click(order, picked: one.picked, anchor: one.anchor, "d", command: false, shift: true)
+                let toggled = KinoPick.click(order, picked: run.picked, anchor: run.anchor, "c", command: true, shift: false)
+                let back = KinoPick.click(order, picked: toggled.picked, anchor: toggled.anchor, "a", command: false, shift: true)
+                let added = KinoPick.click(order, picked: ["e"], anchor: "b", "c", command: true, shift: true)
+                let plain = KinoPick.click(order, picked: added.picked, anchor: "b", "e", command: false, shift: false)
+                let noAnchor = KinoPick.click(order, picked: [], anchor: nil, "c", command: false, shift: true)
+                check(one.picked == ["b"] && run.picked == ["b", "c", "d"] && run.anchor == "b" && toggled.picked == ["b", "d"] && toggled.anchor == "c"
+                      && back.picked == ["a", "b", "c"] && added.picked == ["b", "c", "e"] && plain.picked == ["e"] && noAnchor.picked == ["c"],
+                      "Files are picked as in Finder: click, Cmd+click, Shift+click from the last click, Cmd+Shift+click adds the run")
             }
             func slots(_ model: String, _ names: [String], _ roles: [String: KinoRole] = [:]) -> [String] {
                 KinoSlot.all(model: model, files: shot(names), roles: roles).map { slot in
@@ -2029,6 +2297,10 @@ struct Checks {
               "With yours not at the counted row, the nearest close row is taken")
         check(Store.confirmedStyleRow(reported: 4, differences: [2: 72, 3: 563, 4: 600, 5: 590]) == 2, "A dark tile under the hover tint is still found when plainly the best")
         check(Store.confirmedStyleRow(reported: 2, differences: [0: 90, 1: 95, 2: 100]) == nil, "Nothing clear keeps the counted row")
+        // Sage's vault, note view, Bases and canvases (2026-11-09, brought back from Creative Assist).
+        try await sageVault(check)
+        try sageNotes(check)
+        try sageBases(check)
         // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
         do {
             let missing = (EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }

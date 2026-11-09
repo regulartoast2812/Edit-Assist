@@ -174,19 +174,4 @@ extension Study {
         if !sources.isEmpty { text += "## Sources\n\n" + sources.map { "- \($0)" }.joined(separator: "\n") + "\n" }
         return text
     }
-
-    // MARK: Picks for any topic
-
-    static func pickPrompt(_ words: String, videos: [Video], count: Int, topic: Topic) -> String {
-        guard topic.kind == .general else { return pickPrompt(words, videos: videos, count: count) }
-        return """
-        I'm researching "\(topic.name)" and searched YouTube for "\(words)". Pick the videos most worth saving to learn from, best first, at \
-        most \(count). Prefer clear, substantial, credible explanations or demonstrations that match what I searched; leave out clickbait, \
-        reactions, compilations, music, Shorts with nothing to learn and anything off the subject, and prefer different angles over the same \
-        one twice. For each pick give its id and in `why` one short line on what it covers and why it's worth saving. If none is worth it, \
-        return no picks.
-
-        The results (id | title | channel | length | views | description):
-        """ + "\n" + videos.map { video($0, description: 300) }.joined(separator: "\n")
-    }
 }

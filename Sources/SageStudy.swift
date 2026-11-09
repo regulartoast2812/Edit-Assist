@@ -16,6 +16,9 @@ enum Study {
         var thumbnail: URL?
         var duration = ""
         var views: Int?
+        /// Likes and comments, for Pick's signals (2026-11-06); left out of saved.json when unknown.
+        var likes: Int?
+        var comments: Int?
         var url: URL { URL(string: "https://www.youtube.com/watch?v=\(id)")! }
     }
 
@@ -61,37 +64,7 @@ enum Study {
         return ["recipe", "how to", "cook", "bake", "make"].contains(where: lowered.contains) ? words : words + " recipe"
     }
 
-    // MARK: Sage's picks (one brain call: which results are real recipe videos worth saving)
-
-    struct Pick: Equatable { var id: String, why: String }
-
-    static var pickSchema: [String: Any] {
-        let text: [String: Any] = ["type": "string"]
-        let pick: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["id", "why"], "properties": ["id": text, "why": text]]
-        return ["type": "object", "additionalProperties": false, "required": ["picks"], "properties": ["picks": ["type": "array", "items": pick]]]
-    }
-
-    static func pickPrompt(_ words: String, videos: [Video], count: Int) -> String {
-        """
-        I searched YouTube for recipes: "\(words)". Pick the videos that actually teach a recipe I could cook from, best first, at most \(count). \
-        Leave out songs, animals, Shorts with no method, compilations, reactions, mukbangs and anything that is not a recipe. Prefer a clear \
-        method with amounts (in the video or its description, or a linked recipe page), a trusted cook, and different dishes rather than \
-        the same one twice. For each pick give its id and in `why` one short line on what it is and why it's worth saving. If none is a \
-        recipe, return no picks.
-
-        The results (id | title | channel | length | views | description):
-        """ + "\n" + videos.map { video($0, description: 300) }.joined(separator: "\n")
-    }
-
-    /// The picks that are among the results, once each, at most `count`.
-    static func picks(from answer: [String: Any], among videos: [Video], count: Int) -> [Pick] {
-        let ids = Set(videos.map(\.id))
-        var seen: Set<String> = []
-        return (answer["picks"] as? [[String: Any]] ?? []).compactMap { item in
-            guard let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespaces), ids.contains(id), seen.insert(id).inserted else { return nil }
-            return Pick(id: id, why: (item["why"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-        }.prefix(count).map { $0 }
-    }
+    // MARK: Video details (Pick for me lives in SagePick.swift)
 
     /// Each video's title, channel, description, length and views.
     static func videosURL(_ ids: [String], key: String) -> URL {
@@ -109,10 +82,12 @@ enum Study {
             let snippet = item["snippet"] as? [String: Any] ?? [:]
             let thumbnails = snippet["thumbnails"] as? [String: Any] ?? [:]
             let thumbnail = ["high", "medium", "default"].lazy.compactMap { (thumbnails[$0] as? [String: Any])?["url"] as? String }.first
+            let statistics = item["statistics"] as? [String: Any]
+            let count = { (key: String) in (statistics?[key] as? String).flatMap { Int($0) } }
             return Video(id: id, title: text(snippet["title"]), channel: text(snippet["channelTitle"]), published: String(text(snippet["publishedAt"]).prefix(10)),
                          description: text(snippet["description"]), thumbnail: thumbnail.flatMap(URL.init(string:)),
                          duration: duration((item["contentDetails"] as? [String: Any])?["duration"] as? String ?? ""),
-                         views: ((item["statistics"] as? [String: Any])?["viewCount"] as? String).flatMap { Int($0) })
+                         views: count("viewCount"), likes: count("likeCount"), comments: count("commentCount"))
         }
     }
 
@@ -327,6 +302,8 @@ enum Study {
         var modified: Date
         /// The note's picture: a page's, when it isn't a video.
         var image = ""
+        /// The video's channel or the page's site, as the note's header gives it.
+        var channel = ""
         /// The video's picture, else the page's.
         var picture: URL? { thumbnail(of: source) ?? URL(string: image) }
     }
@@ -336,7 +313,7 @@ enum Study {
         let value = { (key: String) in header[key]?.first ?? "" }
         let title = value("title").isEmpty ? file.deletingPathExtension().lastPathComponent : value("title")
         return Entry(file: file, title: title, status: value("status").lowercased(), tags: (header["tags"] ?? []).map(tag), source: value("source"),
-                     cuisine: value("cuisine"), added: value("added"), modified: modified, image: value("image"))
+                     cuisine: value("cuisine"), added: value("added"), modified: modified, image: value("image"), channel: value("channel"))
     }
 
     /// Every note in the recipes folder you chose and the folders in it (Obsidian's own and hidden ones left out), newest first.
@@ -375,6 +352,8 @@ enum Study {
         /// The notes he read for it.
         var notes: [String] = []
         var date = Date()
+        /// What he did for it in your vault and the app (SageActions.swift), as said on screen.
+        var done: [String]? = nil
     }
 
     /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
@@ -422,7 +401,7 @@ enum Study {
 
     static var chatSchema: [String: Any] {
         let text: [String: Any] = ["type": "string"], list: [String: Any] = ["type": "array", "items": text]
-        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list, "save": list]
+        let properties: [String: Any] = ["reply": text, "youtube": text, "notes": list, "show": list, "save": list, "find": text, "read": list, "actions": actionSchema]
         return ["type": "object", "additionalProperties": false, "required": properties.keys.sorted(), "properties": properties]
     }
 
@@ -467,7 +446,7 @@ enum Study {
         if last { text += "Answer now with what you have: leave `youtube` and `notes` empty.\n\n" }
         if !canSearch { text += "YouTube search is not set up (no API key): don't search; if I want videos, tell me to add the YouTube key at the top of the page.\n\n" }
         if !folder {
-            text += "This topic's folder in my vault is not chosen yet, so there are no notes: if I ask about my notes, tell me to choose it at the top of the page.\n\n"
+            text += "This topic's folder in my vault is not chosen yet, so there are no notes in this topic: if I ask you to, set it (set_folder, below), or tell me I can choose it at the top of the page.\n\n"
         } else {
             text += "My notes in this topic (title | status | \(cooking ? "cuisine" : "-") | tags), \(recipes.count) in all:\n"
             text += recipes.prefix(400).map { "- \($0.title) | \($0.status.isEmpty ? "-" : $0.status) | \($0.cuisine.isEmpty ? "-" : $0.cuisine) | \($0.tags.joined(separator: ", "))" }

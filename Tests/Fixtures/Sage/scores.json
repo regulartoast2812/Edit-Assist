@@ -1,0 +1,103 @@
+{
+ "scores": [
+  {
+   "id": "ramp0000001",
+   "relevance": 5,
+   "substance": 5,
+   "credibility": 5,
+   "density": 4,
+   "covers": "speed ramps in Premiere Pro, start to finish",
+   "same_as": "",
+   "why": "The complete method: time remapping, easing and optical flow, clearly shown.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000002",
+   "relevance": 5,
+   "substance": 4,
+   "credibility": 4,
+   "density": 5,
+   "covers": "smooth ramps with time remapping and bezier easing",
+   "same_as": "",
+   "why": "Tight walkthrough of time remapping with bezier easing; no filler.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000003",
+   "relevance": 5,
+   "substance": 4,
+   "credibility": 4,
+   "density": 4,
+   "covers": "advanced speed ramps with nesting and motion blur",
+   "same_as": "",
+   "why": "Good follow-up on nesting and motion blur.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000004",
+   "relevance": 4,
+   "substance": 5,
+   "credibility": 5,
+   "density": 4,
+   "covers": "optical flow vs frame blending for ramps",
+   "same_as": "",
+   "why": "Explains why ramps stutter and how to fix it.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000005",
+   "relevance": 4,
+   "substance": 4,
+   "credibility": 3,
+   "density": 4,
+   "covers": "speed ramps in Premiere Pro, start to finish",
+   "same_as": "ramp0000001",
+   "why": "Quick version of the basics.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000010",
+   "relevance": 1,
+   "substance": 2,
+   "credibility": 1,
+   "density": 1,
+   "covers": "generic transitions",
+   "same_as": "",
+   "why": "Generic transitions list.",
+   "reject": "Off the ask: transitions, not speed ramps; old and padded."
+  },
+  {
+   "id": "ramp0000011",
+   "relevance": 3,
+   "substance": 3,
+   "credibility": 3,
+   "density": 3,
+   "covers": "what speed ramping is",
+   "same_as": "",
+   "why": "Defines speed ramping but shows little.",
+   "reject": ""
+  },
+  {
+   "id": "ramp0000012",
+   "relevance": 3,
+   "substance": 3,
+   "credibility": 3,
+   "density": 3,
+   "covers": "Sam Kolder style edits",
+   "same_as": "",
+   "why": "Mostly a style recreation; ramps are a side note.",
+   "reject": "Style recreation: the ramp itself is barely taught."
+  },
+  {
+   "id": "not-a-real-id",
+   "relevance": 5,
+   "substance": 5,
+   "credibility": 5,
+   "density": 5,
+   "covers": "junk",
+   "same_as": "",
+   "why": "junk",
+   "reject": ""
+  }
+ ]
+}

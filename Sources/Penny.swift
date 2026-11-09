@@ -118,7 +118,7 @@ struct PennyPage: View {
                 Button(L("Sign in again")) { signingIn = true }
             }.controlSize(.small)
         case .signedOut:
-            Text(md: L("The company's Grafana only takes **Sign in with Google**. Sign in once here with your work account; Penny keeps the session in your Mac's **Keychain** and asks again when Grafana ends it."))
+            Text(md: L("The company's Grafana only takes **Sign in with Google**. Sign in once here with your work account: Penny keeps the session in your Mac's **Keychain** and remembers your Google account in a sign-in window of his own, so when Grafana ends a session he signs in again by himself. **Sign out** forgets both."))
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button(L("Sign in with Google")) { signingIn = true }
         }
@@ -146,8 +146,9 @@ struct PennyPage: View {
     }
 }
 
-/// Grafana's own Google sign-in in a window of its own, with nothing kept but the session it ends with: a private web
-/// store, so no other site's cookies are read or left behind.
+/// Grafana's own Google sign-in in a window of its own, in a web data store of Penny's own (`GrafanaWeb`): nothing from
+/// your browsers is read, and nothing is kept there but Google's sign-in, so the next sign-in, seen or out of sight,
+/// knows your account (2026-11-08). The session it ends with goes to the Keychain.
 struct GrafanaSignInSheet: View {
     let done: (String?) -> Void
     var body: some View {
@@ -163,44 +164,10 @@ struct GrafanaSignInSheet: View {
     }
 }
 
+/// The page itself, in Penny's own web data store (`GrafanaWeb`), which remembers your Google account and nothing else.
 struct GrafanaSignIn: NSViewRepresentable {
     let done: (String?) -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
-
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        // Google turns away sign-ins from pages it takes for an app's web view; Safari's own name gets the normal page.
-        view.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
-        view.navigationDelegate = context.coordinator
-        view.uiDelegate = context.coordinator
-        view.load(URLRequest(url: Grafana.base.appendingPathComponent("login/google")))
-        return view
-    }
+    func makeCoordinator() -> GrafanaSignInCoordinator { GrafanaSignInCoordinator(done: done) }
+    func makeNSView(context: Context) -> WKWebView { GrafanaWeb.webView(context.coordinator) }
     func updateNSView(_ view: WKWebView, context: Context) {}
-
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let done: (String?) -> Void
-        private var finished = false
-        init(done: @escaping (String?) -> Void) { self.done = done }
-
-        /// Back on Grafana past its login pages: the session is in the cookies.
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard !finished, let url = webView.url, url.host == Grafana.base.host, !url.path.hasPrefix("/login") else { return }
-            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
-                guard let self, !self.finished,
-                      let session = cookies.first(where: { $0.name == "grafana_session" && !$0.value.isEmpty && Grafana.base.host?.hasSuffix($0.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))) == true })?.value
-                else { return }
-                self.finished = true
-                DispatchQueue.main.async { self.done(session) }
-            }
-        }
-
-        /// A link that would open a new window opens here.
-        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            webView.load(action.request)
-            return nil
-        }
-    }
 }

@@ -62,6 +62,8 @@ struct KinoPage: View {
     @State private var showingEveryShot = false
     @State private var search = ""
     @State private var folded: Set<String> = []
+    /// The files picked in the media.
+    @State private var picks = KinoPicks()
     /// Files dragged over the shots' list, outside any shot's files: dropped, they make a new shot.
     @State private var newTargeted = false
     private let accent = PixelKino.theme
@@ -73,7 +75,7 @@ struct KinoPage: View {
                 // The outputs beside the shots once there is a shot or a take; narrower in a small window.
                 let outputs: CGFloat = desk.shots.isEmpty && desk.takes.isEmpty ? 0 : page.size.width >= 1300 ? 300 : 250
                 HStack(alignment: .top, spacing: 14) {
-                    KinoMediaBin(desk: desk).frame(width: KinoMediaBin.width)
+                    KinoMediaBin(desk: desk, picks: $picks).frame(width: KinoMediaBin.width)
                     GeometryReader { size in
                         ScrollViewReader { proxy in
                             ThinScrollView {
@@ -126,7 +128,7 @@ struct KinoPage: View {
             }
         }
         .onAppear { desk.open(project: project.id) }
-        .onChange(of: project.id) { _, id in search = ""; folded = []; desk.open(project: id) }
+        .onChange(of: project.id) { _, id in search = ""; folded = []; picks = KinoPicks(); desk.open(project: id) }
         // Files moved or deleted in Finder show when you come back.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in desk.refresh() }
         .sheet(item: $reading) { KinoResearchSheet(doc: $0) }
@@ -291,19 +293,33 @@ struct KinoEveryShot: View {
 
 /// The media you put in: empty until you drop files or folders here (or press Add), in the order you pick, filtered by kind
 /// when there is more than one. Each shows the shots it is in; drag one onto a shot or a place in it, or press its + to
-/// put it in the shot you last worked on.
+/// put it in the shot you last worked on. Since 2026-11-08 (from Creative Assist, the Windows port) its × removes it from
+/// Kino, saying first which shots use it, and files are picked as in Finder (click, Cmd+click, Shift+click, Cmd+A) to drag,
+/// put in a shot or remove together; Delete removes the picked files, Esc unpicks them.
 struct KinoMediaBin: View {
     @ObservedObject var desk: KinoDesk
+    /// The files picked, kept by the page: cleared with another project.
+    @Binding var picks: KinoPicks
     @AppStorage("kinoMediaSort") private var sort = KinoSort.name
     @State private var kind: KinoKind?
     @State private var targeted = false
+    /// Files about to be removed that some shot uses: the warning shows from where it was asked (a file, or the bar's Remove).
+    @State private var asking: KinoRemoval?
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     static let width: CGFloat = 272
+    /// Where the warning opens from when it was asked from the bar under the files.
+    private static let bar = "bar"
     private let accent = PixelKino.theme
     var body: some View {
         let all = desk.media(sorted: sort)
         let kinds = [KinoKind.image, .video, .audio].filter { kind in all.contains { $0.kind == kind } }
         let showing = kinds.contains(kind ?? .image) && kind != nil ? kind : nil
         let shown = all.filter { showing == nil || $0.kind == showing }
+        let order = shown.map(\.id)
+        // Only files you can see stay picked: Delete never removes one the filter hides.
+        let picked = order.filter(picks.ids.contains)
+        let target = desk.selected
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 6) {
                 Text(L("MEDIA")).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
@@ -347,15 +363,34 @@ struct KinoMediaBin: View {
                 ThinScrollView {
                     LazyVGrid(columns: Array(repeating: GridItem(.fixed(KinoMediaTile.width), spacing: 10), count: 3), alignment: .leading, spacing: 10) {
                         ForEach(shown) { file in
-                            KinoMediaTile(file: file, shots: desk.shots(using: file.id), missing: desk.missing.contains(file.id),
-                                          seconds: desk.durations[file.id], target: desk.selected,
-                                          put: { if let target = desk.selected { desk.add([file.url], into: target) } }, remove: { desk.remove(file.id) })
+                            let shots = desk.shots(using: file.id)
+                            let together = picks.ids.contains(file.id) && picked.count > 1 ? picked : []
+                            KinoMediaTile(file: file, shots: shots, missing: desk.missing.contains(file.id),
+                                          seconds: desk.durations[file.id], target: target, picked: picks.ids.contains(file.id),
+                                          together: together.count,
+                                          put: { if let target { desk.add([file.url], into: target) } },
+                                          putTogether: putting(together, into: target),
+                                          remove: { ask([file.id], from: file.id) },
+                                          removeTogether: { ask(together, from: file.id) },
+                                          pick: { pick(file, order: order) },
+                                          dragged: { dragged(file, picked: picked) })
+                                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                                .popover(isPresented: warning(from: file.id), arrowEdge: .bottom) { warningView }
                         }
                     }
                     .padding(.bottom, 8)
                 }
-                Text(L("Drop more here, or drag a file onto a shot")).font(.system(size: 10)).foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
+                // Under the files: a hint, or, while more than one is picked, what you can do with them. Same height either
+                // way, so nothing above moves when you pick.
+                ZStack {
+                    if picked.count > 1 {
+                        bar(picked, target: target).transition(.opacity.combined(with: .offset(y: 4)))
+                    } else {
+                        Text(L("Drop more here, or drag a file onto a shot")).font(.system(size: 10)).foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity).transition(.opacity)
+                    }
+                }
+                .frame(height: 26)
             }
         }
         .padding(12)
@@ -363,10 +398,171 @@ struct KinoMediaBin: View {
         .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
         .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(accent.opacity(targeted && !all.isEmpty ? 0.9 : 0), lineWidth: 2))
         .kinoDrop($targeted) { desk.add($0) }
+        // A click on the media's empty space unpicks everything; keys work once you have clicked in the media.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true; if !picks.ids.isEmpty { animate { picks = KinoPicks() } } }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onCommand(#selector(NSResponder.selectAll(_:))) { animate { picks = KinoPicks(ids: Set(order), anchor: order.first) } }
+        .onDeleteCommand { if !picked.isEmpty { ask(picked, from: picked.count > 1 ? Self.bar : picked[0]) } }
+        .onExitCommand { if !picks.ids.isEmpty { animate { picks = KinoPicks() } } }
+        .onChange(of: order) { _, order in
+            let kept = picks.ids.filter(order.contains)
+            let anchor = picks.anchor.flatMap { order.contains($0) ? $0 : nil }
+            if kept != picks.ids || anchor != picks.anchor { picks = KinoPicks(ids: kept, anchor: anchor) }
+        }
+    }
+
+    /// What you can do with the picked files, while more than one is picked.
+    private func bar(_ picked: [String], target: String?) -> some View {
+        HStack(spacing: 11) {
+            Text(L("%@ selected", picked.count)).font(.system(size: 11, weight: .semibold)).foregroundStyle(accent)
+            Spacer(minLength: 0)
+            if let target, picked.contains(where: { !desk.shots(using: $0).contains(target) }) {
+                Button(L("Put in %@", target)) { desk.add(urls(picked), into: target) }
+                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium)).foregroundStyle(accent)
+            }
+            Button(L("Remove")) { ask(picked, from: Self.bar) }
+                .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.red)
+                .help(L("Remove the selected files from Kino (Delete)"))
+                .popover(isPresented: warning(from: Self.bar), arrowEdge: .bottom) { warningView }
+            Button { animate { picks = KinoPicks() } } label: {
+                Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(.tertiary).frame(width: 14, height: 14).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help(L("Clear the selection (Esc)"))
+        }
+        .padding(.leading, 10).padding(.trailing, 9).frame(height: 26)
+        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    @ViewBuilder private var warningView: some View {
+        if let asking {
+            KinoRemoveWarning(paths: asking.paths, used: desk.using(asking.paths),
+                              remove: { self.asking = nil; vanish(asking.paths) }, cancel: { self.asking = nil })
+        }
+    }
+
+    /// The warning shown from this place (a file's id, or the bar).
+    private func warning(from place: String) -> Binding<Bool> {
+        Binding(get: { asking?.from == place }, set: { if !$0, asking?.from == place { asking = nil } })
+    }
+
+    private func urls(_ ids: [String]) -> [URL] { ids.map { URL(fileURLWithPath: $0) } }
+
+    /// Puts these files in the target; nil when there is no target or they are all in it already.
+    private func putting(_ ids: [String], into target: String?) -> (() -> Void)? {
+        guard let target, ids.contains(where: { !desk.shots(using: $0).contains(target) }) else { return nil }
+        return { desk.add(urls(ids), into: target) }
+    }
+
+    private func animate(_ change: () -> Void) { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15), change) }
+
+    /// A click on a file: picks as in Finder, from the keys held; a second click opens it.
+    private func pick(_ file: KinoFile, order: [String]) {
+        focused = true
+        if let event = NSApp.currentEvent, event.type == .leftMouseUp || event.type == .leftMouseDown, event.clickCount >= 2 {
+            NSWorkspace.shared.open(file.url)
+            return
+        }
+        let keys = NSEvent.modifierFlags
+        let next = KinoPick.click(order, picked: picks.ids, anchor: picks.anchor, file.id, command: keys.contains(.command), shift: keys.contains(.shift))
+        animate { picks = KinoPicks(ids: next.picked, anchor: next.anchor) }
+    }
+
+    /// The files a drag from this one carries: every picked file when it is one of them, as in Finder; else it alone,
+    /// picked.
+    private func dragged(_ file: KinoFile, picked: [String]) -> [URL] {
+        focused = true
+        if picked.contains(file.id) { return urls(picked) }
+        picks = KinoPicks(ids: [file.id], anchor: file.id)
+        return [file.url]
+    }
+
+    /// The × and Remove: files no shot uses go at once; else Kino says first which shots use them.
+    private func ask(_ paths: [String], from place: String) {
+        guard !paths.isEmpty else { return }
+        if desk.using(paths).isEmpty { vanish(paths) } else { asking = KinoRemoval(from: place, paths: paths) }
+    }
+
+    /// The files fade out where they are and the rest slide into their places (at once with Reduce Motion).
+    private func vanish(_ paths: [String]) {
+        picks.ids.subtract(paths)
+        if let anchor = picks.anchor, paths.contains(anchor) { picks.anchor = nil }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { desk.remove(paths) }
     }
 }
 
-/// A file in the media: its picture, the shot it is in on its corner, its name. Drag it onto a shot, or into Premiere.
+/// The files picked in the media (Creative Assist, 2026-11-08), kept while the media is drawn again; cleared with another
+/// project.
+struct KinoPicks: Equatable {
+    var ids: Set<String> = []
+    /// Where a Shift+click's run starts: the last file clicked without Shift.
+    var anchor: String?
+}
+
+/// Files about to be removed from Kino, and where the warning about them opens from.
+struct KinoRemoval: Equatable {
+    let from: String
+    let paths: [String]
+}
+
+/// Before files any shot uses are removed: which shots use them, as a list, and Remove or Cancel.
+struct KinoRemoveWarning: View {
+    let paths: [String]
+    let used: [(shot: String, files: [KinoFile])]
+    let remove: () -> Void
+    let cancel: () -> Void
+    private let accent = PixelKino.theme
+    var body: some View {
+        let many = paths.count > 1
+        let name = URL(fileURLWithPath: paths.first ?? "").lastPathComponent
+        let inUse = Set(used.flatMap { $0.files.map(\.id) }).count
+        let lead = !many ? (used.count == 1 ? L("%@ is in this shot, and comes out of it:", name) : L("%@ is in these shots, and comes out of each:", name))
+            : inUse == paths.count ? L("They're in these shots, and come out of them:") : L("%@ of them are in these shots, and come out of them:", inUse)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 13)).foregroundStyle(accent)
+                Text(many ? L("Remove %@ files from Kino?", paths.count) : L("Remove from Kino?")).font(.system(size: 13, weight: .semibold))
+            }
+            Text(lead).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8).padding(.bottom, 6)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(used, id: \.shot) { use in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Circle().fill(.secondary).frame(width: 4, height: 4).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 2 }
+                        Text(line(use)).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.leading, 4)
+            Text(L("The files on your disk aren't touched.")).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
+            HStack(spacing: 8) {
+                Spacer()
+                Button(L("Cancel"), action: cancel).keyboardShortcut(.cancelAction)
+                Button(action: remove) {
+                    Text(many ? L("Remove %@", paths.count) : L("Remove")).fontWeight(.semibold).foregroundStyle(.red)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.small).padding(.top, 12)
+        }
+        .padding(14).frame(width: 264)
+    }
+
+    /// The shot in bold, then the files it would lose: their names, or the one file's tag there.
+    private func line(_ use: (shot: String, files: [KinoFile])) -> AttributedString {
+        var shot = AttributedString(use.shot)
+        shot.font = .system(size: 11.5, weight: .bold)
+        shot.foregroundColor = accent
+        let rest = paths.count > 1 ? use.files.map(\.url.lastPathComponent).joined(separator: ", ") : L("as @%@", use.files.first?.handle ?? "")
+        return shot + AttributedString("  " + rest)
+    }
+}
+
+/// A file in the media: its picture, the shot it is in on its corner, its name. Drag it onto a shot, or into Premiere. On
+/// hover, its + puts it in the shot you last worked on and its × removes it from Kino; picked, it is ringed in Kino's orange.
 struct KinoMediaTile: View {
     let file: KinoFile
     let shots: [String]
@@ -374,16 +570,28 @@ struct KinoMediaTile: View {
     let seconds: Double?
     /// The shot you last worked on, which the + puts the file in.
     let target: String?
+    let picked: Bool
+    /// How many picked files it stands for when it is one of several picked (0 otherwise): its menu is about them all.
+    let together: Int
     let put: () -> Void
+    /// Puts all the picked files in the target; nil when they are all in it.
+    let putTogether: (() -> Void)?
     let remove: () -> Void
+    let removeTogether: () -> Void
+    let pick: () -> Void
+    /// The files a drag from it carries: it, or every picked file when it is one of them.
+    let dragged: () -> [URL]
     static let width: CGFloat = 74
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let accent = PixelKino.theme
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             KinoThumb(url: file.url, width: Self.width, height: 92, corner: 7)
                 .opacity(missing ? 0.35 : 1)
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(hovering ? 0.4 : 0.07), lineWidth: hovering ? 1.5 : 1))
+                .overlay { if picked { RoundedRectangle(cornerRadius: 7).fill(accent.opacity(0.18)).allowsHitTesting(false) } }
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(picked ? accent : .white.opacity(hovering ? 0.4 : 0.07),
+                                                                        lineWidth: picked ? 2 : hovering ? 1.5 : 1))
                 .overlay(alignment: .bottomTrailing) { KinoLength(kind: file.kind, seconds: seconds, compact: true) }
                 .overlay(alignment: .topLeading) {
                     if missing {
@@ -392,32 +600,86 @@ struct KinoMediaTile: View {
                         KinoBadge(text: shots.count > 1 ? "\(first) +\(shots.count - 1)" : first, color: accent)
                     }
                 }
+                // Its + and ×, top right as on a shot's files, shown on hover.
                 .overlay(alignment: .topTrailing) {
-                    if hovering, let target, !shots.contains(target), !missing {
-                        Button(action: put) {
-                            Image(systemName: "plus").font(.system(size: 9, weight: .heavy)).foregroundStyle(.black)
-                                .frame(width: 18, height: 18).background(accent, in: Circle())
+                    if hovering {
+                        HStack(spacing: 3) {
+                            if let target, !shots.contains(target), !missing {
+                                Button(action: put) {
+                                    Image(systemName: "plus").font(.system(size: 8.5, weight: .heavy)).foregroundStyle(.black)
+                                        .frame(width: 17, height: 17).background(accent, in: Circle())
+                                }
+                                .buttonStyle(.plain).help(L("Put it in %@", target))
+                            }
+                            Button(action: remove) {
+                                Image(systemName: "xmark").font(.system(size: 7.5, weight: .heavy)).foregroundStyle(.white)
+                                    .frame(width: 17, height: 17).background(.black.opacity(0.7), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(shots.isEmpty ? L("Remove from Kino") : L("Remove from Kino (it's in %@)", shots.joined(separator: ", ")))
                         }
-                        .buttonStyle(.plain).padding(4).help(L("Put it in %@", target))
+                        .padding(4).transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                 }
-            Text(file.url.lastPathComponent).font(.system(size: 10)).foregroundStyle(shots.isEmpty ? .primary : .secondary)
+            Text(file.url.lastPathComponent).font(.system(size: 10)).foregroundStyle(picked ? accent : shots.isEmpty ? .primary : .secondary)
                 .lineLimit(1).truncationMode(.middle)
         }
         .frame(width: Self.width, alignment: .leading)
         .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { NSWorkspace.shared.open(file.url) }
-        .onDrag { NSItemProvider(contentsOf: file.url) ?? NSItemProvider() }
+        .onTapGesture(perform: pick)
+        .gesture(DragGesture(minimumDistance: 4).onChanged { _ in KinoFileDrag.shared.start(dragged) })
         .help(file.url.path(percentEncoded: false) + "\n" + (shots.isEmpty ? L("Not in a shot") : L("In %@", shots.joined(separator: ", "))))
         .contextMenu {
-            Button(L("Open")) { NSWorkspace.shared.open(file.url) }
-            Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
-            if let target, !shots.contains(target) { Button(L("Put it in %@", target), action: put) }
-            Divider()
-            Button(L("Remove from Kino"), action: remove)
+            if together > 1 {
+                if let target, let putTogether { Button(L("Put %@ files in %@", together, target), action: putTogether) }
+                Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+                Divider()
+                Button(L("Remove %@ files from Kino…", together), action: removeTogether)
+            } else {
+                Button(L("Open")) { NSWorkspace.shared.open(file.url) }
+                Button(L("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([file.url]) }
+                if let target, !shots.contains(target) { Button(L("Put it in %@", target), action: put) }
+                Divider()
+                Button(shots.isEmpty ? L("Remove from Kino") : L("Remove from Kino…"), action: remove)
+            }
         }
     }
+}
+
+/// Files dragged out of Kino's media as Finder drags them, one item each (a file URL, which shots, Finder and Premiere take),
+/// so several picked files go together; SwiftUI's onDrag carries one. Started from the media's drag gesture, while the
+/// mouse button is held.
+@MainActor
+final class KinoFileDrag: NSObject, NSDraggingSource {
+    static let shared = KinoFileDrag()
+    private var active = false
+
+    /// Starts dragging the files asked for, once per press: not while a drag is on, nor once the button is up.
+    func start(_ files: () -> [URL]) {
+        guard !active, NSEvent.pressedMouseButtons & 1 == 1, let event = NSApp.currentEvent, event.type == .leftMouseDragged,
+              let view = event.window?.contentView else { return }
+        let urls = files()
+        guard !urls.isEmpty else { return }
+        let point = view.convert(event.locationInWindow, from: nil)
+        let items = urls.enumerated().map { index, url in
+            let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+            let image = KinoThumb.cached(url, side: 92) ?? NSWorkspace.shared.icon(forFile: url.path)
+            let side: CGFloat = 64, scale = side / max(image.size.width, image.size.height, 1)
+            let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            // A small pile under the pointer: each file a little further down and right.
+            let step = CGFloat(min(index, 4)) * 4
+            item.setDraggingFrame(NSRect(x: point.x - size.width / 2 + step, y: point.y - size.height / 2 + (view.isFlipped ? step : -step),
+                                         width: size.width, height: size.height), contents: image)
+            return item
+        }
+        active = true
+        view.beginDraggingSession(with: items, event: event, source: self).animatesToStartingPositionsOnCancelOrFail = true
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { active = false }
 }
 
 /// A small label on a picture's corner: the shot a file is in, a file gone missing.
@@ -1556,6 +1818,9 @@ struct KinoThumb: View {
             withAnimation(.easeOut(duration: 0.15)) { image = made }
         }
     }
+
+    /// The picture already made for this file at this size, if any (a drag from the media shows it).
+    static func cached(_ url: URL, side: CGFloat) -> NSImage? { cache.object(forKey: "\(url.path)|\(Int(side))" as NSString) }
 
     static func load(_ url: URL, side: CGFloat) async -> NSImage? {
         let key = "\(url.path)|\(Int(side))" as NSString
