@@ -258,6 +258,9 @@ import WebKit
         return nil
     }
 
+    /// A new page shown: no player from the page before it stays over it; this page's cards place their own.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { if navigation === current { stopInline() } }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
 
@@ -367,6 +370,9 @@ import WebKit
         case "preview-end": preview("", nil)
         // A YouTube card pressed in the note: the video plays right there, over the card (`playInline`).
         case "inline-cards":
+            // Only the page shown now places players: the page before it can still report its cards as it goes, which
+            // laid its video over the next note (2026-11-09).
+            guard message.frameInfo.isMainFrame, message.frameInfo.request.url == expected else { return }
             let cards = (body["cards"] as? [[String: Any]] ?? []).compactMap { card -> (key: String, id: String, rect: CGRect)? in
                 guard let key = card["key"] as? String, let id = card["id"] as? String else { return nil }
                 return (key, id, rect(card))
