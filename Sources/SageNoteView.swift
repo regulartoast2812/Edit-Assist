@@ -646,12 +646,12 @@ struct SageViewer: View {
             // Editing or reading, as Obsidian's view switch (Cmd+E).
             if file.pathExtension.lowercased() == "md" {
                 let editing = page.editing(vault.look)
-                Button { page.setEditing(!editing); editingShown.toggle() } label: { Image(systemName: editing ? "pencil" : "book") }
-                    .buttonStyle(.plain)
+                Button { page.setEditing(!editing); editingShown.toggle() } label: { Image(systemName: editing ? "pencil" : "book").frame(width: 24, height: 22) }
+                    .buttonStyle(.plain).modifier(SageHoverLit())
                     .help(editing ? L("Editing: click any part of the note to change it. Read only (⌘E)") : L("Reading. Edit the note (⌘E)"))
                     .id(editingShown)
             }
-            Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "folder") }.buttonStyle(.plain).help(L("Show in Finder"))
+            Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "folder").frame(width: 24, height: 22) }.buttonStyle(.plain).modifier(SageHoverLit()).help(L("Show in Finder"))
             Button { SageExplorer.openInObsidian(file) } label: { Label(L("Open in Obsidian"), systemImage: "arrow.up.forward.app") }.controlSize(.small)
         }
         .foregroundStyle(.secondary)

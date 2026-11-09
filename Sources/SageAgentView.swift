@@ -397,7 +397,7 @@ struct SageQuickBar: View {
                 Divider()
                 button("memory")
             } label: { Image(systemName: "ellipsis.circle") }
-            .menuStyle(.borderlessButton).fixedSize().help(L("More of Vault Agent's actions on this note"))
+            .menuStyle(.borderlessButton).fixedSize().frame(height: 22).padding(.horizontal, 2).modifier(SageHoverLit()).help(L("More of Vault Agent's actions on this note"))
         }
         .disabled(desk.thinking)
     }

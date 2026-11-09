@@ -98,7 +98,7 @@ struct SageExplorer: View {
                 checkItem(L("Folders first"), vault.settings.foldersFirst) { vault.setFoldersFirst(!vault.settings.foldersFirst) }
                 checkItem(L("Notes only (hide pictures and other files)"), vault.settings.notesOnly) { vault.setNotesOnly(!vault.settings.notesOnly) }
             } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 11)) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 22).help(L("Sort and show"))
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 22, height: 20).modifier(SageHoverLit()).help(L("Sort and show"))
             tool("scope", vault.settings.follow ? L("Following the open file: the tree opens to it. Click to stop") : L("Follow the open file: the tree opens to it"),
                  tint: vault.settings.follow ? accent : nil) { vault.setFollow(!vault.settings.follow) }
             tool("arrow.down.right.and.arrow.up.left", L("Close every folder")) { vault.collapseAll() }
@@ -115,13 +115,13 @@ struct SageExplorer: View {
                 Button(L("Read it again")) { vault.reload() }
                 Button(L("Choose another vault…")) { vault.chooseVault() }
             } label: { Image(systemName: "ellipsis.circle").font(.system(size: 11)) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 22).help(L("Vault"))
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 22, height: 20).modifier(SageHoverLit()).help(L("Vault"))
         }.foregroundStyle(.secondary)
     }
 
     func tool(_ symbol: String, _ tip: String, tint: Color? = nil, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 11.5)).foregroundStyle(tint ?? Color.secondary).frame(width: 22, height: 20).contentShape(Rectangle()) }
-            .buttonStyle(.plain).help(tip).accessibilityLabel(tip)
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 11.5)).frame(width: 22, height: 20).contentShape(Rectangle()) }
+            .buttonStyle(.plain).modifier(SageHoverLit(tint: tint)).help(tip).accessibilityLabel(tip)
     }
 
     func sortItem(_ text: String, _ order: String) -> some View { checkItem(text, vault.sort == order) { vault.setSort(order) } }
@@ -1486,4 +1486,23 @@ final class SageMenuItem: NSMenuItem {
     }
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
     @objc private func go() { run() }
+}
+
+
+/// An icon button that lights up under the pointer (2026-11-09: they stayed grey): the icon takes Sage's colour on a
+/// faint rounded ground, eased in and out (at once with Reduce Motion). A button already lit (`tint`) keeps its colour.
+struct SageHoverLit: ViewModifier {
+    var tint: Color? = nil
+    @State private var over = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var enabled
+
+    func body(content: Content) -> some View {
+        let lit = over && enabled
+        content
+            .foregroundStyle(lit ? PixelSage.theme : (tint ?? Color.secondary))
+            .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(lit ? 0.09 : 0)))
+            .onHover { over = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: lit)
+    }
 }
