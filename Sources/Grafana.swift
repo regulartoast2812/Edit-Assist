@@ -430,12 +430,11 @@ enum GrafanaWeb {
         return view
     }
 
-    /// Whether a Google account is remembered: the store has been made and not forgotten since.
-    static func remembered() async -> Bool {
-        await withCheckedContinuation { continuation in
-            WKWebsiteDataStore.fetchAllDataStoreIdentifiers { continuation.resume(returning: $0.contains(storeID)) }
-        }
-    }
+    /// Whether a Google account is remembered: a sign-in through the store has taken a session and Sign out hasn't
+    /// forgotten it since. Kept as Penny's own flag: asking WebKit (`fetchAllDataStoreIdentifiers`) crashed the app at
+    /// launch, before any web view had started WebKit's run loop (2026-11-09).
+    static let rememberedKey = "pennyGoogleRemembered"
+    static func remembered() async -> Bool { UserDefaults.standard.bool(forKey: rememberedKey) }
 
     /// Signs in again out of sight with the remembered account: the session, or nil when Google wants you (or nothing
     /// is remembered). The page loads in a window off every screen, see-through, that never takes the focus.
@@ -461,9 +460,9 @@ enum GrafanaWeb {
 
     /// Forgets the remembered Google account: the store is removed (once no web view holds it).
     static func forget() {
+        UserDefaults.standard.set(false, forKey: rememberedKey)
         Task { @MainActor in
             for _ in 0 ..< 10 {
-                guard await remembered() else { return }
                 if (try? await WKWebsiteDataStore.remove(forIdentifier: storeID)) != nil { return }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
@@ -497,7 +496,10 @@ final class GrafanaSignInCoordinator: NSObject, WKNavigationDelegate, WKUIDelega
             webView?.stopLoading()
             let group = DispatchGroup()
             for cookie in grafana { group.enter(); store.delete(cookie) { group.leave() } }
-            group.notify(queue: .main) { self.finish(session) }
+            group.notify(queue: .main) {
+                UserDefaults.standard.set(true, forKey: GrafanaWeb.rememberedKey)
+                self.finish(session)
+            }
         }
     }
 
