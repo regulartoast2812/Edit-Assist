@@ -301,45 +301,47 @@ import WebKit
 
     // MARK: Videos playing in place
 
-    /// A YouTube video playing over its card in the note (2026-11-09: in the note, as in Obsidian, not in a corner).
-    /// YouTube only plays for a page with a web address (Error 153 otherwise) and the note's page is `sage://`, so the
-    /// player is a web view of its own, the mini player's page (`Study.playerPage`, https://sage-player.example), laid
-    /// over the card and moved with it as the note scrolls. It stops when the note changes, the tab closes or the page
-    /// leaves the window.
-    private var inline: SageInlinePlayer?
+    /// YouTube videos play in the note, on their cards (2026-11-09), as Obsidian shows them. YouTube only plays for a page
+    /// with a web address (Error 153 otherwise) and the note's page is `sage://`, so each card that comes into sight gets
+    /// a player of its own laid over it (the mini player's page, https://sage-player.example, waiting for a click) and
+    /// moved with it as the note scrolls. It has to be there before you click: YouTube starts only for a click on its own
+    /// player, so a player made on your click needed a second one. At most three per note; they go when the note changes,
+    /// the tab closes or the page leaves the window.
+    private var inline: [String: SageInlinePlayer] = [:]
 
     private func rect(_ body: [String: Any]) -> CGRect {
         let n = { (key: String) in CGFloat((body[key] as? NSNumber)?.doubleValue ?? 0) }
         return CGRect(x: n("x"), y: n("y"), width: n("w"), height: n("h"))
     }
 
-    func playInline(_ id: String, _ rect: CGRect) {
-        guard let url = Study.playerURL(id) else { return }
-        if inline == nil {
-            let player = SageInlinePlayer()
-            player.gone = { [weak self] in self?.stopInline() }
-            web.addSubview(player)
-            inline = player
+    /// The cards in or near sight, with where they are (CSS points from the page's top left).
+    func placeInline(_ cards: [(key: String, id: String, rect: CGRect)]) {
+        let here = Set(cards.map(\.key))
+        for (key, player) in inline where !here.contains(key) { player.isHidden = true }
+        for card in cards {
+            guard let url = Study.playerURL(card.id).flatMap({ URL(string: $0.absoluteString + "&autoplay=0") }) else { continue }
+            let player: SageInlinePlayer
+            if let known = inline[card.key] {
+                player = known
+            } else {
+                guard inline.count < 3 else { continue }
+                player = SageInlinePlayer()
+                player.gone = { [weak self] in self?.stopInline() }
+                web.addSubview(player)
+                inline[card.key] = player
+            }
+            player.play(card.id, url: url)
+            let y = web.isFlipped ? card.rect.minY : web.bounds.height - card.rect.maxY
+            let frame = CGRect(x: card.rect.minX, y: y, width: card.rect.width, height: card.rect.height)
+            player.frame = frame
+            player.isHidden = card.rect.width < 2 || !frame.intersects(web.bounds)
         }
-        inline?.play(id, url: url)
-        placeInline(rect)
-    }
-
-    /// The card's place in the page's view (CSS points from its top left), clipped to what's in sight.
-    func placeInline(_ rect: CGRect) {
-        guard let inline else { return }
-        let y = web.isFlipped ? rect.minY : web.bounds.height - rect.maxY
-        let frame = CGRect(x: rect.minX, y: y, width: rect.width, height: rect.height)
-        inline.frame = frame
-        inline.isHidden = rect.width < 2 || !frame.intersects(web.bounds)
     }
 
     func stopInline() {
-        guard let player = inline else { return }
-        inline = nil
-        player.gone = {}
-        player.stop()
-        player.removeFromSuperview()
+        let players = inline.values
+        inline = [:]
+        for player in players { player.gone = {}; player.stop(); player.removeFromSuperview() }
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -364,10 +366,12 @@ import WebKit
             if let href = body["href"] as? String, let x = (body["x"] as? NSNumber)?.doubleValue, let y = (body["y"] as? NSNumber)?.doubleValue { preview(href, CGPoint(x: x, y: y)) }
         case "preview-end": preview("", nil)
         // A YouTube card pressed in the note: the video plays right there, over the card (`playInline`).
-        case "inline-play":
-            if let id = body["id"] as? String { playInline(id, rect(body)) }
-        case "inline-rect": placeInline(rect(body))
-        case "inline-stop": stopInline()
+        case "inline-cards":
+            let cards = (body["cards"] as? [[String: Any]] ?? []).compactMap { card -> (key: String, id: String, rect: CGRect)? in
+                guard let key = card["key"] as? String, let id = card["id"] as? String else { return nil }
+                return (key, id, rect(card))
+            }
+            placeInline(cards)
         case "editing":
             blockOpen = body["on"] as? Bool ?? false
             if !blockOpen && reloadWaiting, let file {

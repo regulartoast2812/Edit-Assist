@@ -841,37 +841,37 @@ extension Study {
         document.addEventListener('keydown', key, true);
         document.body.appendChild(viewer);
       }, true);
-      // A YouTube card plays in place (2026-11-09): Sage lays a player over the card and is told where the card is as
-      // the note scrolls or redraws; the card going away stops it.
+      // YouTube cards play in place (2026-11-09): Sage lays YouTube's own player over each card in or near sight and is
+      // told where the cards are as the note scrolls or redraws, so your first click lands on YouTube's play button.
       (function () {
-        var playing = null, queued = false;
+        var queued = false, next = 0;
         function say(m) { try { webkit.messageHandlers.sage.postMessage(m); } catch (_) {} }
         function videoId(href) { var m = /(?:[?&]v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{11})/.exec(href || ''); return m ? m[1] : null; }
-        function where(el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
         function report() {
-          if (!playing) return;
-          if (!document.contains(playing.el)) {
-            var again = Array.prototype.filter.call(document.querySelectorAll('.video-embed'), function (a) { return videoId(a.getAttribute('href')) === playing.id; })[0];
-            if (!again) { playing = null; say({ type: 'inline-stop' }); return; }
-            playing.el = again; again.classList.add('sage-playing');
-          }
-          var r = where(playing.el); r.type = 'inline-rect'; say(r);
+          var cards = [], tall = window.innerHeight;
+          document.querySelectorAll('.video-embed').forEach(function (card) {
+            var id = videoId(card.getAttribute('href'));
+            if (!id) return;
+            var r = card.getBoundingClientRect();
+            if (r.bottom < -200 || r.top > tall + 200 || r.width < 2) return;
+            if (!card.dataset.sageCard) card.dataset.sageCard = id + ':' + (next++);
+            card.classList.add('sage-playing');
+            cards.push({ key: card.dataset.sageCard, id: id, x: r.left, y: r.top, w: r.width, h: r.height });
+          });
+          say({ type: 'inline-cards', cards: cards });
         }
-        function soon() { if (queued || !playing) return; queued = true; requestAnimationFrame(function () { queued = false; report(); }); }
+        function soon() { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; report(); }); }
+        // A click that reaches the card (its player still loading) waits for the player instead of leaving the note.
         document.addEventListener('click', function (e) {
           var card = e.target && e.target.closest ? e.target.closest('.video-embed') : null;
-          if (!card || e.metaKey || e.button !== 0) return;
-          var id = videoId(card.getAttribute('href'));
-          if (!id) return;
-          e.preventDefault(); e.stopPropagation();
-          if (playing && playing.el !== card) playing.el.classList.remove('sage-playing');
-          playing = { el: card, id: id };
-          card.classList.add('sage-playing');
-          var r = where(card); r.type = 'inline-play'; r.id = id; say(r);
+          if (!card || e.metaKey || e.button !== 0 || !videoId(card.getAttribute('href'))) return;
+          e.preventDefault(); e.stopPropagation(); soon();
         }, true);
         document.addEventListener('scroll', soon, true);
         window.addEventListener('resize', soon);
+        window.addEventListener('load', soon);
         new MutationObserver(soon).observe(document.documentElement, { childList: true, subtree: true });
+        soon();
       })();
       var icons = window.sageIcons || {};
       function svg(name) {

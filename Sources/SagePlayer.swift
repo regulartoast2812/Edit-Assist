@@ -32,10 +32,12 @@ extension Study {
         <!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin">
         <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style></head>
         <body><script>
-        var id = new URLSearchParams(location.search).get('v') || '';
+        var params = new URLSearchParams(location.search), id = params.get('v') || '';
+        // A player laid over a note's card waits for your click on it (autoplay=0); the mini player starts at once.
+        var auto = params.get('autoplay') === '0' ? '0' : '1';
         if (/^[A-Za-z0-9_-]{6,20}$/.test(id)) {
           var f = document.createElement('iframe');
-          f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&modestbranding=1&playsinline=1&origin=' + encodeURIComponent(location.origin);
+          f.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=' + auto + '&rel=0&modestbranding=1&playsinline=1&origin=' + encodeURIComponent(location.origin);
           f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write';
           f.referrerPolicy = 'strict-origin-when-cross-origin';
           f.allowFullscreen = true;
