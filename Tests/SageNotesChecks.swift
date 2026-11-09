@@ -19,7 +19,7 @@ extension Checks {
         check(page.contains("theme-dark") && page.contains("metadata-container") && page.contains("<span>filipino-food</span>") && page.contains("--accent-h: 32; --accent-s: 100%; --accent-l: 50%;")
               && page.contains("--font-text-size: 18px") && page.contains(".theme-dark{--x:1}") && page.contains("class=\"video-embed\"") && page.contains("data-heading=\"Steps\""),
               "A note's page has its properties, the video, your accent (as Obsidian's hue, saturation and lightness), size and theme")
-        check(page.contains(".mod-root::before { content: none !important") && page.contains("#sage-viewer") && Study.pageScript.contains("sage-viewer"),
+        check(page.contains(".mod-root::before { content: none !important") && page.contains("#sage-viewer") && Study.pageScript.contains("sage-viewer") && Study.pageScript.contains("'ArrowRight'") && page.contains(".sv-next"),
               "A theme's \"newer Obsidian installer\" notice is hidden (WebKit lacks interpolate-size), and pictures open full size")
         check(Study.byteRange("bytes=0-1023").map { $0.lowerBound == 0 && $0.upperBound == 1023 } == true && Study.byteRange("bytes=500-").map { $0.lowerBound == 500 && $0.upperBound == nil } == true
               && Study.byteRange("bytes=0-1,5-9") == nil && Study.byteRange("items=0-1") == nil,

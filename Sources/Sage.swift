@@ -63,6 +63,11 @@ struct SagePage: View {
     @State private var own = ""
     @State private var addingKey = false
     @State private var width: CGFloat = 1400
+    /// The page's visible height and where the columns start in it: the chat and the notes stage reach down to the window's
+    /// bottom edge instead of stopping at a fixed height (2026-11-09: a tall window left empty space under them).
+    @State private var visibleHeight: CGFloat = 900
+    @State private var columnsTop: CGFloat = 120
+    var columnsHeight: CGFloat { max(460, visibleHeight - columnsTop - 14) }
     /// The topic sheet: a new topic, or the open one renamed.
     @State private var topicSheet = false
     @State private var renaming = false
@@ -83,13 +88,20 @@ struct SagePage: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if let failure = desk.failure { status(false, failure) }
-                columns
+                columns.background(GeometryReader { proxy in
+                    Color.clear.preference(key: SageColumnsTop.self, value: proxy.frame(in: .named("sage-page")).minY)
+                })
             }
+            .coordinateSpace(name: "sage-page")
+            .onPreferenceChange(SageColumnsTop.self) { top in if abs(top - columnsTop) > 0.5 { columnsTop = top } }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(GeometryReader { proxy in Color.clear.onAppear { width = proxy.size.width }.onChange(of: proxy.size.width) { _, new in width = new } })
             // Room under the panels for the docked player, so nothing is stuck under it.
             .padding(.bottom, desk.playing != nil && !desk.playerExpanded ? SagePlayerBox.dockedHeight + 12 : 0)
         }.scrollIndicators(.automatic)
+        .background(GeometryReader { proxy in
+            Color.clear.onAppear { visibleHeight = proxy.size.height }.onChange(of: proxy.size.height) { _, new in visibleHeight = new }
+        })
         .overlay(alignment: .bottomTrailing) { player }
         .onAppear { desk.reload() }
         // Leaving Sage stops the video.
@@ -370,7 +382,8 @@ struct SagePage: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
             }
-            .frame(height: 560)
+            // The chat panel fills the columns' height: its title rows, the box and the padding take about 118 pt.
+            .frame(height: max(300, columnsHeight - 118))
             .onAppear { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.current) { _, _ in reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
@@ -482,7 +495,8 @@ struct SagePage: View {
     // MARK: Notes stage
 
     /// Your vault as Obsidian's explorer and reading view show it, the files open in tabs (SageNoteView.swift, 2026-11-09).
-    var notesStage: some View { SageNotesStage(desk: desk, vault: desk.vault, filter: $filter) }
+    /// The stage's picker row takes about 40 pt of the columns' height; the notes take the rest.
+    var notesStage: some View { SageNotesStage(desk: desk, vault: desk.vault, filter: $filter, height: max(420, columnsHeight - 40)) }
 
     static func statusName(_ status: String) -> String {
         ["to try": "To try", "made": "Made", "favourite": "Favourite", "to read": "To read", "read": "Read", "key": "Key"][status] ?? status
@@ -711,4 +725,10 @@ struct SagePage: View {
             Text(md: text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
         }
     }
+}
+
+/// Where the Sage page's columns start in its scrolled content.
+struct SageColumnsTop: PreferenceKey {
+    static let defaultValue: CGFloat = 120
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

@@ -185,9 +185,20 @@ extension Study {
     static let afterTheme = """
     .mod-root::before { content: none !important; display: none !important; }
     .markdown-preview-view img:not(.video-embed img), .canvas-node-content img { cursor: zoom-in; }
-    #sage-viewer { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
-      background: rgba(0, 0, 0, .86); cursor: zoom-out; animation: sage-viewer-in .14s ease-out; }
-    #sage-viewer img { max-width: 94vw; max-height: 94vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.6); cursor: zoom-out; }
+    #sage-viewer { position: fixed; inset: 0; z-index: 9999; background: rgba(0, 0, 0, .9); cursor: zoom-out; animation: sage-viewer-in .14s ease-out; }
+    #sage-viewer .sv-stage { position: absolute; inset: 24px 72px 48px; display: flex; align-items: center; justify-content: center; }
+    #sage-viewer.sv-single .sv-stage { inset: 24px 24px 48px; }
+    #sage-viewer .sv-stage img, #sage-viewer .sv-stage video { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    #sage-viewer .sv-stage video { cursor: default; background: #000; }
+    #sage-viewer .sv-prev, #sage-viewer .sv-next { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; border: 0; border-radius: 10px;
+      background: rgba(255,255,255,.08); color: #fff; font-size: 34px; line-height: 1; cursor: pointer; }
+    #sage-viewer .sv-prev { left: 14px; } #sage-viewer .sv-next { right: 14px; }
+    #sage-viewer .sv-prev:hover:not(:disabled), #sage-viewer .sv-next:hover:not(:disabled) { background: rgba(255,255,255,.18); }
+    #sage-viewer button:disabled { opacity: .2; cursor: default; }
+    #sage-viewer.sv-single .sv-prev, #sage-viewer.sv-single .sv-next { display: none; }
+    #sage-viewer .sv-bar { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; gap: 12px; justify-content: center; align-items: baseline;
+      color: rgba(255,255,255,.75); font-size: 13px; cursor: default; }
+    #sage-viewer .sv-count { font-variant-numeric: tabular-nums; color: #fff; }
     @keyframes sage-viewer-in { from { opacity: 0; } }
     .video-embed.sage-playing .play { display: none; }
     body.reduce-motion #sage-viewer { animation: none; }
@@ -824,23 +835,81 @@ extension Study {
     /// page speaks to the app through window.webkit.messageHandlers.sage and hears it through window.sageReceive.
     static let pageScript = #"""
     (function () {
-      // A picture opened full size in the page (2026-11-09), before anything else hears the click (editing included);
-      // a click or Esc closes it. Pictures that are links, video cards and canvas cards being moved keep their own click.
-      document.addEventListener('click', function (e) {
-        var img = e.target && e.target.closest ? e.target.closest('img') : null;
-        if (!img || img.closest('a, .video-embed, .sage-viewer-skip, #sage-viewer') || !img.closest('.markdown-preview-view, .canvas-node-content')) return;
-        e.preventDefault(); e.stopPropagation();
-        var viewer = document.createElement('div');
-        viewer.id = 'sage-viewer';
-        var big = document.createElement('img');
-        big.src = img.currentSrc || img.src; big.alt = img.alt || '';
-        viewer.appendChild(big);
-        function close() { viewer.remove(); document.removeEventListener('keydown', key, true); }
-        function key(k) { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); close(); } }
-        viewer.addEventListener('click', function (c) { c.preventDefault(); c.stopPropagation(); close(); }, true);
-        document.addEventListener('keydown', key, true);
-        document.body.appendChild(viewer);
-      }, true);
+      // The media viewer (2026-11-09): a picture clicked (or a video double-clicked) opens full size, and ‹ › or the arrow
+      // keys step through every picture and video in the note, in order. Home/End go to the first and last, Space plays or
+      // pauses a video, Esc or a click outside closes. It hears the click before anything else (editing included);
+      // pictures that are links and YouTube cards keep their own click.
+      (function () {
+        function media() {
+          return Array.prototype.filter.call(document.querySelectorAll('.markdown-preview-view img, .canvas-node-content img, .media-embed video'), function (el) {
+            return !el.closest('a, .video-embed, #sage-viewer') && (el.tagName !== 'IMG' || (el.naturalWidth || el.width) > 24);
+          });
+        }
+        function source(el) { return el.currentSrc || el.src || ''; }
+        function name(el) {
+          var box = el.closest('.internal-embed');
+          var raw = (box && box.getAttribute('src')) || el.getAttribute('alt') || decodeURIComponent(source(el).split('/').pop() || '');
+          return raw.split('|')[0];
+        }
+        function open(start) {
+          var list = media(), at = list.indexOf(start);
+          if (at < 0) return;
+          var viewer = document.createElement('div');
+          viewer.id = 'sage-viewer';
+          viewer.innerHTML = '<div class="sv-stage"></div><button class="sv-prev" aria-label="Previous">‹</button><button class="sv-next" aria-label="Next">›</button>'
+            + '<div class="sv-bar"><span class="sv-count"></span><span class="sv-name"></span></div>';
+          var stage = viewer.querySelector('.sv-stage');
+          function show(i) {
+            if (i < 0 || i >= list.length) return;
+            var old = stage.querySelector('video'); if (old) old.pause();
+            at = i;
+            var el = list[i], shown;
+            if (el.tagName === 'VIDEO') { shown = document.createElement('video'); shown.controls = true; shown.autoplay = true; shown.src = source(el); }
+            else { shown = document.createElement('img'); shown.src = source(el); shown.alt = el.alt || ''; }
+            stage.replaceChildren(shown);
+            viewer.querySelector('.sv-count').textContent = list.length > 1 ? (i + 1) + ' / ' + list.length : '';
+            viewer.querySelector('.sv-name').textContent = name(el);
+            viewer.querySelector('.sv-prev').disabled = i === 0;
+            viewer.querySelector('.sv-next').disabled = i === list.length - 1;
+            viewer.classList.toggle('sv-single', list.length < 2);
+            // The next and previous pictures are fetched ahead, so stepping doesn't wait.
+            [i - 1, i + 1].forEach(function (j) { if (list[j] && list[j].tagName === 'IMG') { var p = new Image(); p.src = source(list[j]); } });
+          }
+          function close() { var v = stage.querySelector('video'); if (v) v.pause(); viewer.remove(); document.removeEventListener('keydown', key, true); }
+          function key(k) {
+            var handled = true;
+            if (k.key === 'Escape') close();
+            else if (k.key === 'ArrowLeft') show(at - 1);
+            else if (k.key === 'ArrowRight') show(at + 1);
+            else if (k.key === 'Home') show(0);
+            else if (k.key === 'End') show(list.length - 1);
+            else if (k.key === ' ' && stage.querySelector('video')) { var v = stage.querySelector('video'); if (v.paused) v.play(); else v.pause(); }
+            else handled = false;
+            if (handled) { k.preventDefault(); k.stopPropagation(); }
+          }
+          viewer.addEventListener('click', function (c) {
+            c.stopPropagation();
+            if (c.target.closest('.sv-prev')) { c.preventDefault(); show(at - 1); }
+            else if (c.target.closest('.sv-next')) { c.preventDefault(); show(at + 1); }
+            else if (!c.target.closest('video, .sv-bar')) { c.preventDefault(); close(); }
+          }, true);
+          document.addEventListener('keydown', key, true);
+          document.body.appendChild(viewer);
+          show(at);
+        }
+        document.addEventListener('click', function (e) {
+          var img = e.target && e.target.closest ? e.target.closest('img') : null;
+          if (!img || img.closest('a, .video-embed, .sage-viewer-skip, #sage-viewer') || !img.closest('.markdown-preview-view, .canvas-node-content')) return;
+          e.preventDefault(); e.stopPropagation();
+          open(img);
+        }, true);
+        document.addEventListener('dblclick', function (e) {
+          var video = e.target && e.target.closest ? e.target.closest('.media-embed video') : null;
+          if (!video || video.closest('#sage-viewer')) return;
+          e.preventDefault(); e.stopPropagation(); video.pause();
+          open(video);
+        }, true);
+      })();
       // YouTube cards play in place (2026-11-09): Sage lays YouTube's own player over each card in or near sight and is
       // told where the cards are as the note scrolls or redraws, so your first click lands on YouTube's play button.
       (function () {
@@ -881,7 +950,8 @@ extension Study {
       }
       // What a block shows that isn't text (a base, a canvas, an embedded note, a page) is used where it is; while
       // editing, its corner button opens the block's Markdown.
-      var embeds = '.va-canvas-embed, .sage-base, .markdown-embed, .va-file-embed-scroll, .va-file-embed-frame, .pdf-embed';
+      // A video or sound plays where it is too (2026-11-09: pressing play turned it into its ![[…]] line).
+      var embeds = '.va-canvas-embed, .sage-base, .markdown-embed, .va-file-embed-scroll, .va-file-embed-frame, .pdf-embed, .media-embed:not(.image-embed), video, audio';
       function decorate(root) {
         if (document.body.hasAttribute('data-sage-edit'))
           root.querySelectorAll('[data-sage-from]').forEach(function (block) {
