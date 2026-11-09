@@ -297,6 +297,8 @@ extension SageMedia {
     static func whisperLine(_ raw: String) -> String? {
         let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if line.hasPrefix(">>") { return String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
+        // Newer WhisperX logs its steps: "2026-11-09 17:51:39 - whisperx.transcribe - INFO - Performing transcription...".
+        if let g = Study.firstMatch(#" - whisperx\.[\w.]+ - (?:INFO|WARNING|ERROR) - (.+)$"#, in: line) { return short(g[1]) }
         if line.hasPrefix("Detected language") || line.hasPrefix("Progress:") { return line }
         if line.range(of: #"\d+%\|"#, options: .regularExpression) != nil {
             // tqdm: "model.bin:  45%|████▌     | 220M/484M [00:10<00:12, 21.0MB/s]" without the bar.

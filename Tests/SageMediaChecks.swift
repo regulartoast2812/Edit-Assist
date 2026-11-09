@@ -111,7 +111,9 @@ extension Checks {
         check(M.installLine("Collecting whisperx") == "Collecting whisperx" && M.installLine("  Using cached torch-2.5.1.whl (63 MB)") == nil
               && M.installLine("Successfully installed a-1 b-2 c-3 d-4 e-5") == "Successfully installed 5 packages" && M.installLine("Requirement already satisfied: x") == nil,
               "pip's useful lines are shown, long lists counted")
-        check(M.whisperLine(">>Performing transcription...") == "Performing transcription..." && M.whisperLine("Progress: 45.00%...") == "Progress: 45.00%..."
+        check(M.whisperLine(">>Performing transcription...") == "Performing transcription..."
+              && M.whisperLine("2026-11-09 17:51:39 - whisperx.transcribe - INFO - Performing transcription...") == "Performing transcription..."
+              && M.whisperLine("Transcript: [0.002 --> 4.811]  Hello, this is a test.") == nil && M.whisperLine("Progress: 45.00%...") == "Progress: 45.00%..."
               && M.whisperLine("model.bin:  45%|████▌     | 220M/484M [00:10<00:12, 21.0MB/s]") == "model.bin: 45% 220M/484M [00:10<00:12, 21.0MB/s]"
               && M.whisperLine("/x/site-packages/pyannote/audio/core/io.py:43: UserWarning: torchaudio._backend is deprecated") == nil
               && M.whisperLine("RuntimeError: ffmpeg was not found") == "RuntimeError: ffmpeg was not found",
