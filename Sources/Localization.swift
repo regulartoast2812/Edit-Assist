@@ -54,6 +54,8 @@ extension Text {
 
 enum Vietnamese {
     static let text: [String: String] = [
+        "Fetch media isn't built yet.": "Tải media chưa được làm xong.",
+        "Transcribe isn't built yet.": "Chép lời chưa được làm xong.",
         // Sage acting from the chat (SageActions.swift)
         "Added to “%@”": "Đã thêm vào “%@”",
         "Connected your vault “%@”": "Đã kết nối vault “%@” của bạn",
