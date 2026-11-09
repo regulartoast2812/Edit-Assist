@@ -13,6 +13,9 @@ touches projects, Premiere, Grafana or any Crossian account.
 | `Sources/SageResearch.swift` | `Study` too: topics, web pages, the research note. Foundation only. | Same. |
 | `Sources/SageDesk.swift` | `SageDesk`: state, network calls, the key and the folder. | Rewrite: Keychain → Windows Credential Manager; `NSOpenPanel` → a folder picker; `UserDefaults` → the app's settings. |
 | `Sources/Sage.swift` | His pixel icon and page (SwiftUI). | Rewrite in the Windows app's UI; the sprite rows and colours copy over as they are. |
+| `Sources/SagePick.swift` | `Study` too: Pick for me as a curator (angles, filters, the rubric, the choice). Foundation only. | Came from the Windows app (`SagePick.cs`); keep the two alike. |
+| `Sources/SagePlayer.swift` | The mini player's page and address (`Study`), and its web view. | Windows: WebView2 with a virtual host. |
+| `Sources/SageDeskPick.swift`, `SagePickView.swift` | The desk's Pick and player, and their page parts (steps, outcome, playable pictures, the column lines, motion). | Windows: `SageDesk.cs`, `Sage.cs`. |
 
 ## How he works
 
@@ -53,9 +56,19 @@ touches projects, Premiere, Grafana or any Crossian account.
    newest first with `Study.ago`, searched with `Study.find`; New chat keeps the old one). Search, chat and saving videos need no folder; it is asked for when a recipe is first written.
 7. **Saving and picks.** Searches add "recipe" unless the words already ask for cooking (`Study.recipeSearch`).
    Saving a video (its Save button, or dragging it onto the save area right of the results) keeps it in the app to
-   review (`Study.Saved`, `sage/saved.json`): nothing is written and no vault is needed. **Pick for me** searches,
-   asks the brain once which results are real recipe videos worth saving (`Study.pickPrompt`, `Study.pickSchema`;
-   at most five, only ids it was shown, `Study.picks`) and saves those, each with its reason. A saved video's recipe
+   review (`Study.Saved`, `sage/saved.json`): nothing is written and no vault is needed. **Pick for me** works as a
+   curator (`Sources/SagePick.swift`, from the Windows app, 2026-11-09): the brain gives up to two more search angles
+   (`Study.anglesPrompt`, `angles(from:)`; three searches at most, 100 units each), merged in turn (`Study.merged`); code drops
+   Shorts and videos under 2 minutes, what is saved or written, reuploads, music, reactions and compilations (mukbangs and eating
+   shows for recipes; `Study.screen`); the brain marks every video left 0-5 on relevance, substance, credibility and density
+   (`Study.scorePrompt`, `scoreSchema`, `marks(from:)`, junk-proof); code weighs them (40/25/20/15) with small like, view and
+   recency signals and keeps only those at 70/100 or more, one per channel, no two covering the same thing, nothing covering what
+   you have, at most five (`Study.choose`). Saving none is a fine answer: `PickOutcome.why` says what fell short, and Find lists
+   everything passed over with why (`Study.Says`, translated on screen). `EDIT_ASSIST_SAGE_PICK_FIXTURE` points Pick at a folder
+   of answers (`Tests/Fixtures/Sage`: angles.json, videos.json, scores.json) instead of YouTube and the brain.
+   **The mini player** plays any video in Sage: `Study.playerPage` (YouTube's nocookie embed in an iframe) loaded with
+   `Study.playerURL` (https://sage-player.example/player.html?v=…) as its address, so the embed has an origin and a referrer
+   (without them it shows Error 153); only real-looking ids reach it (`Study.isVideoID`). A saved video's recipe
    is written (steps 2–4) only when you press Write recipe or Write all; the vault folder is asked for then.
 8. **Notes stage.** Beside the chat, the page has two stages: Research (Find, Saved, Write your own) and Notes (the
    recipes list and the open note). The note is drawn by `Study.page` (`Sources/SageNotes.swift`, Foundation only) as

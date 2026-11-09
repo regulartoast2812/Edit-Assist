@@ -1400,6 +1400,132 @@ struct Checks {
             check(PixChat(messages: before.chat).title == "Make the CTA red" && PixChat(messages: [PixMessage(fromPix: false, text: "", pictures: ["a.jpg"])]).title == "",
                   "An earlier chat with Pix is titled by your first message")
         }
+        // Sage's Pick for me as a curator and his mini player (Creative Assist's SagePick.cs, brought back 2026-11-09), on the
+        // fixtures in Tests/Fixtures/Sage (the same ones EDIT_ASSIST_SAGE_PICK_FIXTURE reads): 12 videos for "speed ramp premiere
+        // pro" and the brain's marks for them.
+        do {
+            let folder = URL(fileURLWithPath: "Tests/Fixtures/Sage", isDirectory: true)
+            let fixture = { (name: String) in Study.json((try? Data(contentsOf: folder.appendingPathComponent(name))) ?? Data()) }
+            let found = Study.videos(in: (try? Data(contentsOf: folder.appendingPathComponent("videos.json"))) ?? Data())
+            let ask = "speed ramp premiere pro"
+            let editing = Study.Topic(name: "Editing techniques"), recipes = Study.Topic(name: "Recipes", kind: .recipes)
+            let day = Study.day("2026-11-06")!
+            func V(_ id: String, _ title: String, _ channel: String = "Ch", duration: String = "10:00", views: Int = 10000) -> Study.Video {
+                Study.Video(id: id, title: title, channel: channel, duration: duration, views: views)
+            }
+            func M(_ r: Int, _ s: Int, _ c: Int, _ d: Int, covers: String = "", same: String = "", reject: String = "") -> Study.Marks {
+                Study.Marks(relevance: r, substance: s, credibility: c, density: d, covers: covers, sameAs: same, why: "why", reject: reject)
+            }
+            func O(_ json: String) -> [String: Any]? { Study.json(Data(json.utf8)) }
+            func strict(_ schema: [String: Any]) -> Bool {
+                (schema["additionalProperties"] as? Bool) == false && (schema["required"] as? [String])?.count == (schema["properties"] as? [String: Any])?.count
+            }
+            let scoreItem = ((Study.scoreSchema["properties"] as? [String: Any])?["scores"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
+            check(strict(Study.anglesSchema) && strict(Study.scoreSchema) && strict(scoreItem), "Pick's brain calls use strict schemas")
+            check(found.count == 12 && found[0].likes == 30000 && found[0].comments == 120 && found[0].views == 900000, "Pick reads likes and comments with each video")
+            let angles = Study.angles(from: O(#"{"angles":["Speed ramp premiere pro!","time remapping tutorial"," ","optical flow ramps","fourth one"],"short":false,"timely":true}"#), words: ask, topic: editing)
+            let junk = Study.angles(from: O(#"{"angles":"nope","short":"yes"}"#), words: ask, topic: editing)
+            let recipeAngles = Study.angles(from: O(#"{"angles":["vietnamese beef noodle soup"],"short":false,"timely":false}"#), words: "pho", topic: recipes)
+            check(angles.searches == [ask, "time remapping tutorial", "optical flow ramps"] && angles.timely && !angles.wantsShort
+                  && junk.searches == [ask] && !junk.wantsShort && Study.angles(from: nil, words: ask, topic: editing).searches.count == 1
+                  && recipeAngles.searches == ["pho recipe", "vietnamese beef noodle soup recipe"],
+                  "Pick's angles: your words first, the brain's distinct ones after, three at most; junk leaves your words")
+            check(Study.merged([["a", "b", "c"], ["b", "d"], ["e"]]) == ["a", "b", "e", "d", "c"], "Pick merges its searches in turn, each video once")
+            let (kept, dropped) = Study.screen(found, topic: editing, words: ask, saved: ["ramp0000011"], written: ["https://www.youtube.com/watch?v=ramp0000012"], wantsShort: false)
+            let droppedWhy = { (id: String) in dropped.first { $0.video.id == id }?.reason.english ?? "" }
+            check(kept.map(\.id) == ["ramp0000001", "ramp0000002", "ramp0000003", "ramp0000004", "ramp0000005", "ramp0000010"]
+                  && droppedWhy("ramp0000006").hasPrefix("Too short") && droppedWhy("ramp0000007").contains("reupload") && droppedWhy("ramp0000008").contains("reaction")
+                  && droppedWhy("ramp0000009").contains("compilation") && droppedWhy("ramp0000011") == "Already in Saved" && droppedWhy("ramp0000012") == "Already in your notes",
+                  "Pick's filters drop Shorts, reuploads, reactions, compilations, and what's already saved or written")
+            let shorts = Study.screen([V("s1", "Quick tip", duration: "0:40")], topic: editing, words: "quick tip", saved: [], written: [], wantsShort: true).kept
+            let reactions = Study.screen([V("r1", "Reaction GIFs in Premiere")], topic: editing, words: "reaction gifs", saved: [], written: [], wantsShort: false).kept
+            let mukbang = Study.screen([V("m1", "Spicy noodle MUKBANG")], topic: recipes, words: "noodles", saved: [], written: [], wantsShort: false).dropped
+            check(shorts.count == 1 && reactions.count == 1 && mukbang.count == 1 && mukbang[0].reason.english.contains("Not a recipe"),
+                  "Pick keeps short videos when you ask for them, and a word you asked for is not a filter")
+            check(Study.rubricScore(M(3, 3, 3, 3)) == 60 && Study.rubricScore(M(4, 4, 3, 3)) >= Study.Rubric.bar && Study.rubricScore(M(5, 5, 5, 5)) == 100,
+                  "Pick's rubric: all 3s is mediocre and below the bar; 4,4,3,3 clears it")
+            let three = [V("a", "A"), V("b", "B", "Other"), V("c", "C", "Third")]
+            let barred = Study.choose(ask: ask, searches: [ask], lookedAt: three, candidates: three, screened: [], marks: ["a": M(5, 5, 4, 4), "b": M(3, 3, 3, 3), "c": M(2, 5, 5, 5)], timely: false, today: day)
+            check(barred.picked.map(\.video.id) == ["a"] && barred.passedOver.contains { $0.video.id == "b" && $0.reason.english.hasPrefix("Below the bar") }
+                  && barred.passedOver.contains { $0.video.id == "c" && $0.reason.english.hasPrefix("Off the ask") } && barred.headline == "Saved 1 of 3 looked at",
+                  "Pick's threshold passes over the mediocre and the off-topic, each with why")
+            let five = [V("a", "A", "Cinecom"), V("b", "B", "cinecom"), V("c", "C", "Riot"), V("d", "D", "Fourth"), V("e", "E", "Fifth")]
+            let diverse = Study.choose(ask: ask, searches: [ask], lookedAt: five, candidates: five, screened: [], marks: [
+                "a": M(5, 5, 5, 5, covers: "speed ramps in premiere"), "b": M(5, 5, 5, 4, covers: "nesting and motion blur"),
+                "c": M(5, 5, 4, 4, covers: "optical flow ramps", same: "a"), "d": M(5, 4, 4, 4, covers: "Speed ramps in Premiere!"), "e": M(4, 4, 4, 4, covers: "bezier easing for ramps"),
+            ], timely: false, today: day)
+            let diverseWhy = { (id: String) in diverse.passedOver.first { $0.video.id == id }?.reason.english ?? "" }
+            check(diverse.picked.map(\.video.id) == ["a", "e"] && diverseWhy("b").contains("one video per channel") && diverseWhy("c").contains("covers the same")
+                  && diverseWhy("d").contains("covers the same"),
+                  "Pick keeps one per channel and never two covering the same thing")
+            let eight = (1 ... 8).map { V("v\($0)", "V\($0)", "Ch\($0)") }
+            var eightMarks: [String: Study.Marks] = [:]
+            for (index, video) in eight.enumerated() { eightMarks[video.id] = M(5, 5, 5 - index % 2, 4) }
+            let most = Study.choose(ask: ask, searches: [ask], lookedAt: eight, candidates: eight, screened: [], marks: eightMarks, timely: false, today: day)
+            check(most.picked.count == 5 && zip(most.picked, most.picked.dropFirst()).allSatisfy { $0.score >= $1.score }
+                  && most.passedOver.filter { $0.reason.english.contains("better ones") }.count == 3,
+                  "Pick saves at most five, best first")
+            let meh = [V("a", "Meh one"), V("b", "Meh two", "Other")]
+            let none = Study.choose(ask: ask, searches: [ask], lookedAt: meh, candidates: meh, screened: [], marks: ["a": M(3, 3, 3, 3), "b": M(4, 3, 3, 2)], timely: false, today: day)
+            let filtered = Study.choose(ask: ask, searches: [ask], lookedAt: meh, candidates: [], screened: [Study.Passed(video: meh[0], reason: Study.Says("Too short (%@) to teach much", [.plain("0:30")])),
+                                                                                                         Study.Passed(video: meh[1], reason: Study.Says("Too short (%@) to teach much", [.plain("0:20")]))],
+                                        marks: [:], timely: false, today: Date())
+            let empty = Study.choose(ask: ask, searches: [ask], lookedAt: [], candidates: [], screened: [], marks: [:], timely: false, today: Date())
+            let noneWhy = none.why?.english ?? "", filteredWhy = filtered.why?.english ?? ""
+            check(none.picked.isEmpty && noneWhy.hasPrefix("Nothing cleared the bar") && noneWhy.contains("Meh") && none.headline == "Saved 0 of 2 looked at"
+                  && filteredWhy.contains("All 2 were filtered out") && filteredWhy.contains("too short") && (empty.why?.english ?? "").contains("found nothing"),
+                  "When nothing passes, Pick saves nothing and says why")
+            let shown = [V("abc123def45", "A"), V("xyz", "B")]
+            let read = Study.marks(from: O(#"""
+                {"scores":[
+                  {"id":"id abc123def45","relevance":"4","substance":9,"credibility":-2,"density":3.6,"covers":" ramps ","same_as":"xyz","why":" Good ","reject":""},
+                  {"id":"abc123def45","relevance":0,"substance":0,"credibility":0,"density":0,"covers":"","same_as":"","why":"twice","reject":"x"},
+                  {"id":"<script>","relevance":5,"substance":5,"credibility":5,"density":5,"covers":"","same_as":"","why":"","reject":""},
+                  "junk", 7, null,
+                  {"id":"xyz","relevance":"lots","substance":null,"credibility":true,"density":{},"covers":"","same_as":"xyz","why":"","reject":""}
+                ]}
+                """#), videos: shown)
+            check(read.count == 2 && read["abc123def45"] == Study.Marks(relevance: 4, substance: 5, credibility: 0, density: 4, covers: "ramps", sameAs: "xyz", why: "Good", reject: "")
+                  && read["xyz"] == Study.Marks(relevance: 0, substance: 0, credibility: 0, density: 0, covers: "", sameAs: "", why: "", reject: "")
+                  && Study.marks(from: O(#"{"nothing":1}"#), videos: shown).isEmpty && Study.marks(from: nil, videos: shown).isEmpty,
+                  "Pick's scores are read only for videos it was shown, once each, marks clamped 0-5, junk ignored")
+            let fixtureAngles = Study.angles(from: fixture("angles.json"), words: ask, topic: editing)
+            let (fixtureKept, fixtureDropped) = Study.screen(found, topic: editing, words: ask, saved: [], written: [], wantsShort: fixtureAngles.wantsShort)
+            let fixtureMarks = Study.marks(from: fixture("scores.json"), videos: fixtureKept)
+            let outcome = Study.choose(ask: ask, searches: fixtureAngles.searches, lookedAt: found, candidates: fixtureKept, screened: fixtureDropped, marks: fixtureMarks,
+                                       timely: fixtureAngles.timely, today: day)
+            check(outcome.headline == "Saved 3 of 12 looked at" && outcome.picked.map(\.video.id) == ["ramp0000001", "ramp0000002", "ramp0000004"]
+                  && outcome.picked.allSatisfy { !$0.why.isEmpty } && outcome.passedOver.count == 9 && outcome.passedOver.allSatisfy { !$0.reason.english.isEmpty } && outcome.why == nil,
+                  "Pick on the fixtures: 3 of 12 saved, each with why; the rest passed over with why not")
+            let have = found.filter { ["ramp0000001", "ramp0000002", "ramp0000004"].contains($0.id) }
+            let (secondKept, secondDropped) = Study.screen(found, topic: editing, words: ask, saved: Set(have.map(\.id)), written: [], wantsShort: false)
+            let secondMarks = Study.marks(from: fixture("scores.json"), videos: secondKept, have: have.map(\.id))
+            let second = Study.choose(ask: ask, searches: [ask], lookedAt: found, candidates: secondKept, screened: secondDropped, marks: secondMarks, timely: true, today: day, have: have)
+            let without3 = Study.choose(ask: ask, searches: [ask], lookedAt: found, candidates: secondKept.filter { $0.id != "ramp0000003" }, screened: secondDropped, marks: secondMarks,
+                                        timely: true, today: day, have: have)
+            check(secondMarks["ramp0000005"]?.sameAs == "ramp0000001" && second.picked.map(\.video.id) == ["ramp0000003"]
+                  && (second.passedOver.first { $0.video.id == "ramp0000005" }?.reason.english ?? "").contains("which you already have")
+                  && Study.scorePrompt(ask, topic: editing, videos: secondKept, have: have).contains("Already in my Saved")
+                  && (without3.why?.english ?? "").hasPrefix("Nothing new worth saving"),
+                  "A second Pick never saves what covers a video you already have")
+            let fresh = Study.Video(id: "n", published: "2026-09-01"), stale = Study.Video(id: "o", published: "2020-01-01")
+            check(Study.signals(fresh, among: [fresh], timely: true, today: day) > 0 && Study.signals(stale, among: [stale], timely: true, today: day) < 0
+                  && Study.signals(stale, among: [stale], timely: false, today: day) == 0,
+                  "Recent videos count for more only when the topic moves fast")
+            // Every reason and outcome Pick can show has its Vietnamese, the titles and the brain's words left as they are.
+            let says = (dropped + barred.passedOver + diverse.passedOver + most.passedOver + second.passedOver + mukbang).map(\.reason)
+                + [none.why, filtered.why, empty.why, without3.why].compactMap { $0 }
+            func untranslated(_ says: Study.Says) -> [String] {
+                (says.verbatim || Vietnamese.text[says.template] != nil ? [] : [says.template]) + says.values.flatMap(untranslated)
+            }
+            let missing = Set(says.flatMap(untranslated)).sorted()
+            check(missing.isEmpty, "Pick's reasons all have their Vietnamese" + (missing.isEmpty ? "" : ": " + missing.joined(separator: " | ")))
+            check(Study.playerURL("wwapBsT0oc8")?.absoluteString == "https://sage-player.example/player.html?v=wwapBsT0oc8" && Study.playerURL("x\"><script>") == nil
+                  && Study.playerURL("../../etc") == nil && Study.playerURL("") == nil
+                  && Study.embedURL("abc123def45").hasPrefix("https://www.youtube-nocookie.com/embed/abc123def45?autoplay=1&rel=0&modestbranding=1")
+                  && Study.playerPage.contains("youtube-nocookie.com/embed/") && Study.playerPage.contains("origin=") && Study.playerPage.contains("strict-origin-when-cross-origin"),
+                  "The mini player plays only video ids, through YouTube's privacy-enhanced embed with an origin")
+        }
         // Sage, the research helper (Basil, the recipe helper, before): YouTube's answers, the recipe a page publishes, and notes in the vault (2026-11-06).
         do {
             check(Study.duration("PT1M15S") == "1:15" && Study.duration("PT1H2M3S") == "1:02:03" && Study.duration("PT45S") == "0:45" && Study.duration("P0D") == "",
@@ -1454,9 +1580,10 @@ struct Checks {
                   "Without a recipes folder Sage still chats, and says where to choose one")
             check(Study.recipeSearch(" chicken ") == "chicken recipe" && Study.recipeSearch("how to make pho") == "how to make pho" && Study.recipeSearch("Adobo Recipe") == "Adobo Recipe",
                   "Sage searches for recipes, not anything with the word in it")
-            let picked = Study.picks(from: ["picks": [["id": "v2", "why": " Clear method "], ["id": "zz", "why": "not shown"], ["id": "v2", "why": "twice"]]], among: [video!], count: 5)
-            check(picked == [Study.Pick(id: "v2", why: "Clear method")] && Study.pickPrompt("mac recipe", videos: [video!], count: 5).contains("id v2 | Mac & Cheese"),
-                  "Sage's picks are only videos he was shown, once each")
+            let recipesTopic = Study.Topic(name: "Recipes", kind: .recipes)
+            check(Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("method and amounts") && Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("mukbang")
+                  && Study.scorePrompt("pho", topic: recipesTopic, videos: [video!]).contains("id v2 | Mac & Cheese"),
+                  "Pick's recipe rubric asks for a real recipe, not a mukbang")
             let kept = Study.Saved(video: video!, why: "Clear method")
             let back = try? JSONDecoder().decode([Study.Saved].self, from: JSONEncoder().encode([kept]))
             check(back?.first?.video?.title == "Mac & Cheese" && back?.first?.why == "Clear method" && back?.first?.written == "",
@@ -1521,7 +1648,7 @@ struct Checks {
             let pageSaved = Study.Saved(page: read, topic: editing.id)
             check(older.first?.topic == nil && older.first?.id == "v2" && pageSaved.id == "https://www.cuts.example/guide" && pageSaved.title == "Speed ramps & you"
                   && pageSaved.origin == "cuts.example" && pageSaved.thumbnail?.lastPathComponent == "pic.jpg"
-                  && Study.pickPrompt("speed ramp", videos: [video!], count: 5, topic: editing).contains("researching \"Editing techniques\""),
+                  && Study.scorePrompt("speed ramp", topic: editing, videos: [video!]).contains("researching \"Editing techniques\""),
                   "Saved holds videos and pages, each in its topic")
             try? FileManager.default.removeItem(at: vault)
         }

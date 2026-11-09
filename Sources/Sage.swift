@@ -69,7 +69,14 @@ struct SagePage: View {
     @State private var renaming = false
     @State private var topicName = ""
     @State private var topicKind = Study.Topic.Kind.general
+    /// The columns as you dragged them (0: as they start), and the width of the one being dragged while its line moves.
+    @AppStorage("sageChatWidth") private var chatWidthKept = 0.0
+    @AppStorage("sageSavedWidth") private var savedWidthKept = 0.0
+    @State private var chatDrag: CGFloat?
+    @State private var savedDrag: CGFloat?
+    @State private var dragStart: CGFloat?
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let accent = PixelSage.theme
 
     var body: some View {
@@ -81,18 +88,24 @@ struct SagePage: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(GeometryReader { proxy in Color.clear.onAppear { width = proxy.size.width }.onChange(of: proxy.size.width) { _, new in width = new } })
+            // Room under the panels for the docked player, so nothing is stuck under it.
+            .padding(.bottom, desk.playing != nil && !desk.playerExpanded ? SagePlayerBox.dockedHeight + 12 : 0)
         }.scrollIndicators(.automatic)
+        .overlay(alignment: .bottomTrailing) { player }
         .onAppear { desk.reload() }
+        // Leaving Sage stops the video.
+        .onDisappear { desk.closePlayer() }
         .onChange(of: desk.topicID) { _, _ in filter = ""; search = "" }
         .sheet(isPresented: $topicSheet) { topicForm }
     }
 
-    /// The chat, and beside it the stage: research or notes.
+    /// The chat, and beside it the stage: research or notes. The line between them is yours to drag (remembered).
     @ViewBuilder var columns: some View {
         if width >= 900 {
-            HStack(alignment: .top, spacing: 14) {
-                chatColumn.frame(width: width >= 1300 ? 360 : 320)
-                stage.frame(maxWidth: .infinity)
+            HStack(alignment: .top, spacing: 0) {
+                chatColumn.frame(width: chatWidth)
+                stage.frame(maxWidth: .infinity).padding(.leading, 14)
+                    .overlay(alignment: .leading) { SageColumnLine { moved in drag(moved, from: chatWidth, into: $chatDrag) { chatWidthKept = Double(chatWidth) } } }
             }
         } else {
             VStack(spacing: 14) { chatColumn; stage }
@@ -116,15 +129,53 @@ struct SagePage: View {
         }
     }
 
+    /// Find and Saved side by side once the stage beside the chat has room for both (it grows as you narrow the chat).
     @ViewBuilder var researchStage: some View {
-        if width >= 1180 {
-            HStack(alignment: .top, spacing: 14) {
+        if stageWidth >= 820 {
+            HStack(alignment: .top, spacing: 0) {
                 find.frame(maxWidth: .infinity)
-                right.frame(width: 290)
+                right.frame(width: savedWidth).padding(.leading, 14)
+                    .overlay(alignment: .leading) { SageColumnLine { moved in drag(moved.map { -$0 }, from: savedWidth, into: $savedDrag) { savedWidthKept = Double(savedWidth) } } }
             }
         } else {
             VStack(spacing: 14) { find; right }
         }
+    }
+
+    // MARK: Columns and the mini player
+
+    var chatWidth: CGFloat {
+        let given = chatDrag ?? (chatWidthKept > 0 ? chatWidthKept : width >= 1300 ? 360 : 320)
+        return min(max(given, 260), max(260, min(680, width - 14 - 420)))
+    }
+    /// The stage's width beside the chat (the whole page when they stack).
+    var stageWidth: CGFloat { width >= 900 ? width - chatWidth - 14 : width }
+    var savedWidth: CGFloat {
+        min(max(savedDrag ?? (savedWidthKept > 0 ? savedWidthKept : 290), 220), max(220, min(620, stageWidth - 14 - 300)))
+    }
+
+    /// A column's line dragged `moved` points (nil: let go): the column's width follows live, and is kept when let go.
+    private func drag(_ moved: CGFloat?, from current: CGFloat, into width: Binding<CGFloat?>, keep: () -> Void) {
+        if let moved {
+            if dragStart == nil { dragStart = current }
+            width.wrappedValue = (dragStart ?? current) + moved
+        } else {
+            if width.wrappedValue != nil { keep() }
+            width.wrappedValue = nil; dragStart = nil
+        }
+    }
+
+    /// The mini player: docked over the page's bottom-right corner, or expanded over the whole stage beside the chat; above
+    /// everything, never inside a scrolling panel.
+    @ViewBuilder var player: some View {
+        ZStack(alignment: .bottomTrailing) {
+            if let video = desk.playing {
+                SagePlayerBox(desk: desk, video: video, accent: accent)
+                    .padding(.leading, desk.playerExpanded && width >= 900 ? chatWidth + 14 : 0)
+                    .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .move(edge: .bottom))))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: desk.playing == nil)
     }
 
     // MARK: Header
@@ -378,8 +429,8 @@ struct SagePage: View {
                 } else {
                     Button(L("Search")) { desk.search(words) }.disabled(words.isEmpty || desk.searching || desk.picking || !desk.hasKey)
                     Button { desk.pick(words) } label: { Label(L("Pick for me"), systemImage: "sparkles") }
-                        .disabled(words.isEmpty || desk.searching || desk.picking || !desk.hasKey)
-                        .help(L("Sage searches YouTube for your words and saves the videos most worth reviewing (up to 5)"))
+                        .disabled(words.isEmpty || desk.searching || desk.picking || !desk.canPick)
+                        .help(L("Sage searches a few angles, judges every video against his rubric and saves only those that clear his bar (none to 5), saying why"))
                 }
             }
             if !desk.hasKey && link == nil {
@@ -387,25 +438,30 @@ struct SagePage: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 keyForm
             }
-            if desk.searching || desk.picking || desk.adding {
+            if desk.picking {
+                SagePickSteps(steps: desk.pickSteps, accent: accent)
+            } else if let outcome = desk.lastPick {
+                SagePickOutcome(desk: desk, outcome: outcome, accent: accent) { card($0.video, why: $0.why, score: $0.score) }
+            } else if desk.searching || desk.adding {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text(desk.adding ? L("Reading the page…") : desk.picking ? L("Sage is picking…") : L("Searching…")).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(desk.adding ? L("Reading the page…") : L("Searching…")).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             } else if !desk.resultsFor.isEmpty {
                 Label(desk.resultsBySage ? L("Sage searched “%@” in the chat", desk.resultsFor) : L("Results for “%@”", desk.resultsFor),
                       systemImage: desk.resultsBySage ? "bubble.left" : "magnifyingglass")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            if desk.results.isEmpty {
+            if desk.picking || desk.lastPick != nil {
+            } else if desk.results.isEmpty {
                 Text(L("Search YouTube, let Sage pick, or paste a page's link: drag what's worth keeping into Saved.")).font(.system(size: 11)).foregroundStyle(.secondary)
                 if !recipes {
                     Text(L("Sage reads a video from its title, description and the pages it links to. For a talk, paste its transcript (YouTube: ⋯ → Show transcript) into Write your own."))
                         .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 14) {
-                    ForEach(desk.results) { video in card(video) }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 8)], spacing: 10) {
+                    ForEach(Array(desk.results.enumerated()), id: \.element.id) { index, video in card(video).sageEnter("find:\(desk.resultsFor):\(video.id)", index: index) }
                 }
             }
         }
@@ -503,8 +559,13 @@ struct SagePage: View {
                                                                    : L("Tell me about my note “%@”: the main points, and what to look into next.", entry.title)) } label: { Image(systemName: "bubble.left") }
                         .buttonStyle(.plain).help(L("Ask Sage about it")).disabled(desk.thinking)
                     if let source = URL(string: entry.source), source.scheme?.hasPrefix("http") == true {
-                        Button { NSWorkspace.shared.open(source) } label: { Image(systemName: Study.videoID(of: entry.source) == nil ? "safari" : "play.rectangle") }
-                            .buttonStyle(.plain).help(Study.videoID(of: entry.source) == nil ? L("Open the page") : L("Watch the video"))
+                        if let id = Study.videoID(of: entry.source), Study.isVideoID(id) {
+                            Button { desk.play(Study.Video(id: id, title: entry.title, channel: entry.channel, thumbnail: entry.picture)) } label: { Image(systemName: "play.circle").foregroundStyle(accent) }
+                                .buttonStyle(.plain).help(L("Play the video here"))
+                            Button { NSWorkspace.shared.open(source) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).help(L("Open on YouTube"))
+                        } else {
+                            Button { NSWorkspace.shared.open(source) } label: { Image(systemName: "safari") }.buttonStyle(.plain).help(L("Open the page"))
+                        }
                     }
                     Button { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) } label: { Image(systemName: "folder") }.buttonStyle(.plain).help(L("Show in Finder"))
                     Button { open(entry.file) } label: { Label(L("Open in Obsidian"), systemImage: "arrow.up.forward.app") }.controlSize(.small)
@@ -597,7 +658,10 @@ struct SagePage: View {
             .frame(maxWidth: .infinity).padding(.vertical, 18)
             .background(accent.opacity(dropping ? 0.14 : 0.03), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(dropping ? accent : .secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
-            ForEach(desk.savedHere) { item in saved(item) }
+            ForEach(Array(desk.savedHere.enumerated()), id: \.element.id) { index, item in
+                saved(item).padding(4).sageLift(.white.opacity(0.05), corner: 7).padding(.horizontal, -4)
+                    .sageEnter("saved:\(item.topic?.uuidString ?? ""):\(item.id)", index: index)
+            }
         }
         .padding(12)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
@@ -616,7 +680,7 @@ struct SagePage: View {
 
     func saved(_ item: Study.Saved) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            ZStack {
+            let thumbnail = ZStack {
                 if let picture = item.thumbnail {
                     AsyncImage(url: picture) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
                 } else {
@@ -624,7 +688,11 @@ struct SagePage: View {
                 }
             }
             .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4))
-            .onTapGesture { if let link = item.link { NSWorkspace.shared.open(link) } }.help(item.page != nil ? L("Open the page") : L("Watch the video"))
+            if let video = item.video, Study.isVideoID(video.id) {
+                SagePlayable(desk: desk, video: video, glyph: 9, accent: accent) { thumbnail }
+            } else {
+                thumbnail.onTapGesture { if let link = item.link { NSWorkspace.shared.open(link) } }.help(item.page != nil ? L("Open the page") : L("Watch the video"))
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(.system(size: 11, weight: .medium)).lineLimit(2)
                 if !item.origin.isEmpty { Text(item.origin).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1) }
@@ -653,9 +721,10 @@ struct SagePage: View {
     /// A video in the chat: small, with Save; dragged into Saved like a card.
     func row(_ video: Study.Video) -> some View {
         HStack(spacing: 8) {
-            AsyncImage(url: video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
-                .frame(width: 72, height: 40).clipShape(RoundedRectangle(cornerRadius: 4))
-                .onTapGesture { NSWorkspace.shared.open(video.url) }.help(L("Watch the video"))
+            SagePlayable(desk: desk, video: video, glyph: 10, accent: accent) {
+                AsyncImage(url: video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                    .frame(width: 72, height: 40.5).clipShape(RoundedRectangle(cornerRadius: 4))
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(video.title).font(.system(size: 11, weight: .medium)).lineLimit(2)
                 Text([video.channel, video.duration].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
@@ -664,6 +733,7 @@ struct SagePage: View {
             saveButton(video)
         }
         .padding(6).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+        .sageLift(.white.opacity(0.08), corner: 7)
         .contentShape(Rectangle())
         .draggable(video.id) {
             Text(video.title).font(.system(size: 11)).lineLimit(1).padding(6).background(accent.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
@@ -683,21 +753,32 @@ struct SagePage: View {
         }
     }
 
-    func card(_ video: Study.Video) -> some View {
+    /// A video found (or picked: with Sage's why and score): its picture plays it here.
+    func card(_ video: Study.Video, why: String = "", score: Double? = nil) -> some View {
         let kept = desk.sources.contains(video.url.absoluteString)
         return VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
-                .aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
-                .overlay(alignment: .bottomTrailing) {
-                    if !video.duration.isEmpty {
-                        Text(video.duration).font(.system(size: 9, weight: .semibold).monospacedDigit()).padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 3)).padding(5)
-                    }
+            SagePlayable(desk: desk, video: video, glyph: 18, accent: accent) {
+                AsyncImage(url: video.thumbnail) { image in image.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                    .aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !video.duration.isEmpty {
+                    Text(video.duration).font(.system(size: 9, weight: .semibold).monospacedDigit()).padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 3)).padding(5).allowsHitTesting(false)
                 }
-                .onTapGesture { NSWorkspace.shared.open(video.url) }
+            }
+            .overlay(alignment: .topLeading) {
+                if let score {
+                    Text("\(Int(score))").font(.system(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(.black).padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(accent.opacity(0.92), in: RoundedRectangle(cornerRadius: 4)).padding(5).help(L("Sage's score out of 100"))
+                }
+            }
             Text(video.title).font(.system(size: 12, weight: .medium)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             Text([video.channel, video.views.map { L("%@ views", $0.formatted(.number.notation(.compactName))) } ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+            if !why.isEmpty {
+                Text("✦ " + why).font(.system(size: 10.5)).lineLimit(4).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
+            }
             HStack(spacing: 8) {
                 if desk.writing.contains(video.id) {
                     ProgressView().controlSize(.small); Text(L("Writing…")).font(.system(size: 11))
@@ -709,9 +790,11 @@ struct SagePage: View {
                     Button { desk.save(video) } label: { Label(L("Save"), systemImage: "bookmark") }.controlSize(.small)
                 }
                 Spacer()
-                Button { NSWorkspace.shared.open(video.url) } label: { Image(systemName: "play.rectangle") }.buttonStyle(.plain).help(L("Watch the video"))
+                Button { NSWorkspace.shared.open(video.url) } label: { Image(systemName: "arrow.up.right.square") }.buttonStyle(.plain).help(L("Open on YouTube"))
             }
         }
+        .padding(6)
+        .sageLift(.white.opacity(0.05))
         .contentShape(Rectangle())
         // Dragged onto the save area by its id.
         .draggable(video.id) {
