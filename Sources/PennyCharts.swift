@@ -83,6 +83,20 @@ enum PennyStyle {
 
     static func width(_ text: GraphicsContext.ResolvedText) -> CGFloat { text.measure(in: CGSize(width: 10_000, height: 1000)).width }
 
+    /// Text that fits the width, cut in the middle when it doesn't ("NQ1569_v1…t4.0_b3.0"), as a table cell writes it.
+    static func fit(_ context: GraphicsContext, _ string: String, _ size: CGFloat, _ color: Color, _ weight: Font.Weight, width room: CGFloat) -> GraphicsContext.ResolvedText {
+        let whole = write(context, string, size, color, weight)
+        guard room > 0, width(whole) > room else { return whole }
+        let characters = Array(string)
+        func cut(_ keep: Int) -> String { String(characters.prefix((keep + 1) / 2)) + "…" + String(characters.suffix(keep / 2)) }
+        var low = 0, high = characters.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if width(write(context, cut(middle), size, color, weight)) <= room { low = middle } else { high = middle - 1 }
+        }
+        return write(context, cut(low), size, color, weight)
+    }
+
     /// Round axis steps for a top value: 1, 2, 2.5 or 5 times a power of ten, about four of them.
     static func ticks(_ low: Double, _ high: Double) -> [Double] {
         let span = max(high - low, 1e-9), raw = span / 4
@@ -170,11 +184,14 @@ struct PennyTipLine {
 struct ChartTip: View {
     let title: String
     let lines: [PennyTipLine]
-    static let width: CGFloat = 200
+    /// A sentence under the title, as what a verdict means.
+    var note: String? = nil
+    static let width: CGFloat = 220
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 11, weight: .semibold))
+            Text(title).font(.system(size: 11, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+            if let note { Text(note).font(.system(size: 10.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Divider().opacity(0.5)
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 HStack(spacing: 10) {

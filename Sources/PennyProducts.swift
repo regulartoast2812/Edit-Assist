@@ -904,78 +904,33 @@ struct HoursEfficiency: View {
         let order = columns.first { $0.name == sort }
         let shown = reads.filter { $0.days > 0 }
         let sorted = order.map { order in shown.sorted { (order.value($0) ?? -.infinity) > (order.value($1) ?? -.infinity) } } ?? shown
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Button { sort = "Hour" } label: { Text(L("Hour") + (sort == "Hour" ? " ↓" : "")).frame(width: 96, alignment: .leading) }.buttonStyle(.plain)
-                ForEach(columns, id: \.name) { column in
-                    Button { sort = column.name } label: {
-                        Text(L(column.name) + (sort == column.name ? " ↓" : "")).frame(width: column.width, alignment: .trailing)
-                    }.buttonStyle(.plain)
-                }
-                Text(L("Range")).frame(width: 120, alignment: .center)
-                Text(L("Verdict")).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8)
-            }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.vertical, 4)
-            Divider()
-            ForEach(sorted) { read in
-                HStack(spacing: 6) {
-                    Text(Ledger.hourName(read.hour)).frame(width: 96, alignment: .leading)
-                    ForEach(columns, id: \.name) { column in
-                        Text(column.text(read)).frame(width: column.width, alignment: .trailing).lineLimit(1)
-                            .foregroundStyle(column.name == "ROAS" ? color(read.numbers.roas) : column.name == "CBH" ? PennyStyle.money(read.cbh) : .primary)
+        let top = max(4, (profit.profitable * 2).rounded(.up))
+        let grid = [PennyGrid.Column(name: "Hour", width: 96, align: .leading)] + columns.map { PennyGrid.Column(name: $0.name, width: $0.width) }
+            + [PennyGrid.Column(name: "Range", width: 120, align: .center, sorts: false), PennyGrid.Column(name: "Verdict", width: nil, align: .leading, sorts: false, inset: 8)]
+        // Each row shaded by the hour's average against breakeven (2026-11-07: you asked to see at a glance which hours
+        // pay on average), with a stripe in the same colour; an hour with too few days to judge stays plain.
+        let rows = sorted.map { read in
+            let tone = color(read.numbers.roas)
+            return PennyGrid.Row(
+                id: "\(read.hour)",
+                cells: [PennyGrid.Cell(text: Ledger.hourName(read.hour))]
+                    + columns.map { column in
+                        PennyGrid.Cell(text: column.text(read), color: column.name == "ROAS" ? tone : column.name == "CBH" ? PennyStyle.money(read.cbh) : nil)
                     }
-                    RangeBar(read: read, profit: profit).frame(width: 120, height: 14)
-                    Text(Self.name(read.verdict)).font(.system(size: 10, weight: .semibold)).foregroundStyle(Self.color(read.verdict))
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8).help(Self.meaning(read.verdict))
-                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 4).padding(.horizontal, 4).padding(.leading, 3)
-                // Shaded by the hour's average against breakeven (2026-11-07: you asked to see at a glance which hours pay
-                // on average), with a stripe in the same colour; an hour with too few days to judge stays plain.
-                .background {
-                    let shade = Ledger.shade(read, profit).map(PennyStyle.tone)
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4).fill(shade?.opacity(0.1) ?? Color.white.opacity(0.02))
-                        if let shade { UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 4).fill(shade.opacity(0.9)).frame(width: 3) }
-                    }
-                }
-                .padding(.vertical, 1)
-                .textSelection(.enabled)
-            }
+                    + [PennyGrid.Cell(slider: PennyGrid.Slider(roas: read.numbers.roas, floor: read.floor, ceiling: read.ceiling, breakeven: profit.breakeven, top: top, color: tone)),
+                       PennyGrid.Cell(text: Self.name(read.verdict), color: Self.color(read.verdict), size: 10, weight: .semibold)],
+                shade: Ledger.shade(read, profit).map(PennyStyle.tone),
+                tip: Ledger.hourName(read.hour) + " · " + Self.name(read.verdict),
+                tipLines: [
+                    PennyTipLine(name: L("ROAS"), value: PennyStyle.times(read.numbers.roas), color: tone),
+                    PennyTipLine(name: L("Bad stretch"), value: PennyStyle.times(read.floor), color: read.floor.map { color($0) }),
+                    PennyTipLine(name: L("Good stretch"), value: PennyStyle.times(read.ceiling), color: read.ceiling.map { color($0) }),
+                    PennyTipLine(name: L("Stretches"), value: read.floor == nil ? "–" : L("%@ × %@ days", String(read.stretches), String(read.stretch))),
+                    PennyTipLine(name: L("Breakeven (white tick)"), value: PennyStyle.times(profit.breakeven)),
+                    PennyTipLine(name: L("CBH"), value: Ledger.money(read.cbh), color: PennyStyle.money(read.cbh))],
+                tipNote: Self.meaning(read.verdict))
         }
-    }
-}
-
-/// An hour's ROAS as a filled slider (2026-11-09: the old one drew only a faint range, invisible on one day): the fill
-/// runs from 0 to the hour's average in its colour (green profitable, yellow above breakeven, red under), a lighter
-/// band behind it spans the bad stretch to the good, and a white tick marks breakeven. Past the right end it is capped.
-struct RangeBar: View {
-    let read: Ledger.HourRead
-    let profit: Ledger.Profit
-    var top: Double { max(4, (profit.profitable * 2).rounded(.up)) }
-
-    var body: some View {
-        let color = PennyStyle.roas(read.numbers.roas, profit)
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let x = { (roas: Double) in width * min(max(roas, 0), top) / top }
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.08)).frame(height: 6)
-                if let floor = read.floor, let ceiling = read.ceiling, ceiling > floor {
-                    let start = max(0, x(floor) - 4), end = min(width, x(ceiling) + 4)
-                    Capsule().fill(color.opacity(0.28)).frame(width: max(8, end - start), height: 10).offset(x: min(start, width - 8))
-                }
-                if let roas = read.numbers.roas {
-                    Capsule().fill(color).frame(width: max(6, x(roas)), height: 6)
-                }
-                Rectangle().fill(Color.white.opacity(0.7)).frame(width: 1.5, height: 12).offset(x: x(profit.breakeven) - 0.75)
-                if let roas = read.numbers.roas {
-                    Circle().fill(color).frame(width: 10, height: 10).overlay(Circle().stroke(PennyStyle.surface, lineWidth: 2))
-                        .offset(x: min(max(x(roas) - 5, 0), width - 10))
-                }
-            }.frame(maxHeight: .infinity)
-        }
-        .help(read.floor == nil
-              ? L("Average %@; too few orders yet to tell its bad stretches from its good; the white tick is breakeven", PennyStyle.times(read.numbers.roas))
-              : L("Over %@ stretches of %@ days: bad %@, good %@, average %@; the white tick is breakeven", String(read.stretches), String(read.stretch),
-                  PennyStyle.times(read.floor), PennyStyle.times(read.ceiling), PennyStyle.times(read.numbers.roas)))
+        return PennyGrid(columns: grid, rows: rows, sort: $sort)
     }
 }
 
@@ -1062,31 +1017,23 @@ struct LedgerTable: View {
     var body: some View {
         let columns = columns
         let order = columns.first(where: { $0.name == sort }) ?? columns[1]
-        let sorted = lines.sorted { (order.value($0) ?? -.infinity) > (order.value($1) ?? -.infinity) }
+        let sorted = Array(lines.sorted { (order.value($0) ?? -.infinity) > (order.value($1) ?? -.infinity) }.prefix(shown))
+        let grid = [PennyGrid.Column(name: "Name", width: nil, align: .leading, sorts: false)] + columns.map { PennyGrid.Column(name: $0.name, width: $0.width) }
+        let rows = sorted.map { line in
+            PennyGrid.Row(
+                id: line.id,
+                cells: [PennyGrid.Cell(text: line.name, sub: line.publisher)] + columns.map { PennyGrid.Cell(text: $0.text(line)) },
+                tip: line.name,
+                tipLines: [PennyTipLine(name: L("Spent"), value: Ledger.money(line.numbers.spent)),
+                           PennyTipLine(name: L("Revenue"), value: Ledger.money(line.numbers.revenue)),
+                           PennyTipLine(name: L("ROAS"), value: Ledger.ratio(line.numbers.roas)),
+                           PennyTipLine(name: L("Orders"), value: Ledger.whole(line.numbers.orders))],
+                tipNote: line.publisher.isEmpty ? nil : line.publisher)
+        }
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Text(L("Name")).frame(maxWidth: .infinity, alignment: .leading)
-                ForEach(columns, id: \.name) { column in
-                    Button { sort = column.name } label: {
-                        Text(L(column.name) + (sort == column.name ? " ↓" : "")).frame(width: column.width, alignment: .trailing)
-                    }.buttonStyle(.plain)
-                }
-            }.font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).padding(.vertical, 4)
-            Divider()
-            ForEach(sorted.prefix(shown)) { line in
-                HStack(spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(line.name).lineLimit(1).truncationMode(.middle).help(line.name)
-                        if !line.publisher.isEmpty { Text(line.publisher).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1) }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(columns, id: \.name) { column in
-                        Text(column.text(line)).frame(width: column.width, alignment: .trailing).lineLimit(1)
-                    }
-                }.font(.system(size: 11).monospacedDigit()).padding(.vertical, 3).textSelection(.enabled)
-                Divider().opacity(0.4)
-            }
-            if sorted.count > shown {
-                Button(L("Show %@ more", min(25, sorted.count - shown))) { shown += 25 }.buttonStyle(.link).font(.system(size: 11)).padding(.top, 6)
+            PennyGrid(columns: grid, rows: rows, sort: $sort, rowHeight: lines.contains { !$0.publisher.isEmpty } ? 32 : 22, gap: 1, washed: false)
+            if lines.count > shown {
+                Button(L("Show %@ more", min(25, lines.count - shown))) { shown += 25 }.buttonStyle(.link).font(.system(size: 11)).padding(.top, 6)
             }
         }
     }
