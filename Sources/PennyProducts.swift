@@ -48,7 +48,7 @@ struct ProductsView: View {
             } else {
                 // A gap under the Data card, so the search and the product's header don't touch it.
                 HStack(alignment: .top, spacing: 16) {
-                    list(products, selected: product, days: days.now)
+                    PennyProductList(products: products, selected: product, days: days.now, summary: ledger.summary, chosen: $chosen, search: $search)
                     if let analysis, product != nil {
                         ProductDetail(analysis: analysis, loading: analysis.key != key, ledger: ledger).equatable()
                     } else {
@@ -66,53 +66,6 @@ struct ProductsView: View {
         }
     }
 
-    /// The products, most spent first, each with its CBH over the range, green when it made money and red when it lost,
-    /// and its ROAS coloured against its own breakeven as its page colours it (2026-11-10, you asked: CBH instead of
-    /// spend, to see which do well and study them); a product without the range's CBH yet shows –.
-    func list(_ products: [(name: String, numbers: Ledger.Numbers)], selected: String?, days: [String]) -> some View {
-        let shown = search.isEmpty ? products : products.filter { $0.name.localizedCaseInsensitiveContains(search) }
-        let summary = ledger.summary
-        return VStack(alignment: .leading, spacing: 6) {
-            TextField(L("Search"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
-            HStack {
-                Text(L("%@ products", shown.count)).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
-                Spacer()
-                Text(L("CBH · ROAS")).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
-            }
-            ScrollView {
-                // A hairline between rows, so each product reads as its own row (2026-11-10, you asked).
-                LazyVStack(spacing: 0) {
-                    ForEach(shown, id: \.name) { item in
-                        let margin = summary.margin(of: item.name, on: days)
-                        let cbh = margin.days > 0 ? margin.margin.cbh : nil
-                        let color = cbh.map(PennyStyle.money)
-                        // ROAS against the product's own breakeven, as its page colours it: green profitable, yellow
-                        // above breakeven, red below (CBH counts every source, so a product can keep money while its
-                        // ads lose it).
-                        let roasColor = PennyStyle.roas(item.numbers.roas, Ledger.Profit(margin.margin) ?? .usual)
-                        Button { chosen = item.name } label: {
-                            HStack(spacing: 6) {
-                                Text(item.name).font(.system(size: 11, weight: item.name == selected ? .semibold : .regular)).lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text(cbh.map(Ledger.money) ?? "–").font(.system(size: 10, weight: .medium).monospacedDigit())
-                                    .foregroundStyle(color ?? .secondary)
-                                Text(Ledger.ratio(item.numbers.roas)).font(.system(size: 10, weight: .medium).monospacedDigit())
-                                    .foregroundStyle(roasColor).frame(width: 34, alignment: .trailing)
-                            }
-                            .padding(.horizontal, 6).padding(.vertical, 6)
-                            .background(item.name == selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
-                            .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                        .overlay(alignment: .bottom) {
-                            if item.name != shown.last?.name { Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, 6) }
-                        }
-                        .help(cbh == nil ? L("CBH for these days isn't in yet") : L("Spent %@", Ledger.money(item.numbers.spent)))
-                    }
-                }
-            }.frame(height: 640)
-        }.frame(width: 250)
-    }
-
     func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 9, weight: .bold)).tracking(1.5).foregroundStyle(.secondary)
@@ -121,6 +74,125 @@ struct ProductsView: View {
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
     }
+}
+
+/// Penny's product list beside the product's page (its own view, 2026-11-10, so its header can line up with its rows).
+struct PennyProductList: View {
+    let products: [(name: String, numbers: Ledger.Numbers)]
+    let selected: String?
+    let days: [String]
+    let summary: Ledger.Summary
+    @Binding var chosen: String
+    @Binding var search: String
+    /// The list's order: "" most spent first, else "name", "cbh" or "roas", picked from its header (2026-11-10, you asked).
+    @AppStorage("pennyProductsSort") private var sortBy = ""
+    @AppStorage("pennyProductsSortUp") private var sortUp = false
+    /// The rows' width inside the scroll view, which a scroll bar shown always narrows, so the header lines up with them
+    /// (2026-11-10: the header ran under the scroll bar and its names sat off their columns).
+    @State private var rowsWidth: CGFloat?
+
+    struct Row {
+        let name: String
+        let numbers: Ledger.Numbers
+        let margin: Ledger.Margin
+        /// The range's CBH, nil until it is in.
+        let cbh: Double?
+    }
+
+    var rows: [Row] {
+        let found = search.isEmpty ? products : products.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        return found.map { item -> Row in
+            let margin = summary.margin(of: item.name, on: days)
+            return Row(name: item.name, numbers: item.numbers, margin: margin.margin, cbh: margin.days > 0 ? margin.margin.cbh : nil)
+        }
+    }
+
+    /// The products, most spent first, each with its CBH over the range, green when it made money and red when it lost,
+    /// and its ROAS coloured against its own breakeven as its page colours it (2026-11-10, you asked: CBH instead of
+    /// spend, to see which do well and study them); a product without the range's CBH yet shows –. A press on a column's
+    /// name sorts by it (CBH and ROAS highest first, names A to Z), again the other way, a third time back to most spent.
+    var body: some View {
+        let shown = Self.sorted(rows, by: sortBy, up: sortUp)
+        return VStack(alignment: .leading, spacing: 6) {
+            TextField(L("Search"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
+            HStack(spacing: 6) {
+                sortButton("name", L("%@ products", shown.count))
+                Spacer(minLength: 4)
+                sortButton("cbh", L("CBH")).frame(width: Self.cbhWidth, alignment: .trailing)
+                sortButton("roas", L("ROAS")).frame(width: Self.roasWidth, alignment: .trailing)
+            }
+            .padding(.horizontal, 6)
+            .frame(width: rowsWidth, alignment: .leading)
+            ScrollView {
+                // A hairline between rows, so each product reads as its own row (2026-11-10, you asked).
+                LazyVStack(spacing: 0) {
+                    ForEach(shown, id: \.name) { item in
+                        let color = item.cbh.map(PennyStyle.money)
+                        // ROAS against the product's own breakeven, as its page colours it: green profitable, yellow
+                        // above breakeven, red below (CBH counts every source, so a product can keep money while its
+                        // ads lose it).
+                        let roasColor = PennyStyle.roas(item.numbers.roas, Ledger.Profit(item.margin) ?? .usual)
+                        Button { chosen = item.name } label: {
+                            HStack(spacing: 6) {
+                                Text(item.name).font(.system(size: 11, weight: item.name == selected ? .semibold : .regular)).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(item.cbh.map(Ledger.money) ?? "–").font(.system(size: 10, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(color ?? .secondary).frame(width: Self.cbhWidth, alignment: .trailing)
+                                Text(Ledger.ratio(item.numbers.roas)).font(.system(size: 10, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(roasColor).frame(width: Self.roasWidth, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 6)
+                            .background(item.name == selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                        .overlay(alignment: .bottom) {
+                            if item.name != shown.last?.name { Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, 6) }
+                        }
+                        .help(item.cbh == nil ? L("CBH for these days isn't in yet") : L("Spent %@", Ledger.money(item.numbers.spent)))
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowsWidth = $0 }
+            }.frame(height: 640)
+        }.frame(width: 250)
+    }
+
+    static let cbhWidth: CGFloat = 64
+    static let roasWidth: CGFloat = 36
+
+    /// A column's name in the header, pressed to sort by it: first its natural way, then the other, then most spent.
+    func sortButton(_ key: String, _ title: String) -> some View {
+        let on = sortBy == key
+        return Button {
+            if !on { sortBy = key; sortUp = key == "name" } else if sortUp == (key == "name") { sortUp.toggle() } else { sortBy = ""; sortUp = false }
+        } label: {
+            Text(title + (on ? (sortUp ? " ↑" : " ↓") : "")).lineLimit(1)
+                .font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(on ? .primary : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(L("Sort by this; press again for the other way, a third time for most spent first"))
+    }
+
+    /// The rows in the order picked; a product without CBH yet goes last when sorting by CBH, either way.
+    static func sorted(_ rows: [Row], by key: String, up: Bool) -> [Row] {
+        func order(_ a: Double?, _ b: Double?) -> Bool? {
+            switch (a, b) {
+            case let (a?, b?) where a != b: return up ? a < b : a > b
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return nil
+            }
+        }
+        switch key {
+        case "name":
+            return rows.sorted { (a: Row, b: Row) -> Bool in (a.name.localizedStandardCompare(b.name) == .orderedAscending) == up }
+        case "cbh", "roas":
+            let value = { (row: Row) -> Double? in key == "cbh" ? row.cbh : row.numbers.roas }
+            let indexed: [(offset: Int, element: Row)] = Array(rows.enumerated())
+            return indexed.sorted { (a, b) -> Bool in order(value(a.element), value(b.element)) ?? (a.offset < b.offset) }.map { $0.element }
+        default: return rows
+        }
+    }
+
 }
 
 /// Everything the product's page shows, worked out once from Penny's copy when the product, the days or the copy

@@ -923,7 +923,7 @@ enum Vietnamese {
         "%@ and up": "%@ trở lên",
         "share of spend": "tỷ lệ chi tiêu",
         "share of revenue": "tỷ lệ doanh thu",
-        "CBH · ROAS": "CBH · ROAS",
+        "Sort by this; press again for the other way, a third time for most spent first": "Sắp xếp theo cột này; bấm lần nữa để đảo chiều, lần thứ ba để về chi nhiều nhất trước",
         "CBH for these days isn't in yet": "Chưa có CBH của những ngày này",
         "Product cost as a share of revenue": "Giá vốn trên doanh thu",
         "Spent %@": "Đã chi %@",
