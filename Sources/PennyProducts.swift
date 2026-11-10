@@ -202,10 +202,11 @@ struct ProductDetail: View, Equatable {
         .onChange(of: shown) { _, _ in openDay = nil }
     }
 
-    /// The figures in two rows, the ads' as copied hour by hour and the product's from its CBH, every source, each
-    /// product figure under its ads counterpart: spend over marketing expense, revenue over revenue, ROAS over CBH,
-    /// orders over orders (2026-11-10: sixteen cards in a row of whatever fit, CBH's share, spend and revenue an order
-    /// and CPM, CTR and CR each a card, hard to read). What belongs with a figure is a pill on its card.
+    /// The figures in two rows (2026-11-10, you asked): the money, in → out, from what went in (marketing, product
+    /// cost, tax and the rest CBH takes off) to what came back (revenue) and was kept (CBH), from the days' CBH, every
+    /// source, with the ads' own spend and revenue in pills; then the stats, the ads' as copied hour by hour. (The first
+    /// grouping, ads over product, each figure over its counterpart, read badly.) Before the range's CBH is in, the money
+    /// row is the ads' spend and revenue.
     var figures: some View {
         let a = analysis, profit = a.profit, total = a.total, before = a.before, against = a.against
         // Against the days before, named in the header; a total (spend, orders) a day when fewer of those days were copied.
@@ -222,39 +223,54 @@ struct ProductDetail: View, Equatable {
         let tip = { (name: String, change: Double?, then: String) -> String in
             [L(name), change.flatMap { $0.isFinite && abs($0) >= 0.005 ? PennyFigure.said($0) : nil }, was(then)].compactMap { $0 }.joined(separator: " · ")
         }
-        let now = a.margin.margin, then = a.marginBefore.margin
+        let now = a.margin.margin, then = a.marginBefore.margin, margined = a.margin.days > 0
+        // What CBH takes off besides product cost, tax and marketing (the database's cbh_tax works it out; fees and the
+        // like, about 4% of revenue), so the row adds up.
+        let rest = { (m: Ledger.Margin) in max(0, m.revenue - m.cost - m.tax - m.spent - m.cbh) }
+        let adsSpent = tip("Spent on the ads, as copied hour by hour", change(total.spent, before.spent, true), Ledger.money(before.spent))
+        let adsRevenue = tip("Revenue from the ads, as copied hour by hour", change(total.revenue, before.revenue, true), Ledger.money(before.revenue))
         return VStack(alignment: .leading, spacing: 8) {
-            FigureHeading(title: "Ads", note: "Facebook ads, as copied hour by hour")
-            FigureFlow {
-                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)),
-                            pill: total.cpp.map { L("%@/order", Ledger.money($0)) },
-                            pillTip: tip("Cost per order", change(total.cpp, before.cpp, false), before.cpp.map(Ledger.money) ?? "–"))
-                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)),
-                            pill: total.aov.map { L("%@/order", Ledger.money($0)) },
-                            pillTip: tip("Order value", change(total.aov, before.aov, false), before.aov.map(Ledger.money) ?? "–"))
+            FigureHeading(title: "Money", note: margined ? "In → out, every source, from the days' CBH" : "The ads' spend and revenue; the rest once the days' CBH is in")
+            if margined {
+                FigureFlow(gap: 16) {
+                    PennyFigure(name: "Marketing", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)),
+                                pill: L("ads %@", Ledger.money(total.spent)), pillTip: adsSpent)
+                    FigureArrow()
+                    PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
+                    FigureArrow()
+                    PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)))
+                    FigureArrow()
+                    PennyFigure(name: "Other costs", value: Ledger.money(rest(now)), change: cbhChange(rest(now), rest(then)), neutral: true,
+                                was: L("What CBH takes off besides product cost, tax and marketing (fees and the like). %@", was(Ledger.money(rest(then)))))
+                    FigureArrow()
+                    PennyFigure(name: "Revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)),
+                                pill: L("ads %@", Ledger.money(total.revenue)), pillTip: adsRevenue)
+                    FigureArrow()
+                    PennyFigure(name: "CBH", value: Ledger.money(now.cbh), color: PennyStyle.money(now.cbh), change: cbhChange(now.cbh, then.cbh), was: was(Ledger.money(then.cbh)),
+                                pill: Ledger.percent(now.share), pillColor: PennyStyle.money(now.cbh),
+                                pillTip: tip("%CBH", a.marginBefore.days > 0 ? change(now.share, then.share, false) : nil, Ledger.percent(then.share)))
+                }
+            } else {
+                FigureFlow(gap: 16) {
+                    PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)))
+                    FigureArrow()
+                    PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)))
+                }
+            }
+            FigureHeading(title: "Stats", note: "The ads, as copied hour by hour").padding(.top, 8)
+            FigureFlow(gap: 16) {
                 PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas, false), was: was(PennyStyle.times(before.roas)))
-                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)))
+                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)),
+                            pill: margined ? L("%@ in all", Ledger.whole(now.orders)) : nil,
+                            pillTip: tip("Product orders, every source, from the days' CBH", cbhChange(now.orders, then.orders), Ledger.whole(then.orders)))
+                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp, false), upIsGood: false, was: was(before.cpp.map(Ledger.money) ?? "–"))
+                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov, false), was: was(before.aov.map(Ledger.money) ?? "–"))
                 PennyFigures(parts: [
                     .init(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm, false), upIsGood: false, was: was(before.cpm.map(Ledger.money) ?? "–")),
                     .init(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr, false), was: was(Ledger.percent(before.ctr))),
                     .init(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr, false), was: was(Ledger.percent(before.cr))),
                 ])
                 .layoutValue(key: FigureSpan.self, value: 2)
-            }
-            // The product's own numbers from the CBH copy, every source, as Retail Operations counts them (2026-11-10:
-            // you asked for product orders and product cost); only once the range's CBH is in.
-            if a.margin.days > 0 {
-                FigureHeading(title: "Product", note: "Every source, from the days' CBH").padding(.top, 8)
-                FigureFlow {
-                    PennyFigure(name: "Marketing expense", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)))
-                    PennyFigure(name: "Product revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)))
-                    PennyFigure(name: "CBH", value: Ledger.money(now.cbh), color: PennyStyle.money(now.cbh), change: cbhChange(now.cbh, then.cbh), was: was(Ledger.money(then.cbh)),
-                                pill: Ledger.percent(now.share), pillColor: PennyStyle.money(now.cbh),
-                                pillTip: tip("%CBH", a.marginBefore.days > 0 ? change(now.share, then.share, false) : nil, Ledger.percent(then.share)))
-                    PennyFigure(name: "Product orders", value: Ledger.whole(now.orders), change: cbhChange(now.orders, then.orders), was: was(Ledger.whole(then.orders)))
-                    PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
-                    PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)))
-                }
             }
         }
     }

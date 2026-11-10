@@ -1170,37 +1170,50 @@ struct PennyFigures: View {
 /// How many of a figures row's columns a card takes.
 struct FigureSpan: LayoutValueKey { static let defaultValue = 1 }
 
-/// Figure cards in rows of 6 equal columns, or 3 or 2 when the window is narrower, so a row of ads figures and the row
-/// of product figures under it keep each figure over its counterpart. A card takes `FigureSpan` columns; the cards in
-/// a row take its height.
+/// An arrow between two cards of a row that reads in → out: drawn in the gap before the next card, or not at all when
+/// that card starts a row.
+struct FigureLink: LayoutValueKey { static let defaultValue = false }
+
+/// Figure cards in rows of 6 equal columns, or 3 or 2 when the window is narrower. A card takes `FigureSpan` columns;
+/// the cards in a row take its height; `FigureLink` arrows sit in the gaps.
 struct FigureFlow: Layout {
     var narrowest: CGFloat = 150
     var gap: CGFloat = 8
 
     func columns(_ width: CGFloat) -> Int { [6, 3, 2].first { (width - gap * CGFloat($0 - 1)) / CGFloat($0) >= narrowest } ?? 1 }
 
-    func rows(_ subviews: Subviews, columns: Int) -> [[(index: Int, at: Int, span: Int)]] {
-        var rows: [[(index: Int, at: Int, span: Int)]] = [[]], used = 0
+    typealias Cell = (index: Int, at: Int, span: Int, link: Int?)
+
+    func rows(_ subviews: Subviews, columns: Int) -> [[Cell]] {
+        var rows: [[Cell]] = [[]], used = 0, link: Int?
         for index in subviews.indices {
+            if subviews[index][FigureLink.self] { link = index; continue }
             let span = min(columns, max(1, subviews[index][FigureSpan.self]))
             if used + span > columns { rows.append([]); used = 0 }
-            rows[rows.count - 1].append((index, used, span)); used += span
+            rows[rows.count - 1].append((index, used, span, link)); used += span; link = nil
         }
         return rows.filter { !$0.isEmpty }
     }
 
     func layout(_ width: CGFloat, _ subviews: Subviews, place: ((Int, CGRect) -> Void)? = nil) -> CGFloat {
         let count = columns(width), unit = (width - gap * CGFloat(count - 1)) / CGFloat(count)
-        var y: CGFloat = 0
+        var y: CGFloat = 0, shown = Set<Int>()
         for (number, row) in rows(subviews, columns: count).enumerated() {
             if number > 0 { y += gap }
             let widths = row.map { unit * CGFloat($0.span) + gap * CGFloat($0.span - 1) }
             let tallest = zip(row, widths).map { subviews[$0.index].sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }.max() ?? 0
             for (cell, cellWidth) in zip(row, widths) {
-                place?(cell.index, CGRect(x: CGFloat(cell.at) * (unit + gap), y: y, width: cellWidth, height: tallest))
+                let x = CGFloat(cell.at) * (unit + gap)
+                place?(cell.index, CGRect(x: x, y: y, width: cellWidth, height: tallest))
+                if let link = cell.link, cell.at > 0 {
+                    let side = min(10, gap - 4)
+                    place?(link, CGRect(x: x - gap / 2 - side / 2, y: y + tallest / 2 - side / 2, width: side, height: side))
+                    shown.insert(link)
+                }
             }
             y += tallest
         }
+        for index in subviews.indices where subviews[index][FigureLink.self] && !shown.contains(index) { place?(index, .zero) }
         return y
     }
 
@@ -1214,6 +1227,14 @@ struct FigureFlow: Layout {
             subviews[index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                                   proposal: ProposedViewSize(width: frame.width, height: frame.height))
         }
+    }
+}
+
+/// The arrow between two cards of a money row; it takes the size it is given, none when it isn't drawn.
+struct FigureArrow: View {
+    var body: some View {
+        Image(systemName: "arrow.right").resizable().scaledToFit().fontWeight(.semibold).foregroundStyle(PennyStyle.muted)
+            .layoutValue(key: FigureLink.self, value: true)
     }
 }
 
