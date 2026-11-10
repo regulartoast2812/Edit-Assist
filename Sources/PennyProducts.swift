@@ -224,9 +224,10 @@ struct ProductDetail: View, Equatable {
             [L(name), change.flatMap { $0.isFinite && abs($0) >= 0.005 ? PennyFigure.said($0) : nil }, was(then)].compactMap { $0 }.joined(separator: " · ")
         }
         let now = a.margin.margin, then = a.marginBefore.margin, margined = a.margin.days > 0
-        // What CBH takes off besides product cost, tax and marketing (the database's cbh_tax works it out; fees and the
-        // like, about 4% of revenue), so the row adds up.
-        let rest = { (m: Ledger.Margin) in max(0, m.revenue - m.cost - m.tax - m.spent - m.cbh) }
+        // What CBH takes off besides product cost and marketing, so the row adds up: revenue is after tax already (the
+        // query takes tax off, as the dashboard shows it), and cbh_tax takes off about 9% of revenue before tax more
+        // (fees and the like). (2026-11-10: first worked out with tax taken off a second time, $126 for Nov 8, not $311.)
+        let rest = { (m: Ledger.Margin) in max(0, m.revenue - m.cost - m.spent - m.cbh) }
         let adsSpent = tip("Spent on the ads, as copied hour by hour", change(total.spent, before.spent, true), Ledger.money(before.spent))
         let adsRevenue = tip("Revenue from the ads, as copied hour by hour", change(total.revenue, before.revenue, true), Ledger.money(before.revenue))
         return VStack(alignment: .leading, spacing: 8) {
@@ -238,10 +239,11 @@ struct ProductDetail: View, Equatable {
                     FigureArrow()
                     PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
                     FigureArrow()
-                    PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)))
+                    PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)),
+                                pill: L("off revenue"), pillTip: L("Retail Operations' tax (stats_tax_amount), already taken off revenue, as the dashboard shows it"))
                     FigureArrow()
                     PennyFigure(name: "Other costs", value: Ledger.money(rest(now)), change: cbhChange(rest(now), rest(then)), neutral: true,
-                                was: L("What CBH takes off besides product cost, tax and marketing (fees and the like). %@", was(Ledger.money(rest(then)))))
+                                was: L("What CBH takes off besides product cost, tax and marketing: about 9% of revenue before tax (fees and the like). %@", was(Ledger.money(rest(then)))))
                     FigureArrow()
                     PennyFigure(name: "Revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)),
                                 pill: L("ads %@", Ledger.money(total.revenue)), pillTip: adsRevenue)
