@@ -80,7 +80,8 @@ struct ProductsView: View {
                 Text(L("CBH · ROAS")).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
             }
             ScrollView {
-                LazyVStack(spacing: 2) {
+                // A hairline between rows, so each product reads as its own row (2026-11-10, you asked).
+                LazyVStack(spacing: 0) {
                     ForEach(shown, id: \.name) { item in
                         let margin = summary.margin(of: item.name, on: days)
                         let cbh = margin.days > 0 ? margin.margin.cbh : nil
@@ -98,10 +99,13 @@ struct ProductsView: View {
                                 Text(Ledger.ratio(item.numbers.roas)).font(.system(size: 10, weight: .medium).monospacedDigit())
                                     .foregroundStyle(roasColor).frame(width: 34, alignment: .trailing)
                             }
-                            .padding(.horizontal, 6).padding(.vertical, 4)
+                            .padding(.horizontal, 6).padding(.vertical, 6)
                             .background(item.name == selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                        .overlay(alignment: .bottom) {
+                            if item.name != shown.last?.name { Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, 6) }
+                        }
                         .help(cbh == nil ? L("CBH for these days isn't in yet") : L("Spent %@", Ledger.money(item.numbers.spent)))
                     }
                 }
