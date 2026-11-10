@@ -114,6 +114,8 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 224)
+                // The page remembered from last time (Store.tab), if it's still here; else the function's page.
+                .onAppear { if !(["function", "project", "Assistant"] + Self.helpers.map(\.tab)).contains(s.tab) { s.tab = "function" } }
             Divider()
             VStack(spacing: 0) {
                 header

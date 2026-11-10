@@ -76,8 +76,11 @@ final class Store: ObservableObject {
                                 stop: { [weak self] in self?.stop("Stopped from the overlay") })
         }
     }
-    /// The page showing, and the job running (at most one).
-    @Published var function: EditFunction = .highlight
+    /// The page showing, and the job running (at most one). The page is remembered (2026-11-10, you asked: every launch
+    /// went back to Highlight), so the app opens where you left it.
+    @Published var function = EditFunction(rawValue: UserDefaults.standard.string(forKey: "lastFunction") ?? "") ?? .highlight {
+        didSet { if function != oldValue { UserDefaults.standard.set(function.rawValue, forKey: "lastFunction") } }
+    }
     @Published var activeFunction: EditFunction?
     /// When the current run began, and how far along it was then, for the time-left estimate.
     @Published var runStarted: Date?
@@ -717,8 +720,19 @@ final class Store: ObservableObject {
 
     @Published var screenAllowed = false { didSet { if screenAllowed != oldValue { updateLiveFeed() } } }
     @Published var controlAllowed = false
-    /// "function" shows the selected function's page; "Assistant" the conversation.
-    @Published var tab = "function" { didSet { if Store.assistantHidden && tab == "Assistant" { tab = "function" } } }
+    /// "function" shows the selected function's page; "Assistant" the conversation; "project" the project; a helper's
+    /// name its page. Remembered, so a launch opens the page you left (2026-11-10, you asked).
+    @Published var tab = Store.rememberedTab {
+        didSet {
+            if Store.assistantHidden && tab == "Assistant" { tab = "function" }
+            if tab != oldValue { UserDefaults.standard.set(tab, forKey: "lastTab") }
+        }
+    }
+    private static var rememberedTab: String {
+        let tab = UserDefaults.standard.string(forKey: "lastTab") ?? "function"
+        // The Assistant hidden: the function's page instead (a helper taken out is checked by the window, ContentView).
+        return tab == "Assistant" && assistantHidden ? "function" : tab
+    }
     let desktop = Desktop()
     let overlay = RunOverlay()
     /// Amir, the file helper: watches its folder while the app is open.
