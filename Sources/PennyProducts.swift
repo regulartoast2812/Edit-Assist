@@ -193,6 +193,20 @@ struct ProductDetail: View, Equatable {
     var shown: String { analysis.product + "|" + analysis.days.joined(separator: ",") }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            figures
+            panels.id(shown)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: shown) { _, _ in openDay = nil }
+    }
+
+    /// The figures in two rows, the ads' as copied hour by hour and the product's from its CBH, every source, each
+    /// product figure under its ads counterpart: spend over marketing expense, revenue over revenue, ROAS over CBH,
+    /// orders over orders (2026-11-10: sixteen cards in a row of whatever fit, CBH's share, spend and revenue an order
+    /// and CPM, CTR and CR each a card, hard to read). What belongs with a figure is a pill on its card.
+    var figures: some View {
         let a = analysis, profit = a.profit, total = a.total, before = a.before, against = a.against
         // Against the days before, named in the header; a total (spend, orders) a day when fewer of those days were copied.
         let change = { (now: Double?, then: Double?, totalled: Bool) -> Double? in before.spent > 0 ? against.change(now, then, total: totalled) : nil }
@@ -204,37 +218,45 @@ struct ProductDetail: View, Equatable {
             if a.margin.days != a.marginBefore.days { now /= Double(a.margin.days); then /= Double(a.marginBefore.days) }
             return then == 0 ? nil : (now - then) / abs(then)
         }
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 8)], spacing: 8) {
-                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)))
-                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)))
+        // A pill's tip: its name, its change, what it was.
+        let tip = { (name: String, change: Double?, then: String) -> String in
+            [L(name), change.flatMap { $0.isFinite && abs($0) >= 0.005 ? PennyFigure.said($0) : nil }, was(then)].compactMap { $0 }.joined(separator: " · ")
+        }
+        let now = a.margin.margin, then = a.marginBefore.margin
+        return VStack(alignment: .leading, spacing: 8) {
+            FigureHeading(title: "Ads", note: "Facebook ads, as copied hour by hour")
+            FigureFlow {
+                PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)),
+                            pill: total.cpp.map { L("%@/order", Ledger.money($0)) },
+                            pillTip: tip("Cost per order", change(total.cpp, before.cpp, false), before.cpp.map(Ledger.money) ?? "–"))
+                PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)),
+                            pill: total.aov.map { L("%@/order", Ledger.money($0)) },
+                            pillTip: tip("Order value", change(total.aov, before.aov, false), before.aov.map(Ledger.money) ?? "–"))
                 PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas, false), was: was(PennyStyle.times(before.roas)))
-                if a.margin.days > 0 {
-                    PennyFigure(name: "CBH", value: Ledger.money(a.margin.margin.cbh), color: PennyStyle.money(a.margin.margin.cbh),
-                                change: cbhChange(a.margin.margin.cbh, a.marginBefore.margin.cbh), was: was(Ledger.money(a.marginBefore.margin.cbh)))
-                    PennyFigure(name: "%CBH", value: Ledger.percent(a.margin.margin.share),
-                                change: a.marginBefore.days > 0 ? change(a.margin.margin.share, a.marginBefore.margin.share, false) : nil, was: was(Ledger.percent(a.marginBefore.margin.share)))
-                    // The product's own numbers from the same CBH copy, every source, as Retail Operations counts them
-                    // (2026-11-10: you asked for product orders and product cost).
-                    let now = a.margin.margin, then = a.marginBefore.margin
-                    PennyFigure(name: "Product orders", value: Ledger.whole(now.orders), change: cbhChange(now.orders, then.orders), was: was(Ledger.whole(then.orders)))
+                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)))
+                PennyFigures(parts: [
+                    .init(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm, false), upIsGood: false, was: was(before.cpm.map(Ledger.money) ?? "–")),
+                    .init(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr, false), was: was(Ledger.percent(before.ctr))),
+                    .init(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr, false), was: was(Ledger.percent(before.cr))),
+                ])
+                .layoutValue(key: FigureSpan.self, value: 2)
+            }
+            // The product's own numbers from the CBH copy, every source, as Retail Operations counts them (2026-11-10:
+            // you asked for product orders and product cost); only once the range's CBH is in.
+            if a.margin.days > 0 {
+                FigureHeading(title: "Product", note: "Every source, from the days' CBH").padding(.top, 8)
+                FigureFlow {
+                    PennyFigure(name: "Marketing expense", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)))
                     PennyFigure(name: "Product revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)))
+                    PennyFigure(name: "CBH", value: Ledger.money(now.cbh), color: PennyStyle.money(now.cbh), change: cbhChange(now.cbh, then.cbh), was: was(Ledger.money(then.cbh)),
+                                pill: Ledger.percent(now.share), pillColor: PennyStyle.money(now.cbh),
+                                pillTip: tip("%CBH", a.marginBefore.days > 0 ? change(now.share, then.share, false) : nil, Ledger.percent(then.share)))
+                    PennyFigure(name: "Product orders", value: Ledger.whole(now.orders), change: cbhChange(now.orders, then.orders), was: was(Ledger.whole(then.orders)))
                     PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
                     PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)))
-                    PennyFigure(name: "Marketing expense", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)))
                 }
-                PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)))
-                PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp, false), upIsGood: false, was: was(before.cpp.map(Ledger.money) ?? "–"))
-                PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov, false), was: was(before.aov.map(Ledger.money) ?? "–"))
-                PennyFigure(name: "CR", value: Ledger.percent(total.cr), change: change(total.cr, before.cr, false), was: was(Ledger.percent(before.cr)))
-                PennyFigure(name: "CTR", value: Ledger.percent(total.ctr), change: change(total.ctr, before.ctr, false), was: was(Ledger.percent(before.ctr)))
-                PennyFigure(name: "CPM", value: total.cpm.map(Ledger.money) ?? "–", change: change(total.cpm, before.cpm, false), upIsGood: false, was: was(before.cpm.map(Ledger.money) ?? "–"))
             }
-            panels.id(shown)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: shown) { _, _ in openDay = nil }
     }
 
     /// Two to a row when the window is wide enough (`PanelFlow`); in this order one under the other when it isn't.
@@ -1099,6 +1121,18 @@ struct LedgerTable: View {
             if lines.count > shown {
                 Button(L("Show %@ more", min(25, lines.count - shown))) { shown += 25 }.buttonStyle(.link).font(.system(size: 11)).padding(.top, 6)
             }
+        }
+    }
+}
+
+/// A row of figures' name in small capitals, with where its numbers come from beside it.
+struct FigureHeading: View {
+    let title: String
+    let note: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(L(title).uppercased()).font(.system(size: 10, weight: .bold)).tracking(1).foregroundStyle(.secondary)
+            Text(L(note)).font(.system(size: 10.5)).foregroundStyle(PennyStyle.muted)
         }
     }
 }

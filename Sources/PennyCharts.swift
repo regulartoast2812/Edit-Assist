@@ -1103,23 +1103,117 @@ struct PennyFigure: View {
     /// A change that is neither good nor bad by itself (spend), shown grey.
     var neutral = false
     var was: String? = nil
+    /// A smaller figure that belongs with this one, in a pill at the top right: CBH's share of revenue, spend and
+    /// revenue an order (2026-11-10: they were cards of their own, and the page read as two rows of sixteen).
+    var pill: String? = nil
+    var pillColor: Color? = nil
+    var pillTip: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary)
-            Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(color ?? .primary).lineLimit(1).minimumScaleFactor(0.6)
-            if let change, change.isFinite, abs(change) >= 0.005 {
-                let good = (change > 0) == upIsGood
-                Text((change > 0 ? "▲ " : "▼ ") + Ledger.percent(abs(change))).font(.system(size: 10, weight: .medium).monospacedDigit())
-                    .foregroundStyle(neutral ? PennyStyle.muted : good ? PennyStyle.green : PennyStyle.red)
-                    .help(was ?? "")
-            } else {
-                Text(" ").font(.system(size: 10))
+            HStack(spacing: 6) {
+                Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+                if let pill {
+                    Text(pill).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1)
+                        .foregroundStyle(pillColor ?? PennyStyle.words)
+                        .padding(.horizontal, 6).padding(.vertical, 1.5)
+                        .background((pillColor ?? .white).opacity(pillColor == nil ? 0.08 : 0.16), in: Capsule())
+                        .help(pillTip ?? "").layoutPriority(1)
+                }
             }
+            .frame(height: 16)
+            Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(color ?? .primary).lineLimit(1).minimumScaleFactor(0.6)
+            Self.change(change, upIsGood: upIsGood, neutral: neutral, was: was)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
         .overlay(alignment: .leading) { if let color { UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: 9).fill(color).frame(width: 3) } }
+    }
+
+    /// "▲ 12.0%" in green or red by whether that's good (grey when neither), its tip what it was; a blank line without one.
+    @ViewBuilder static func change(_ change: Double?, upIsGood: Bool = true, neutral: Bool = false, was: String?) -> some View {
+        if let change, change.isFinite, abs(change) >= 0.005 {
+            let good = (change > 0) == upIsGood
+            Text(said(change)).font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundStyle(neutral ? PennyStyle.muted : good ? PennyStyle.green : PennyStyle.red)
+                .help(was ?? "")
+        } else {
+            Text(" ").font(.system(size: 10))
+        }
+    }
+
+    static func said(_ change: Double) -> String { (change > 0 ? "▲ " : "▼ ") + Ledger.percent(abs(change)) }
+}
+
+/// Figures that read together in one card, side by side, each with its change: CPM, CTR and CR (2026-11-10).
+struct PennyFigures: View {
+    struct Part { var name: String; var value: String; var change: Double?; var upIsGood = true; var was: String? }
+    let parts: [Part]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L(part.name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).frame(height: 16)
+                    Text(part.value).font(.system(size: 20, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6)
+                    PennyFigure.change(part.change, upIsGood: part.upIsGood, was: part.was)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+/// How many of a figures row's columns a card takes.
+struct FigureSpan: LayoutValueKey { static let defaultValue = 1 }
+
+/// Figure cards in rows of 6 equal columns, or 3 or 2 when the window is narrower, so a row of ads figures and the row
+/// of product figures under it keep each figure over its counterpart. A card takes `FigureSpan` columns; the cards in
+/// a row take its height.
+struct FigureFlow: Layout {
+    var narrowest: CGFloat = 150
+    var gap: CGFloat = 8
+
+    func columns(_ width: CGFloat) -> Int { [6, 3, 2].first { (width - gap * CGFloat($0 - 1)) / CGFloat($0) >= narrowest } ?? 1 }
+
+    func rows(_ subviews: Subviews, columns: Int) -> [[(index: Int, at: Int, span: Int)]] {
+        var rows: [[(index: Int, at: Int, span: Int)]] = [[]], used = 0
+        for index in subviews.indices {
+            let span = min(columns, max(1, subviews[index][FigureSpan.self]))
+            if used + span > columns { rows.append([]); used = 0 }
+            rows[rows.count - 1].append((index, used, span)); used += span
+        }
+        return rows.filter { !$0.isEmpty }
+    }
+
+    func layout(_ width: CGFloat, _ subviews: Subviews, place: ((Int, CGRect) -> Void)? = nil) -> CGFloat {
+        let count = columns(width), unit = (width - gap * CGFloat(count - 1)) / CGFloat(count)
+        var y: CGFloat = 0
+        for (number, row) in rows(subviews, columns: count).enumerated() {
+            if number > 0 { y += gap }
+            let widths = row.map { unit * CGFloat($0.span) + gap * CGFloat($0.span - 1) }
+            let tallest = zip(row, widths).map { subviews[$0.index].sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }.max() ?? 0
+            for (cell, cellWidth) in zip(row, widths) {
+                place?(cell.index, CGRect(x: CGFloat(cell.at) * (unit + gap), y: y, width: cellWidth, height: tallest))
+            }
+            y += tallest
+        }
+        return y
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? narrowest * 6 + gap * 5
+        return CGSize(width: width, height: layout(width, subviews))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        _ = layout(bounds.width, subviews) { index, frame in
+            subviews[index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                                  proposal: ProposedViewSize(width: frame.width, height: frame.height))
+        }
     }
 }
 
