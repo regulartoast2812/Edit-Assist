@@ -12,6 +12,34 @@ extension Study {
         return path
     }
 
+    // MARK: Folder focus (hoisting, as in Workflowy and Notebook Navigator): the tree shows one folder's contents
+
+    /// Whether a path is inside a folder, not the folder itself ("" is the vault, which holds everything); any case.
+    static func inside(_ path: String, _ folder: String) -> Bool {
+        folder.isEmpty ? !path.isEmpty : path.count > folder.count + 1 && path.lowercased().hasPrefix(folder.lowercased() + "/")
+    }
+
+    /// The paths kept to those inside the focused folder (all of them with no focus), in their order.
+    static func scoped(_ paths: [String], to focus: String?) -> [String] {
+        guard let focus else { return paths }
+        return paths.filter { inside($0, focus) }
+    }
+
+    /// The focus kept while the vault still has that folder (named as the vault names it now), else nil.
+    static func keptFocus(_ focus: String?, items: [VaultItem]) -> String? {
+        guard let focus, !focus.isEmpty else { return nil }
+        return items.first { $0.folder && same($0.path, focus) }?.path
+    }
+
+    /// The breadcrumb's levels above a focus, outermost first ("A/B/C" → "A", "A/B"); the vault itself is not one.
+    static func focusLevels(_ focus: String) -> [String] {
+        let parts = focus.components(separatedBy: "/")
+        return parts.count < 2 ? [] : (1 ..< parts.count).map { parts[..<$0].joined(separator: "/") }
+    }
+
+    /// One level up from a focus: the folder it's in, or nil (the whole vault) from a top folder.
+    static func focusUp(_ focus: String) -> String? { focusLevels(focus).last }
+
     /// The notes whose links change when files move (`moves`: old path → new path, a file or a folder), with their new text,
     /// by the note's path before the move. A [[link]] to a moved file is rewritten the way it was written: by path when it
     /// had one, by name when it was a name (kept as it is when the name still finds the file). Headings (#), blocks (^) and

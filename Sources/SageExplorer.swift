@@ -35,6 +35,9 @@ struct SageExplorer: View {
     @State private var typedAt = Date.distantPast
     @State private var monitors: [Any] = []
     @State private var followed: String?
+    /// The tree's slide as you go into a folder or come out (offset and fade, eased back to 0 and 1).
+    @State private var slide: CGFloat = 0
+    @State private var fade = 1.0
     @FocusState private var treeFocused: Bool
     @FocusState private var renameFocused: Bool
     private let accent = PixelSage.theme
@@ -49,7 +52,8 @@ struct SageExplorer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             head
-            TextField(L("Search your vault"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
+            TextField(vault.focus.map { L("Search in %@", SageTreeLook.shown(($0 as NSString).lastPathComponent)) } ?? L("Search your vault"), text: $search)
+                .textFieldStyle(.roundedBorder).controlSize(.small)
             if !filter.isEmpty { filterChip } else if !search.trimmingCharacters(in: .whitespaces).isEmpty { searchScope }
             tree
         }
@@ -63,6 +67,7 @@ struct SageExplorer: View {
         .onChange(of: desk.topicID) { _, _ in filter = ""; search = "" }
         .onChange(of: search) { _, _ in runTextSearch() }
         .onChange(of: searchText) { _, _ in runTextSearch() }
+        .onChange(of: vault.focus) { old, new in slideIn(from: old, to: new); runTextSearch() }
         .onChange(of: vault.said?.count) { _, _ in
             guard let said = vault.said else { return }
             toast = said
@@ -72,6 +77,7 @@ struct SageExplorer: View {
         .onChange(of: vault.renaming) { _, path in
             guard let path else { return }
             filter = ""; search = ""
+            vault.leaveFocus(for: path)
             renameText = vault.item(path).map { $0.folder ? $0.name : $0.title } ?? (path as NSString).lastPathComponent
             renameStarted = Date()
             vault.openFolders(above: path)
@@ -85,11 +91,15 @@ struct SageExplorer: View {
     var head: some View {
         HStack(spacing: 2) {
             if let root = vault.vault {
-                Label(root.lastPathComponent, systemImage: "books.vertical").font(.system(size: 12, weight: .semibold)).lineLimit(1).help(root.path)
+                if let focus = vault.focus {
+                    focusBar(root, focus)
+                } else {
+                    Label(root.lastPathComponent, systemImage: "books.vertical").font(.system(size: 12, weight: .semibold)).lineLimit(1).help(root.path)
+                }
             }
             Spacer(minLength: 4)
-            tool("square.and.pencil", L("New note (⌘N)")) { newNoteHere(nil) }
-            tool("folder.badge.plus", L("New folder")) { newFolderIn("") }
+            tool("square.and.pencil", L("New note (⌘N)")) { newNoteHere(vault.focus) }
+            tool("folder.badge.plus", L("New folder")) { newFolderIn(vault.focus ?? "") }
             Menu {
                 sortItem(L("File name (A to Z)"), "alphabetical"); sortItem(L("File name (Z to A)"), "alphabeticalReverse")
                 sortItem(L("Modified (new to old)"), "byModifiedTime"); sortItem(L("Modified (old to new)"), "byModifiedTimeReverse")
@@ -117,6 +127,61 @@ struct SageExplorer: View {
             } label: { Image(systemName: "ellipsis.circle").font(.system(size: 11)) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 22, height: 20).modifier(SageHoverLit()).help(L("Vault"))
         }.foregroundStyle(.secondary)
+    }
+
+    /// Focused on a folder: ‹ (one level up), the way down to it as a breadcrumb (the vault, the folders it's in, itself;
+    /// each a click to focus there, the vault's to leave), and × (leave). Too narrow, the folders between fold into “…”,
+    /// then the vault's name into its icon.
+    func focusBar(_ root: URL, _ focus: String) -> some View {
+        HStack(spacing: 1) {
+            tool("chevron.left", L("Up a level (⌘↑)")) { vault.focusUp() }
+            ViewThatFits(in: .horizontal) {
+                crumbs(root, focus, fold: false, icon: false)
+                crumbs(root, focus, fold: true, icon: false)
+                crumbs(root, focus, fold: true, icon: true)
+            }
+            .layoutPriority(1)
+            tool("xmark", L("Leave the folder: show the whole vault (Esc)")) { vault.setFocus(nil) }
+        }
+    }
+
+    func crumbs(_ root: URL, _ focus: String, fold: Bool, icon: Bool) -> some View {
+        let levels = Study.focusLevels(focus)
+        let name = { (path: String) in SageTreeLook.shown((path as NSString).lastPathComponent) }
+        let separator = Image(systemName: "chevron.right").font(.system(size: 7.5, weight: .semibold)).foregroundStyle(.tertiary).padding(.horizontal, 3)
+        return HStack(spacing: 0) {
+            Button { vault.setFocus(nil) } label: {
+                if icon { Image(systemName: "books.vertical").font(.system(size: 11)) }
+                else { Label(root.lastPathComponent, systemImage: "books.vertical").font(.system(size: 12)).lineLimit(1) }
+            }
+            .buttonStyle(.plain).modifier(SageHoverLit()).fixedSize()
+            .help(L("%@: show the whole vault", root.lastPathComponent)).accessibilityLabel(L("%@: show the whole vault", root.lastPathComponent))
+            separator
+            if fold && !levels.isEmpty {
+                Menu {
+                    ForEach(levels, id: \.self) { level in Button(name(level)) { vault.setFocus(level) } }
+                } label: { Text("…").font(.system(size: 12)) }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help(levels.map(name).joined(separator: " / ")).accessibilityLabel(L("Folded folders"))
+                separator
+            } else {
+                ForEach(levels, id: \.self) { level in
+                    SagePathBar.Crumb(text: name(level), last: false) { vault.setFocus(level) }.fixedSize()
+                        .help(L("Focus on “%@”", name(level)))
+                    separator
+                }
+            }
+            Text(name(focus)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.primary).lineLimit(1).truncationMode(.middle).help(focus)
+        }
+    }
+
+    /// The tree slides in as you go into a folder (from the right) or come out of one (from the left); at once with
+    /// Reduce Motion. Going in, it starts at the top.
+    func slideIn(from old: String?, to new: String?) {
+        let out = old.map { Study.inside($0, new ?? "") } ?? false
+        guard SageColors.motion else { return }
+        slide = out ? -44 : 44; fade = 0
+        withAnimation(.easeOut(duration: 0.22)) { slide = 0; fade = 1 }
     }
 
     func tool(_ symbol: String, _ tip: String, tint: Color? = nil, _ action: @escaping () -> Void) -> some View {
@@ -213,7 +278,7 @@ struct SageExplorer: View {
     /// The rows, worked out again only when something they show changed (not on every step of a scroll).
     func cachedRows() -> [Row] {
         let s = vault.settings
-        let key = [String(vault.version), vault.sort, "\(s.foldersFirst)\(s.notesOnly)\(s.pinnedOpen)\(s.recentOpen)\(vault.reading)\(searchText)",
+        let key = [String(vault.version), vault.sort, "\(s.foldersFirst)\(s.notesOnly)\(s.pinnedOpen)\(s.recentOpen)\(vault.reading)\(searchText)", s.focus ?? "",
                    s.expanded.joined(separator: "\u{1}"), s.pinned.joined(separator: "\u{1}"), vault.shownRecent.joined(separator: "\u{1}"),
                    search, filter, String(textHits?.count ?? -1), textHits?.first?.item.path ?? "", desk.recipes.map(\.id).joined(separator: "\u{1}"),
                    desk.recipes.map(\.status).joined(), desk.folder?.path ?? ""].joined(separator: "\u{2}")
@@ -235,8 +300,11 @@ struct SageExplorer: View {
         }
         let words = search.trimmingCharacters(in: .whitespaces)
         if !words.isEmpty { return found(words) }
-        section(&rows, "pinned", L("PINNED"), "pin", vault.settings.pinned, vault.pinnedOpen)
-        section(&rows, "recent", L("RECENT"), "clock", Array(vault.shownRecent.filter { !vault.isPinned($0) }.prefix(6)), vault.recentOpen)
+        // Focused on a folder, the pinned and recent notes are those inside it, and the tree starts at its contents.
+        let focus = vault.focus
+        section(&rows, "pinned", L("PINNED"), "pin", Study.scoped(vault.settings.pinned, to: focus), vault.pinnedOpen)
+        section(&rows, "recent", L("RECENT"), "clock", Array(Study.scoped(vault.shownRecent, to: focus).filter { !vault.isPinned($0) }.prefix(6)), vault.recentOpen)
+        let treeStart = rows.count
         func walk(_ folder: String, _ depth: Int, _ ancestors: [String]) {
             for item in vault.children(of: folder) {
                 if item.folder {
@@ -253,8 +321,8 @@ struct SageExplorer: View {
                 }
             }
         }
-        walk("", 0, [])
-        if vault.items.isEmpty { muted(L("This vault is empty.")) }
+        walk(focus ?? "", 0, [])
+        if vault.items.isEmpty { muted(L("This vault is empty.")) } else if focus != nil && rows.count == treeStart { muted(L("This folder is empty.")) }
         return rows
     }
 
@@ -276,15 +344,21 @@ struct SageExplorer: View {
             if rows.isEmpty { rows.append(Row(id: "muted:none", kind: .muted(L("No note says that.")), height: 34)) }
             return rows
         }
-        for folder in vault.items.filter({ $0.folder && $0.name.localizedCaseInsensitiveContains(words) }).prefix(8) {
+        // Focused on a folder, only what's inside it.
+        let focus = vault.focus
+        let pool = focus.map { focus in vault.items.filter { Study.inside($0.path, focus) } } ?? vault.items
+        for folder in pool.filter({ $0.folder && $0.name.localizedCaseInsensitiveContains(words) }).prefix(8) {
             rows.append(Row(id: "search:" + folder.path, kind: .foundFolder(folder, marks: Self.matchAt(folder.name, words))))
         }
-        let files = vault.items.filter { !$0.folder && vault.shown($0) }
+        let files = pool.filter { !$0.folder && vault.shown($0) }
             .compactMap { item in Study.fuzzy(words, item.title).map { (item: item, match: $0) } }
             .sorted { $0.match.score != $1.match.score ? $0.match.score > $1.match.score : Study.natural($0.item.title, $1.item.title) < 0 }
             .prefix(200)
         for (item, match) in files { rows.append(Row(id: item.path, kind: .foundFile(item, marks: match.at, snippet: nil), height: item.parent.isEmpty ? 26 : 40)) }
-        if rows.isEmpty { rows.append(Row(id: "muted:none", kind: .muted(L("Nothing in the vault is called that. Try “Text in notes”.")), height: 34)) }
+        if rows.isEmpty {
+            rows.append(Row(id: "muted:none", kind: .muted(focus != nil ? L("Nothing in this folder is called that. Try “Text in notes”.")
+                                                                         : L("Nothing in the vault is called that. Try “Text in notes”.")), height: 34))
+        }
         return rows
     }
 
@@ -309,11 +383,12 @@ struct SageExplorer: View {
         textHits = nil
         let words = search.trimmingCharacters(in: .whitespaces)
         guard searchText, !words.isEmpty, let root = vault.vault else { return }
-        let items = vault.items.filter { !$0.folder && $0.ext == ".md" }
+        let focus = vault.focus
+        let items = vault.items.filter { item in !item.folder && item.ext == ".md" && (focus.map { Study.inside(item.path, $0) } ?? true) }
         let cache = Self.textCache
         Task {
             try? await Task.sleep(for: .milliseconds(200))
-            guard search.trimmingCharacters(in: .whitespaces) == words, searchText else { return }
+            guard search.trimmingCharacters(in: .whitespaces) == words, searchText, vault.focus == focus else { return }
             let (hits, read) = await Task.detached { () -> ([(item: Study.VaultItem, line: String)], [String: (modified: Date, text: String)]) in
                 var hits: [(item: Study.VaultItem, line: String)] = [], read: [String: (modified: Date, text: String)] = [:]
                 for item in items {
@@ -338,7 +413,7 @@ struct SageExplorer: View {
                 return (hits, read)
             }.value
             for (path, kept) in read { Self.textCache[path] = kept }
-            guard search.trimmingCharacters(in: .whitespaces) == words, searchText else { return }
+            guard search.trimmingCharacters(in: .whitespaces) == words, searchText, vault.focus == focus else { return }
             textHits = hits
         }
     }
@@ -363,9 +438,17 @@ struct SageExplorer: View {
                     .background(GeometryReader { inner in
                         Color.clear.preference(key: TreeOffset.self, value: -inner.frame(in: .named("sage-tree")).minY)
                     })
-                    .onDrop(of: [.fileURL], delegate: TreeDrop(explorer: self, folder: "", key: nil))
+                    .onDrop(of: [.fileURL], delegate: TreeDrop(explorer: self, folder: vault.focus ?? "", key: nil))
+                    .offset(x: slide)
+                    .opacity(fade)
                 }
                 .coordinateSpace(name: "sage-tree")
+                .clipped()
+                .onChange(of: vault.focus) { old, new in
+                    // Going into a folder starts at its top; coming out, the folder you were in is brought into sight (`setFocus`).
+                    guard let new, old.map({ Study.inside($0, new) }) != true else { return }
+                    DispatchQueue.main.async { if let first = self.cachedRows().first { proxy.scrollTo(first.id, anchor: .top) } }
+                }
                 .onPreferenceChange(TreeOffset.self) { offset = $0 }
                 .onAppear { viewport = outer.size.height }
                 .onChange(of: outer.size.height) { _, height in viewport = height }
@@ -764,7 +847,20 @@ struct SageExplorer: View {
         if mods.contains(.command) && !item.folder { vault.openInNewTab(path: item.path); return }
         if !picked.isEmpty { picked = [] }
         anchor = item.path
+        // A double-click on a folder focuses on it: the first click opened or closed it, the second puts that back.
+        if case .folder = row.kind, (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+            vault.setOpen(item.path, !vault.isOpen(item.path))
+            enterFocus(item.path)
+            return
+        }
         activate(row)
+    }
+
+    /// The tree focused on a folder: only what's inside it shows (a search is cleared, as it was of the tree it left).
+    func enterFocus(_ folder: String) {
+        search = ""; filter = ""
+        vault.setFocus(folder)
+        cursor = nil
     }
 
     /// What a row does when pressed: a folder opens or closes, a file opens here, a folder found by a search is shown in the tree.
@@ -822,6 +918,10 @@ struct SageExplorer: View {
     @ViewBuilder func folderMenu(_ folder: Study.VaultItem) -> some View {
         let templates = self.templates()
         let topicFolder = desk.folder.flatMap(vault.inVault).map { Study.same($0, folder.path) } ?? false
+        if !Study.same(folder.path, vault.focus ?? "") {
+            Button(L("Focus on this folder  (double-click, ⌘→)")) { enterFocus(folder.path) }
+            Divider()
+        }
         Button(L("New note")) { newNoteHere(folder.path) }
         Menu(L("New note from template")) {
             ForEach(templates, id: \.path) { template in Button(template.title) { newNoteHere(folder.path, template: template.path) } }
@@ -898,12 +998,25 @@ struct SageExplorer: View {
 
     func keys(_ press: KeyPress, _ all: [Row]) -> KeyPress.Result {
         if vault.renaming != nil { return .ignored }
+        let command = press.modifiers.contains(.command), shift = press.modifiers.contains(.shift)
+        // Folder focus: ⌘↑ one level up, Esc out (when nothing is picked), the keys then on the folder you came out of.
+        if let focus = vault.focus, (command && press.key == .upArrow) || (press.key == .escape && picked.isEmpty) {
+            if press.key == .escape { vault.setFocus(nil) } else { vault.focusUp() }
+            cursor = focus
+            return .handled
+        }
         let rows = all.filter(\.actionable)
         guard !rows.isEmpty else { return .ignored }
         let index = cursor.flatMap { key in rows.firstIndex { $0.id == key } } ?? -1
         let row = index >= 0 ? rows[index] : nil
-        let command = press.modifiers.contains(.command), shift = press.modifiers.contains(.shift)
         func go(_ i: Int) -> KeyPress.Result { cursor = rows[min(max(0, i), rows.count - 1)].id; return .handled }
+        // ⌘→ goes into the folder under the keys.
+        if command && press.key == .rightArrow, let row {
+            switch row.kind {
+            case .folder(let item), .foundFolder(let item, _): enterFocus(item.path); return .handled
+            default: return .ignored
+            }
+        }
         switch press.key {
         case .downArrow:
             let result = go(index + 1)
@@ -947,7 +1060,7 @@ struct SageExplorer: View {
             case "z": vault.undo(); return .handled
             case "a": for r in rows where r.section == nil { if let path = r.item?.path { picked.insert(path) } }; return .handled
             case "o": vault.switcher = .open; return .handled
-            case "n": newNoteHere(nil); return .handled
+            case "n": newNoteHere(vault.focus); return .handled
             default: return .ignored
             }
         }
@@ -1448,10 +1561,9 @@ struct SagePathBar: View {
         guard !built, let vault else { return }
         built = true
         menu.removeAllItems()
-        if depth > 0 {
-            menu.addItem(SageMenuItem(title: L("Show in the tree")) { [weak vault, folder] in vault?.showInTree(folder) })
-            menu.addItem(.separator())
-        }
+        if depth > 0 { menu.addItem(SageMenuItem(title: L("Show in the tree")) { [weak vault, folder] in vault?.showInTree(folder) }) }
+        if !folder.isEmpty { menu.addItem(SageMenuItem(title: L("Focus here")) { [weak vault, folder] in vault?.setFocus(folder) }) }
+        if menu.numberOfItems > 0 { menu.addItem(.separator()) }
         let kids = vault.children(of: folder)
         if kids.isEmpty {
             let empty = NSMenuItem(title: L("Empty"), action: nil, keyEquivalent: ""); empty.isEnabled = false
