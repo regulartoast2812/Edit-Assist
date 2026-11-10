@@ -33,7 +33,7 @@ extension Checks {
         check(places.count == order.count && places == places.sorted(),
               "The agent's prompt: the vault's instructions (Codex), the open note, memories, the request, where memories go, what it can do")
         let plain = Study.agentPrompt("Do it", active: nil, memories: [], memoryFolder: "Mem")
-        check(!plain.contains("[Project instructions") && !plain.contains("[Context]") && !plain.contains("[Saved memories]") && plain.hasPrefix("Do it"),
+        check(!plain.contains("[Project instructions") && !plain.contains("[Context]") && !plain.contains("[Saved memories]") && plain.hasPrefix("[Who you are] You are Sage") && plain.contains("\n\nDo it"),
               "Claude's prompt carries no copy of CLAUDE.md (it reads it itself), and nothing about a note when none is open")
 
         // Memories, as Vault Agent keeps and picks them.

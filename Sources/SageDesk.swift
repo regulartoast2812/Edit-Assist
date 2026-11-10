@@ -83,6 +83,8 @@ import Security
     nonisolated static var savedFile: URL { place.appendingPathComponent("saved.json") }
     nonisolated static var chatsFile: URL { place.appendingPathComponent("chats.json") }
     nonisolated static var topicsFile: URL { place.appendingPathComponent("topics.json") }
+    /// Files attached in the chat from outside the vault, copied here by day (SageComposerText.swift).
+    nonisolated static var attachmentsPlace: URL { place.appendingPathComponent("attachments", isDirectory: true) }
 
     init() {
         // Basil's things become Sage's: his folder, and his recipes folder as the Recipes topic.
@@ -227,21 +229,54 @@ import Security
     /// vault or do what you asked (SageActions.swift) before he answers. One of Vault Agent's commands ("/process …"), or
     /// a quick action from the note bar (`quick`), goes to the agent or the media tools instead (SageAgentDesk.swift), and
     /// so does work he hands over (an `agent` action).
-    func send(_ text: String, quick: String? = nil) {
+    /// From the message box (SageComposer.swift, 2026-11-10): notes tagged as [[links]] are given to him with their text
+    /// (and their paths to the agent); `files` attached are kept with the chat (copied into sage/attachments/ when outside
+    /// the vault) and the message goes to the agent, who can look at them (the brain can't see files).
+    func send(_ text: String, quick: String? = nil, files: [URL] = []) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !thinking else { return }
+        guard !text.isEmpty || !files.isEmpty, !thinking else { return }
         let id = current ?? UUID()
         if current == nil { conversations.append(Study.Conversation(id: id)); current = id }
-        append(Study.Message(fromSage: false, text: text), to: id)
+        if files.isEmpty { append(Study.Message(fromSage: false, text: text), to: id) }
         thinkingIn = id; failure = nil
+        let root = workVault
         Task {
             defer { thinkingIn = nil }
-            if let quick { await self.quick(quick, extra: "", in: id); return }
-            if let (name, extra) = Study.slash(text) { await self.quick(name, extra: extra, in: id); return }
+            var kept: [String] = []
+            if !files.isEmpty {
+                let attached = await Task.detached { Study.keepAttachments(files, vault: root, place: SageDesk.place) }.value
+                kept = attached.paths
+                var message = Study.Message(fromSage: false, text: text)
+                message.files = kept.isEmpty ? nil : kept
+                append(message, to: id)
+                if !attached.failed.isEmpty { refuse(L("Couldn't attach %@", attached.failed.joined(separator: ", ")), in: id) }
+                if kept.isEmpty && text.isEmpty { return }
+            }
+            // The notes and files the message tags, by their paths in the vault.
+            var items = vault.vault?.standardizedFileURL.path == root?.standardizedFileURL.path ? vault.items : []
+            if items.isEmpty, let root, !Study.tagLinks(in: text).isEmpty { items = await Task.detached { Study.vaultItems(root) }.value }
+            let tagged = Study.tagged(text, in: items)
+            let context = Study.composerContext(tagged: tagged.map(\.path), files: kept, vault: root)
+            if let quick { await self.quick(quick, extra: "", in: id, context: context); return }
+            // "/summarize @Note": the command works on the note tagged, not the one open.
+            if let (name, extra) = Study.slash(text) {
+                await self.quick(name, extra: extra, in: id, note: tagged.first { $0.ext == ".md" }?.path, context: context); return
+            }
+            // Files only the agent can look at: the message goes to him.
+            if !kept.isEmpty || tagged.contains(where: { !Study.isReadable($0.path) }) {
+                await runAgent(Study.composerRequest(text, tagged: tagged.map(\.path), files: kept, vault: root), in: id)
+                return
+            }
             // The conversation asked in, even if you open another meanwhile.
             var chat: [Study.Message] { conversations.first { $0.id == id }?.messages ?? [] }
             var found: [Study.Video]?, searched = "", read: [Study.Entry] = [], texts: [(title: String, text: String)] = []
             var hits: [Study.Hit]?, findWords = "", vaultRead: [(path: String, text: String)] = []
+            // The notes tagged are read at once, as his own `read` reads them.
+            if let root, !tagged.isEmpty {
+                let paths = tagged.map(\.path)
+                vaultRead = await Task.detached { paths.prefix(8).map { (path: $0, text: Study.noteText((try? Data(contentsOf: root.appendingPathComponent($0))) ?? Data()).text) } }.value
+            }
+            let taggedPrompt = Study.taggedPrompt(tagged.map(\.path))
             var shownDone: [String] = [], toldDone: [String] = [], steps: [SageUndo] = []
             let known = await Task.detached { SageDesk.knownVaults() }.value
             var contents = await vaultContents()
@@ -254,6 +289,7 @@ import Security
                                                   read: texts, last: last, topic: topic)
                         + Study.abilitiesPrompt(vault: workVault?.path ?? "", known: known, topics: topics, current: topic, folders: contents.folders,
                                                 findWords: findWords, found: hits, read: vaultRead, done: toldDone, last: last)
+                        + taggedPrompt
                     let answer = try await HelperBrain.ask(prompt, schema: Study.chatSchema)
                     let reply = Study.reply(from: answer)
                     var looked = false
@@ -290,11 +326,11 @@ import Security
                         let all = Study.actions(from: answer)
                         // Work only the agent can do: his words (and what he did so far), then the agent's run.
                         if let handoff = all.first(where: { $0.kind == "agent" && !$0.text.isEmpty }) {
-                            var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? L("I'll hand this to the agent.") : reply.text)
+                            var message = Study.Message(fromSage: true, text: reply.text.isEmpty ? L("On it.") : reply.text)
                             message.done = shownDone.isEmpty ? nil : shownDone
                             if !steps.isEmpty { undos[message.id] = steps }
                             append(message, to: id)
-                            await runAgent(handoff.text, in: id)
+                            await runAgent(handoff.text + context, in: id)
                             return
                         }
                         let actions = all.filter { $0.kind != "agent" }

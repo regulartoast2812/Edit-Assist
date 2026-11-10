@@ -143,9 +143,12 @@ extension Study {
                                 findWords: String, found: [Hit]?, read: [(path: String, text: String)], done: [String], last: Bool) -> String {
         var text = """
 
-        You can also do things for me in my Obsidian vault and in this app. Put them in `actions` only when I ask for them (or clearly \
-        agree to one you offered), never on your own; otherwise leave `actions` empty. Each action has `kind`, `target`, `value` and \
-        `text` (use "" for what it doesn't need). Paths are inside the vault, with "/" between folders.
+        You can do anything in my Obsidian vault and in this app: you have full tools. Don't act on your own, but when I ask you to do \
+        something, do it in this answer: put it in `actions` now. Never ask me to confirm something I just asked for, never offer it \
+        back as a question ("want me to…?", "just say yes"), and never say you can't do something in my vault. Ask first only when you \
+        truly can't tell what I mean (which note, which folder, which of two very different things). Otherwise leave `actions` empty. \
+        Each action has `kind`, `target`, `value` and `text` (use "" for what it doesn't need). Paths are inside the vault, with "/" \
+        between folders. The quick actions below are shortcuts; `agent` is you doing anything else with your full tools.
         - connect_vault: connect my vault. value = its name or path from Obsidian's list below ("" = the one Obsidian has open).
         - open_topic: switch to a topic. value = its name.
         - new_topic: make a topic and switch to it. value = its name; text = "recipes" for a recipe topic, else "general"; target = its \
@@ -160,14 +163,15 @@ extension Study {
         - move: target = the note; value = the folder to move it to (made if missing).
         - rename: target = the note; value = its new name. Links to it in other notes follow, as Obsidian does.
         - show: open a note in the Notes stage. target = the note.
-        - agent: hand the work to your agent, which has real tools in my vault (Vault Agent's: it reads, edits and writes any \
-        files, runs commands, searches across notes, browses the web, and follows my vault's CLAUDE.md conventions and memories). \
-        Use it when I ask for something your own actions can't do: process, rewrite or clean up a note, fix its frontmatter, add \
-        links, edit several notes, research across many files, fetch something from the web into a note, remember something for \
-        later. text = the whole instruction for it, self-contained (which note, by its path, and everything it needs from our \
-        chat); target and value = "". Put it alone in `actions` and say in `reply`, in a few words, that you're handing it over.
-        You can't delete notes or folders: if I ask, say so and offer to move them instead. When I ask for something you aren't \
-        sure about (which note, which folder), ask me first instead of guessing.
+        - agent: you, doing the work with your full tools in my vault: you read, edit and write any file (a note's properties and \
+        frontmatter, its text, bases (.base files), canvases, many notes at once), run commands, search across notes, browse and \
+        fetch from the web, download and transcribe media, and follow my vault's CLAUDE.md conventions and memories. Use it for \
+        anything the shortcuts above don't cover: editing properties, setting up or changing a base's views, processing, rewriting \
+        or linking notes, changes across several notes, research across many files, remembering something. text = the whole \
+        instruction, self-contained (which notes, by their paths, and everything it needs from our chat); target and value = "". \
+        Put it alone in `actions`. It is you, not another helper: never call it "the agent" or "Vault Agent" to me; in `reply` say \
+        in a few words what you're doing now ("Adding Episode, Skill and Status to the 10 recipe notes…"), as yours.
+        Deleting: only when I clearly ask; then move to the vault's .trash folder rather than erasing, and say which files.
 
         To look in the whole vault, put words in `find` (searches note names and their text) and/or paths in `read` (notes to \
         read in full, at most 5); you then get them and answer again.

@@ -279,7 +279,7 @@ extension Study {
     /// What the agent is asked, built as Vault Agent builds it: the vault's instructions (Codex's first turn only), the
     /// note open in Sage, the memories that fit, the request, where memories are kept, and what the agent can do.
     static func agentPrompt(_ request: String, active: String?, memories: [AgentMemory], memoryFolder: String, instructions: String? = nil) -> String {
-        var prompt = ""
+        var prompt = "[Who you are] You are Sage, the research helper in my Edit Assist app, working in my Obsidian vault with your full tools. Do what I ask completely; don't stop to ask me to confirm something I asked for, and speak of the work as yours.\n\n"
         if let instructions = instructions?.trimmingCharacters(in: .whitespacesAndNewlines), !instructions.isEmpty {
             prompt += "[Project instructions — the single source of truth for this vault. Follow them exactly; they override your defaults and any AGENTS.md.]\n\n\(instructions)\n\n----\n\n"
         }
@@ -322,11 +322,13 @@ extension Study {
     }
 
     /// Claude's arguments, Vault Agent's: a first turn fixes the session's id, later turns resume it.
-    static func claudeArguments(_ settings: AgentSettings, session: String, resume: Bool) -> [String] {
+    /// `folders`: more folders it may read and work in besides the vault (Sage's attachments, when files you attached are there).
+    static func claudeArguments(_ settings: AgentSettings, session: String, resume: Bool, folders: [String] = []) -> [String] {
         var arguments = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         if !settings.claudeModel.isEmpty { arguments += ["--model", settings.claudeModel] }
         arguments += ["--permission-mode", settings.permissionMode.isEmpty ? "bypassPermissions" : settings.permissionMode]
         if !settings.claudeEffort.isEmpty { arguments += ["--effort", settings.claudeEffort] }
+        if !folders.isEmpty { arguments += ["--add-dir"] + folders }
         return arguments + (resume ? ["--resume", session] : ["--session-id", session])
     }
 

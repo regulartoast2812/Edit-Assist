@@ -258,6 +258,9 @@ import WebKit
         return nil
     }
 
+    /// A new page shown: no player from the page before it stays over it; this page's cards place their own.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { if navigation === current { stopInline() } }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error, navigation) }
 
@@ -367,6 +370,9 @@ import WebKit
         case "preview-end": preview("", nil)
         // A YouTube card pressed in the note: the video plays right there, over the card (`playInline`).
         case "inline-cards":
+            // Only the page shown now places players: the page before it can still report its cards as it goes, which
+            // laid its video over the next note (2026-11-09).
+            guard message.frameInfo.isMainFrame, message.frameInfo.request.url == expected else { return }
             let cards = (body["cards"] as? [[String: Any]] ?? []).compactMap { card -> (key: String, id: String, rect: CGRect)? in
                 guard let key = card["key"] as? String, let id = card["id"] as? String else { return nil }
                 return (key, id, rect(card))
@@ -646,12 +652,12 @@ struct SageViewer: View {
             // Editing or reading, as Obsidian's view switch (Cmd+E).
             if file.pathExtension.lowercased() == "md" {
                 let editing = page.editing(vault.look)
-                Button { page.setEditing(!editing); editingShown.toggle() } label: { Image(systemName: editing ? "pencil" : "book") }
-                    .buttonStyle(.plain)
+                Button { page.setEditing(!editing); editingShown.toggle() } label: { Image(systemName: editing ? "pencil" : "book").frame(width: 24, height: 22) }
+                    .buttonStyle(.plain).modifier(SageHoverLit())
                     .help(editing ? L("Editing: click any part of the note to change it. Read only (⌘E)") : L("Reading. Edit the note (⌘E)"))
                     .id(editingShown)
             }
-            Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "folder") }.buttonStyle(.plain).help(L("Show in Finder"))
+            Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "folder").frame(width: 24, height: 22) }.buttonStyle(.plain).modifier(SageHoverLit()).help(L("Show in Finder"))
             Button { SageExplorer.openInObsidian(file) } label: { Label(L("Open in Obsidian"), systemImage: "arrow.up.forward.app") }.controlSize(.small)
         }
         .foregroundStyle(.secondary)
