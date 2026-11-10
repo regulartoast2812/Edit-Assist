@@ -161,7 +161,7 @@ import WebKit
         let ext = file.pathExtension.lowercased()
         let editing = ext == "md" && self.editing(look)
         let newLookKey = lookFingerprint(look, dark: dark, vault: vault, editing: editing)
-        let same =isNote && file.standardizedFileURL == self.file?.standardizedFileURL && newLookKey == lookKey
+        let same = isNote && file.standardizedFileURL == self.file?.standardizedFileURL && newLookKey == lookKey
         lookKey = newLookKey; self.items = items
         let wanted = key(file)
         if wanted == shownKey { return }
