@@ -730,8 +730,8 @@ struct SageViewer: View {
         return HStack(spacing: 10) {
             // Back and forward in this tab, as in Obsidian's view header (Cmd+[ and Cmd+], the mouse's side buttons).
             HStack(spacing: 6) {
-                Button { vault.goBack() } label: { Image(systemName: "chevron.left") }.buttonStyle(.plain).disabled(!vault.canGoBack).opacity(vault.canGoBack ? 1 : 0.35).help(L("Back (⌘[)"))
-                Button { vault.goForward() } label: { Image(systemName: "chevron.right") }.buttonStyle(.plain).disabled(!vault.canGoForward).opacity(vault.canGoForward ? 1 : 0.35).help(L("Forward (⌘])"))
+                Button { vault.goBack() } label: { Image(systemName: "chevron.left") }.buttonStyle(.plain).disabled(!vault.canGoBack).opacity(vault.canGoBack ? 1 : 0.35).help(L("Back (⌘[, ⌘⌥←, or the mouse's back button)"))
+                Button { vault.goForward() } label: { Image(systemName: "chevron.right") }.buttonStyle(.plain).disabled(!vault.canGoForward).opacity(vault.canGoForward ? 1 : 0.35).help(L("Forward (⌘], ⌘⌥→, or the mouse's forward button)"))
             }
             // Where it is, as Obsidian's title bar shows it: its folders, then its name; each shows where it is in the tree.
             if vault.inVault(file) != nil { SagePathBar(vault: vault, file: file) } else {
@@ -957,6 +957,7 @@ struct SageNotesStage: View {
                 }
                 .frame(height: height)
                 .background(keys)
+                .background(SageHistoryInput(back: { vault.goBack() }, forward: { vault.goForward() }))
             }
         }
         .onAppear { vault.reload() }
@@ -981,15 +982,14 @@ struct SageNotesStage: View {
                 })
     }
 
-    /// Cmd+W, Ctrl+Tab (and Shift), Cmd+Shift+T, Cmd+[ and ], Cmd+O while the notes are shown (the page sends its own).
+    /// Cmd+W, Ctrl+Tab (and Shift), Cmd+Shift+T, Cmd+O while the notes are shown (the page sends its own); back and
+/// forward are `SageHistoryInput`'s.
     private var keys: some View {
         ZStack {
             Button("") { SageViewerPage.run("close", vault: vault) }.keyboardShortcut("w", modifiers: .command)
             Button("") { SageViewerPage.run("reopen", vault: vault) }.keyboardShortcut("t", modifiers: [.command, .shift])
             Button("") { SageViewerPage.run("next", vault: vault) }.keyboardShortcut(.tab, modifiers: .control)
             Button("") { SageViewerPage.run("previous", vault: vault) }.keyboardShortcut(.tab, modifiers: [.control, .shift])
-            Button("") { SageViewerPage.run("back", vault: vault) }.keyboardShortcut("[", modifiers: .command)
-            Button("") { SageViewerPage.run("forward", vault: vault) }.keyboardShortcut("]", modifiers: .command)
             Button("") { SageViewerPage.run("switcher", vault: vault) }.keyboardShortcut("o", modifiers: .command)
         }
         .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
@@ -1061,5 +1061,67 @@ final class SageInlinePlayer: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { gone() }
+    }
+}
+
+/// Back and forward in the shown tab, as in Obsidian and a browser (2026-11-10, you asked): the mouse's side buttons
+/// (back is button 3, forward 4) over the notes stage, and ⌘[ ⌘] or ⌘⌥← ⌘⌥→ anywhere in the window while the stage is
+/// shown, unless you're typing in a text box outside the note (the chat's). Taken here, before the note's page sees
+/// them, so a press goes back once, not twice. Listens only while the stage is in a window.
+struct SageHistoryInput: NSViewRepresentable {
+    let back: () -> Void
+    let forward: () -> Void
+
+    final class Listener: NSView {
+        var back: () -> Void = {}
+        var forward: () -> Void = {}
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp, .otherMouseDown, .keyDown]) { [weak self] event in
+                guard let self, let window = self.window, event.window === window else { return event }
+                switch event.type {
+                case .otherMouseDown, .otherMouseUp:
+                    guard event.buttonNumber == 3 || event.buttonNumber == 4,
+                          self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                    if event.type == .otherMouseUp { event.buttonNumber == 3 ? self.back() : self.forward() }
+                    return nil
+                case .keyDown:
+                    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
+                    let step: Bool?
+                    if flags == .command, event.charactersIgnoringModifiers == "[" { step = true }
+                    else if flags == .command, event.charactersIgnoringModifiers == "]" { step = false }
+                    else if flags == [.command, .option], event.keyCode == 123 { step = true }
+                    else if flags == [.command, .option], event.keyCode == 124 { step = false }
+                    else { step = nil }
+                    guard let step else { return event }
+                    // Typing in the chat or another text box: its own keys.
+                    if let text = window.firstResponder as? NSTextView, text.isEditable, !Self.inWeb(text) { return event }
+                    step ? self.back() : self.forward()
+                    return nil
+                default: return event
+                }
+            }
+        }
+
+        private static func inWeb(_ view: NSView) -> Bool {
+            var at: NSView? = view
+            while let v = at { if v is WKWebView { return true }; at = v.superview }
+            return false
+        }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    }
+
+    func makeNSView(context: Context) -> Listener { Listener() }
+
+    func updateNSView(_ view: Listener, context: Context) {
+        view.back = back
+        view.forward = forward
     }
 }

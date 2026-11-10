@@ -1794,6 +1794,8 @@ enum Vietnamese {
         // Sage's notes stage: the vault, its tabs and the note view (2026-11-09, from Creative Assist).
         "%@ (open tab)": "%@ (thẻ đang mở)",
         "Back (⌘[)": "Lùi lại (⌘[)",
+        "Back (⌘[, ⌘⌥←, or the mouse's back button)": "Lùi lại (⌘[, ⌘⌥← hoặc nút lùi của chuột)",
+        "Forward (⌘], ⌘⌥→, or the mouse's forward button)": "Tiến tới (⌘], ⌘⌥→ hoặc nút tiến của chuột)",
         "Choose a note on the left to read it.": "Chọn một ghi chú bên trái để đọc.",
         "Choose another…": "Chọn kho khác…",
         "Choose your **Obsidian vault**. Sage shows it as Obsidian does: your folders and notes, read with your theme, snippets and settings.": "Chọn **kho Obsidian** của bạn. Sage hiển thị nó như Obsidian: thư mục và ghi chú của bạn, với giao diện, snippet và cài đặt của bạn.",
