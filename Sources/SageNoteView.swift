@@ -957,10 +957,10 @@ struct SageNotesStage: View {
                 }
                 .frame(height: height)
                 .background(keys)
-                .background(SageHistoryInput(back: { vault.goBack() }, forward: { vault.goForward() }))
             }
         }
-        .onAppear { vault.reload() }
+        .onAppear { vault.reload(); SageHistoryInput.shared.attach(vault) }
+        .onDisappear { SageHistoryInput.shared.detach(vault) }
     }
 
     private var width: CGFloat { treeWidth ?? vault.treeWidth.map { CGFloat($0) } ?? 250 }
@@ -1065,63 +1065,70 @@ final class SageInlinePlayer: NSView {
 }
 
 /// Back and forward in the shown tab, as in Obsidian and a browser (2026-11-10, you asked): the mouse's side buttons
-/// (back is button 3, forward 4) over the notes stage, and ⌘[ ⌘] or ⌘⌥← ⌘⌥→ anywhere in the window while the stage is
-/// shown, unless you're typing in a text box outside the note (the chat's). Taken here, before the note's page sees
-/// them, so a press goes back once, not twice. Listens only while the stage is in a window.
-struct SageHistoryInput: NSViewRepresentable {
-    let back: () -> Void
-    let forward: () -> Void
+/// (back is button 3, forward 4; Logi Options+, which the MX Master uses, sends its Back and Forward as a swipe, as do
+/// three-finger swipes on a trackpad) and ⌘[ ⌘] or ⌘⌥← ⌘⌥→, in Sage's window while the notes stage is shown, unless you're
+/// typing in a text box outside the note (the chat's). Taken here, before the note's page sees them, so a press goes
+/// back once, not twice. One monitor for the app, on while a stage is shown (`attach` on its appearing, `detach` on its
+/// going; a view's own window was not a reliable sign: the first try, listening from a background view, never heard).
+@MainActor final class SageHistoryInput {
+    static let shared = SageHistoryInput()
+    private static let log = Logger(subsystem: "EditAssist", category: "SageNotes")
+    private var monitor: Any?
+    private weak var vault: SageVaultDesk?
 
-    final class Listener: NSView {
-        var back: () -> Void = {}
-        var forward: () -> Void = {}
-        private var monitor: Any?
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
-            guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp, .otherMouseDown, .keyDown]) { [weak self] event in
-                guard let self, let window = self.window, event.window === window else { return event }
-                switch event.type {
-                case .otherMouseDown, .otherMouseUp:
-                    guard event.buttonNumber == 3 || event.buttonNumber == 4,
-                          self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
-                    if event.type == .otherMouseUp { event.buttonNumber == 3 ? self.back() : self.forward() }
-                    return nil
-                case .keyDown:
-                    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
-                    let step: Bool?
-                    if flags == .command, event.charactersIgnoringModifiers == "[" { step = true }
-                    else if flags == .command, event.charactersIgnoringModifiers == "]" { step = false }
-                    else if flags == [.command, .option], event.keyCode == 123 { step = true }
-                    else if flags == [.command, .option], event.keyCode == 124 { step = false }
-                    else { step = nil }
-                    guard let step else { return event }
-                    // Typing in the chat or another text box: its own keys.
-                    if let text = window.firstResponder as? NSTextView, text.isEditable, !Self.inWeb(text) { return event }
-                    step ? self.back() : self.forward()
-                    return nil
-                default: return event
-                }
-            }
+    func attach(_ vault: SageVaultDesk) {
+        self.vault = vault
+        Self.log.debug("history input on")
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp, .otherMouseDown, .keyDown, .swipe]) { event in
+            MainActor.assumeIsolated { SageHistoryInput.shared.handle(event) }
         }
-
-        private static func inWeb(_ view: NSView) -> Bool {
-            var at: NSView? = view
-            while let v = at { if v is WKWebView { return true }; at = v.superview }
-            return false
-        }
-
-        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 
-    func makeNSView(context: Context) -> Listener { Listener() }
+    func detach(_ vault: SageVaultDesk) {
+        guard self.vault === vault else { return }
+        self.vault = nil
+        Self.log.debug("history input off")
+        if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+    }
 
-    func updateNSView(_ view: Listener, context: Context) {
-        view.back = back
-        view.forward = forward
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let vault else { return event }
+        switch event.type {
+        case .swipe:
+            // A swipe to the right (deltaX 1) goes back, to the left forward, as in Safari and Finder.
+            guard event.deltaX != 0, abs(event.deltaX) >= abs(event.deltaY) else { return event }
+            Self.log.debug("history input: swipe \(event.deltaX > 0 ? "back" : "forward", privacy: .public) (\(event.deltaX))")
+            event.deltaX > 0 ? vault.goBack() : vault.goForward()
+            return nil
+        case .otherMouseDown, .otherMouseUp:
+            guard event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
+            if event.type == .otherMouseUp {
+                Self.log.debug("history input: mouse \(event.buttonNumber == 3 ? "back" : "forward", privacy: .public)")
+                event.buttonNumber == 3 ? vault.goBack() : vault.goForward()
+            }
+            return nil
+        case .keyDown:
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
+            let step: Bool?
+            if flags == .command, event.charactersIgnoringModifiers == "[" { step = true }
+            else if flags == .command, event.charactersIgnoringModifiers == "]" { step = false }
+            else if flags == [.command, .option], event.keyCode == 123 { step = true }
+            else if flags == [.command, .option], event.keyCode == 124 { step = false }
+            else { step = nil }
+            guard let step else { return event }
+            // Typing in the chat or another text box: its own keys.
+            if let text = event.window?.firstResponder as? NSTextView, text.isEditable, !Self.inWeb(text) { return event }
+            Self.log.debug("history input: key \(step ? "back" : "forward", privacy: .public)")
+            step ? vault.goBack() : vault.goForward()
+            return nil
+        default: return event
+        }
+    }
+
+    private static func inWeb(_ view: NSView) -> Bool {
+        var at: NSView? = view
+        while let v = at { if v is WKWebView { return true }; at = v.superview }
+        return false
     }
 }

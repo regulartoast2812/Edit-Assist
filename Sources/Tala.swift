@@ -53,7 +53,7 @@ struct TalaPage: View {
     @State private var confirmRecopy = false
     @State private var insert: String?
     @State private var pickingVoice = false
-    @State private var sideTab = "settings"
+    @AppStorage("talaSideTab") private var sideTab = "settings"
     /// The tags your ElevenLabs scripts use (2026-11-04), then two more ElevenLabs documents for v3 and v4.
     static let commonTags = ["[warm]", "[enthusiastic]", "[cheerful]", "[happy]", "[playful]", "[excited]", "[whispers]", "[laughs]"]
     private let accent = PixelTala.theme
