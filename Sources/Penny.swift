@@ -3,31 +3,33 @@ import WebKit
 
 /// Penny, the numbers helper: a businessman, a platinum blob with side-parted hair, gold glasses and a charcoal suit with
 /// a money-green tie, holding up a bar chart (a teal blob with a bun read as Perry the Platypus, 2026-11-03). Working:
-/// the bars rise and fall and his glasses catch the light.
+/// the bars rise and fall and his glasses catch the light. His eyes were a dark pixel each on a gold bar with gold under
+/// them, which read as a squint (2026-11-10: "creepy"); now they're tall and dark behind round gold glasses with light
+/// lenses, as the other helpers' eyes are tall.
 struct PixelPenny: View {
     /// The helper's colour, the body's: their page and sidebar button take it.
     static let theme = Color(red: 205 / 255, green: 212 / 255, blue: 222 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-                       ".OGKGGGKGO.A..Y.", ".OOGOOOGOO.A.PY.", ".OOOOOOOOO.AYPY.", ".SSSWTWSSSOAYPY.",
+    static let rest = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
+                       ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
                        ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"]
-    static let blink = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-                        ".OGOGGGOGO.A..Y.", ".OOGOOOGOO.A.PY.", ".OOOOOOOOO.AYPY.", ".SSSWTWSSSOAYPY.",
+    static let blink = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
+                        ".GLLLGLLLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
                         ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"]
     static let working: [[String]] = [
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-         ".OGKGGGKGO.A....", ".OOGOOOGOO.A..Y.", ".OOOOOOOOO.A.PY.", ".SSSWTWSSSOAYPY.",
+        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
+         ".GLKLGLKLG.A....", ".GLKLOLKLG.A..Y.", ".OGGGOGGGO.A.PY.", ".SSSWTWSSSOAYPY.",
          ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-         ".OgKGGgKGO.A.P..", ".OOGOOOGOO.A.PY.", ".OOOOOOOOO.AYPY.", ".SSSWTWSSSOAYPY.",
+        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OgGGOgGGO......",
+         ".GLKLGLKLG.A.P..", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
          ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-         ".OGKGGGKGO.A..Y.", ".OOGOOOGOO.AY.Y.", ".OOOOOOOOO.AYPY.", ".SSSWTWSSSOAYPY.",
+        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
+         ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.AY.Y.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
          ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OOOOOOOOO......",
-         ".OgKGGgKGO.A..Y.", ".OOGOOOGOO.A.PY.", ".OOOOOOOOO.AYPY.", ".SSSWTWSSSOAYPY.",
+        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OgGGOgGGO......",
+         ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
          ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
     ]
     var body: some View {
@@ -38,7 +40,7 @@ struct PixelPenny: View {
                                 "K": Color(red: 25 / 255, green: 25 / 255, blue: 28 / 255), "S": Color(red: 80 / 255, green: 86 / 255, blue: 100 / 255),
                                 "W": Color(red: 240 / 255, green: 240 / 255, blue: 240 / 255), "T": Color(red: 60 / 255, green: 170 / 255, blue: 90 / 255),
                                 "A": Color(red: 200 / 255, green: 200 / 255, blue: 205 / 255), "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255),
-                                "P": Color(red: 240 / 255, green: 120 / 255, blue: 110 / 255)],
+                                "P": Color(red: 240 / 255, green: 120 / 255, blue: 110 / 255), "L": Color(red: 235 / 255, green: 240 / 255, blue: 248 / 255)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Penny")
     }
