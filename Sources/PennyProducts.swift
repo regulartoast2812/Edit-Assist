@@ -215,6 +215,14 @@ struct ProductDetail: View, Equatable {
                                 change: cbhChange(a.margin.margin.cbh, a.marginBefore.margin.cbh), was: was(Ledger.money(a.marginBefore.margin.cbh)))
                     PennyFigure(name: "%CBH", value: Ledger.percent(a.margin.margin.share),
                                 change: a.marginBefore.days > 0 ? change(a.margin.margin.share, a.marginBefore.margin.share, false) : nil, was: was(Ledger.percent(a.marginBefore.margin.share)))
+                    // The product's own numbers from the same CBH copy, every source, as Retail Operations counts them
+                    // (2026-11-10: you asked for product orders and product cost).
+                    let now = a.margin.margin, then = a.marginBefore.margin
+                    PennyFigure(name: "Product orders", value: Ledger.whole(now.orders), change: cbhChange(now.orders, then.orders), was: was(Ledger.whole(then.orders)))
+                    PennyFigure(name: "Product revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)))
+                    PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
+                    PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)))
+                    PennyFigure(name: "Marketing expense", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)))
                 }
                 PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)))
                 PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp, false), upIsGood: false, was: was(before.cpp.map(Ledger.money) ?? "–"))
