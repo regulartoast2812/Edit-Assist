@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -110,6 +111,13 @@ import WebKit
     private var items: [Study.VaultItem] = []
     private var isNote = false, blockOpen = false, reloadWaiting = false
     private static var count = 0
+    /// (2026-11-10: a [[link]] pressed showed the new note's tab and path over the old note's page.) The file whose page
+    /// is in the web view (`pageFile`), each page's file by its address (`pageFiles`), and the key a show under way will
+    /// load (`loading`): a page loads unless it is already there or on its way, a show cut off by a newer one leaves the
+    /// newer one to load, and what an old page still says (it can talk until the new one replaces it) never reaches the
+    /// new note.
+    private var pageFile: URL?, pageFiles: [URL: URL] = [:], loading: String?
+    private static let log = Logger(subsystem: "EditAssist", category: "SageNotes")
 
     init(keep: URL) {
         self.keep = keep
@@ -164,24 +172,29 @@ import WebKit
         let same = isNote && file.standardizedFileURL == self.file?.standardizedFileURL && newLookKey == lookKey
         lookKey = newLookKey; self.items = items
         let wanted = key(file)
-        if wanted == shownKey { return }
+        if wanted == shownKey, loading == wanted || pageFile == file.standardizedFileURL { return }
+        if loading == wanted { return }
         stopInline()
         if same && blockOpen { reloadWaiting = true; return }
+        loading = wanted
+        Self.log.debug("show \(file.lastPathComponent, privacy: .public) (was \(self.pageFile?.lastPathComponent ?? "-", privacy: .public), same: \(same))")
         Task {
+            defer { if loading == wanted { loading = nil } }
             if blockOpen { await flush() }
+            guard loading == wanted else { Self.log.debug("show \(file.lastPathComponent, privacy: .public) taken over"); return }
             self.file = file; self.vault = vault; self.path = path; self.look = look; self.dark = dark
             shownKey = wanted
             if same { sendBody(); return }
             isNote = false
             let appFolder = await SageScheme.obsidianFiles.value
-            guard shownKey == wanted else { return }
+            guard loading == wanted else { Self.log.debug("show \(file.lastPathComponent, privacy: .public) taken over"); return }
             SageScheme.shared.obsidian = appFolder
             if let vault { SageScheme.shared.vault = vault }
             let app = appFolder == nil ? nil : Study.obsidianBase
             let inVault = vault != nil && path != nil
             if ext == "pdf", inVault, let path {
                 problem = nil
-                load(URL(string: Study.vaultAddress(path))!)
+                load(URL(string: Study.vaultAddress(path))!, file: file)
                 return
             }
             let note = ext == "md" || !inVault
@@ -213,7 +226,8 @@ import WebKit
                     return Study.notePage("> [!warning] " + L("Sage couldn't show %@", file.lastPathComponent) + "\n> \(error.localizedDescription)", look: plain, dark: dark, app: app, vault: served)
                 }
             }.value
-            guard shownKey == wanted else { return }
+            guard loading == wanted else { Self.log.debug("show \(file.lastPathComponent, privacy: .public) taken over"); return }
+            shownKey = wanted
             isNote = note && ext == "md"
             blockOpen = false; reloadWaiting = false
             Self.count += 1
@@ -222,12 +236,16 @@ import WebKit
             page = name
             SageScheme.shared.pages[name] = Data(html.utf8)
             problem = nil
-            load(URL(string: Study.pagesBase + name)!)
+            load(URL(string: Study.pagesBase + name)!, file: file)
         }
     }
 
-    private func load(_ url: URL) {
+    private func load(_ url: URL, file: URL) {
         expected = url
+        pageFile = file.standardizedFileURL
+        if pageFiles.count > 8 { pageFiles = pageFiles.filter { $0.value == pageFile } }
+        pageFiles[url] = file
+        Self.log.debug("load \(file.lastPathComponent, privacy: .public) as \(url.lastPathComponent, privacy: .public)")
         current = web.load(URLRequest(url: url))
     }
 
@@ -357,6 +375,15 @@ import WebKit
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+        // Said by the page before this one, still up while this one loads: its typing is saved into its own note, the
+        // links and keys you pressed in it still work, and nothing else of it (it once marked the new note as being
+        // edited, which kept the new note from drawing) reaches this page.
+        if message.frameInfo.isMainFrame, let from = message.frameInfo.request.url, let expected, from != expected,
+           from.scheme == expected.scheme, !["follow", "key", "preview", "preview-end"].contains(type) {
+            Self.log.debug("dropped \(type, privacy: .public) from \(from.lastPathComponent, privacy: .public)")
+            if type == "edit", let old = pageFiles[from] { editQuietly(body, in: old) }
+            return
+        }
         switch type {
         case "edit": edit(body)
         // A property changed in the Properties table (its value, name, type, or removed or added).
@@ -497,11 +524,29 @@ import WebKit
     func flush() async {
         guard blockOpen else { return }
         blockOpen = false
+        let target = file
         guard let json = try? await web.evaluateJavaScript("window.sageFlush ? window.sageFlush() : ''") as? String, !json.isEmpty,
               var edit = Study.json(Data(json.utf8)) else { return }
+        // Another file shown while it was asked: what was typed goes into the note it was typed in, never this one.
+        if let target, target != file {
+            if edit["type"] as? String != "property" { editQuietly(edit, in: target) }
+            return
+        }
         if edit["type"] as? String == "property" { property(edit); return }
         edit["live"] = true
         self.edit(edit)
+    }
+
+    /// A block's change written into the note it was typed in, when that note is no longer the one shown: only those
+    /// lines, only if they still read as they did (else left, and logged), the note kept first.
+    private func editQuietly(_ message: [String: Any], in note: URL) {
+        guard note.pathExtension.lowercased() == "md", let was = try? Study.readNote(note),
+              let edited = Study.editLines(was.text, from: Self.number(message["from"]), to: Self.number(message["to"]),
+                                           original: message["original"] as? String ?? "", text: message["text"] as? String ?? "") else {
+            Self.log.error("an edit to \(note.lastPathComponent, privacy: .public) wasn't saved: the note changed")
+            return
+        }
+        if edited.text != was.text { try? Study.writeNote(note, text: edited.text, was: was, keep: keep) }
     }
 
     /// (2026-11-10) One property changed in the Properties table, as Obsidian's editor changes it: only that property's
