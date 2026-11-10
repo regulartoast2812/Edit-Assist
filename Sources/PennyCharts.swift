@@ -1108,28 +1108,45 @@ struct PennyFigure: View {
     var pill: String? = nil
     var pillColor: Color? = nil
     var pillTip: String? = nil
+    /// Its share of revenue, in a pill right after its name (2026-11-10, you asked: every money figure with its %).
+    var share: String? = nil
+    var shareColor: Color? = nil
+    var shareTip: String? = nil
+    /// A smaller figure on the bottom line, right of the change: the ads' own spend and revenue beside every source's.
+    var aside: String? = nil
+    var asideTip: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 // The name keeps its room; a pill too long for what's left shrinks a little, then cuts.
                 Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                if let share { Self.pill(share, shareColor, shareTip).fixedSize() }
                 Spacer(minLength: 0)
-                if let pill {
-                    Text(pill).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.75)
-                        .foregroundStyle(pillColor ?? PennyStyle.words)
-                        .padding(.horizontal, 6).padding(.vertical, 1.5)
-                        .background((pillColor ?? .white).opacity(pillColor == nil ? 0.08 : 0.16), in: Capsule())
-                        .help(pillTip ?? "")
-                }
+                if let pill { Self.pill(pill, pillColor, pillTip) }
             }
             .frame(height: 16)
             Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(color ?? .primary).lineLimit(1).minimumScaleFactor(0.6)
-            Self.change(change, upIsGood: upIsGood, neutral: neutral, was: was)
+            HStack(spacing: 6) {
+                Self.change(change, upIsGood: upIsGood, neutral: neutral, was: was)
+                if let aside {
+                    Spacer(minLength: 0)
+                    Text(aside).font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(PennyStyle.muted).lineLimit(1)
+                        .minimumScaleFactor(0.75).help(asideTip ?? "")
+                }
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
         .overlay(alignment: .leading) { if let color { UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: 9).fill(color).frame(width: 3) } }
+    }
+
+    static func pill(_ text: String, _ color: Color?, _ tip: String?) -> some View {
+        Text(text).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.75)
+            .foregroundStyle(color ?? PennyStyle.words)
+            .padding(.horizontal, 6).padding(.vertical, 1.5)
+            .background((color ?? .white).opacity(color == nil ? 0.08 : 0.16), in: Capsule())
+            .help(tip ?? "")
     }
 
     /// "▲ 12.0%" in green or red by whether that's good (grey when neither), its tip what it was; a blank line without one.

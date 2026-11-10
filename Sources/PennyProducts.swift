@@ -318,6 +318,14 @@ struct ProductDetail: View, Equatable {
         // query takes tax off, as the dashboard shows it), and cbh_tax takes off about 9% of revenue before tax more
         // (fees and the like). (2026-11-10: first worked out with tax taken off a second time, $126 for Nov 8, not $311.)
         let rest = { (m: Ledger.Margin) in max(0, m.revenue - m.cost - m.spent - m.cbh) }
+        // Each money figure's share of revenue, and its tip: the share against the days before.
+        let part = { (value: Double, m: Ledger.Margin) -> String? in m.revenue > 0 ? Ledger.percent(value / m.revenue) : nil }
+        let partTip = { (name: String, value: (Ledger.Margin) -> Double) -> String in
+            let shareNow: Double? = now.revenue > 0 ? value(now) / now.revenue : nil
+            let shareThen: Double? = then.revenue > 0 ? value(then) / then.revenue : nil
+            let moved: Double? = a.marginBefore.days > 0 ? change(shareNow, shareThen, false) : nil
+            return tip(L("%@ as a share of revenue", L(name)), moved, shareThen.map(Ledger.percent) ?? "–")
+        }
         let adsSpent = tip("Spent on the ads, as copied hour by hour", change(total.spent, before.spent, true), Ledger.money(before.spent))
         let adsRevenue = tip("Revenue from the ads, as copied hour by hour", change(total.revenue, before.revenue, true), Ledger.money(before.revenue))
         return VStack(alignment: .leading, spacing: 8) {
@@ -325,32 +333,36 @@ struct ProductDetail: View, Equatable {
             if margined {
                 FigureFlow(gap: 16) {
                     PennyFigure(name: "Marketing", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)),
-                                pill: L("ads %@", Ledger.money(total.spent)), pillTip: adsSpent)
+                                share: part(now.spent, now), shareTip: partTip("Marketing", \.spent),
+                                aside: L("ads %@", Ledger.money(total.spent)), asideTip: adsSpent)
                     FigureArrow()
                     PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)),
-                                pill: now.revenue > 0 ? Ledger.percent(now.cost / now.revenue) : nil,
-                                pillTip: tip("Product cost as a share of revenue", a.marginBefore.days > 0 && then.revenue > 0 && now.revenue > 0
-                                             ? change(now.cost / now.revenue, then.cost / then.revenue, false) : nil,
-                                             then.revenue > 0 ? Ledger.percent(then.cost / then.revenue) : "–"))
+                                share: part(now.cost, now), shareTip: partTip("Product cost", \.cost))
                     FigureArrow()
                     PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)),
-                                pill: L("off revenue"), pillTip: L("Retail Operations' tax (stats_tax_amount), already taken off revenue, as the dashboard shows it"))
+                                share: part(now.tax, now),
+                                shareTip: partTip("Tax", \.tax) + " · " + L("Retail Operations' tax (stats_tax_amount), already taken off revenue, as the dashboard shows it"))
                     FigureArrow()
                     PennyFigure(name: "Other costs", value: Ledger.money(rest(now)), change: cbhChange(rest(now), rest(then)), neutral: true,
-                                was: L("What CBH takes off besides product cost, tax and marketing: about 9% of revenue before tax (fees and the like). %@", was(Ledger.money(rest(then)))))
+                                was: L("What CBH takes off besides product cost, tax and marketing: about 9% of revenue before tax (fees and the like). %@", was(Ledger.money(rest(then)))),
+                                share: part(rest(now), now), shareTip: partTip("Other costs", rest))
                     FigureArrow()
                     PennyFigure(name: "Revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)),
-                                pill: L("ads %@", Ledger.money(total.revenue)), pillTip: adsRevenue)
+                                share: now.revenue > 0 ? Ledger.percent(1) : nil, shareTip: L("Each figure here is a share of revenue, after tax"),
+                                aside: L("ads %@", Ledger.money(total.revenue)), asideTip: adsRevenue)
                     FigureArrow()
                     PennyFigure(name: "CBH", value: Ledger.money(now.cbh), color: PennyStyle.money(now.cbh), change: cbhChange(now.cbh, then.cbh), was: was(Ledger.money(then.cbh)),
-                                pill: Ledger.percent(now.share), pillColor: PennyStyle.money(now.cbh),
-                                pillTip: tip("%CBH", a.marginBefore.days > 0 ? change(now.share, then.share, false) : nil, Ledger.percent(then.share)))
+                                share: part(now.cbh, now), shareColor: PennyStyle.money(now.cbh), shareTip: partTip("CBH", \.cbh))
                 }
             } else {
                 FigureFlow(gap: 16) {
-                    PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)))
+                    PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)),
+                                share: total.revenue > 0 ? Ledger.percent(total.spent / total.revenue) : nil,
+                                shareTip: tip("Share of revenue", total.revenue > 0 && before.revenue > 0 ? change(total.spent / total.revenue, before.spent / before.revenue, false) : nil,
+                                              before.revenue > 0 ? Ledger.percent(before.spent / before.revenue) : "–"))
                     FigureArrow()
-                    PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)))
+                    PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)),
+                                share: total.revenue > 0 ? Ledger.percent(1) : nil, shareTip: L("Each figure here is a share of revenue, after tax"))
                 }
             }
             FigureHeading(title: "Stats", note: "The ads, as copied hour by hour").padding(.top, 8)
