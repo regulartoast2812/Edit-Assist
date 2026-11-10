@@ -3,30 +3,31 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-/// Sage, the research helper: a sage-green blob with a sage leaf on top, round glasses and a notebook. Working: he writes,
-/// the lines filling his notebook, and the leaf sways (2026-11-10: you asked for this look back over the purple crystal).
+/// Sage, the research helper: a mint-green blob with a big sage leaf on top (two-tone, with a vein), round glasses and a
+/// notebook. Working: he writes, the lines filling his notebook, and the leaf sways (2026-11-10: you asked for this look
+/// back over the purple crystal, then for mint skin and a bigger leaf).
 /// Basil, the recipe helper, grown into him (you asked for it, 2026-11-06): personal, not Crossian's; he researches your
 /// topics on YouTube and the web and keeps notes in your Obsidian vault.
 struct PixelSage: View {
     /// The helper's colour, the body's: their page and sidebar button take it.
-    static let theme = Color(red: 150 / 255, green: 186 / 255, blue: 134 / 255)
+    static let theme = Color(red: 143 / 255, green: 211 / 255, blue: 168 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+    static let rest = ["........LLL.....", "......LLLVL.....", ".....LLVLL......", "......LV........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
                        "..GFFFGGFFFG....", "..GFKFFFFKFG....", "..GFFFGGFFFG....", "..GGGGMMGGGGNNN.",
                        "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"]
-    static let blink = ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+    static let blink = ["........LLL.....", "......LLLVL.....", ".....LLVLL......", "......LV........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
                         "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFFFGGFFFG....", "..GGGGMMGGGGNNN.",
                         "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"]
     static let working: [[String]] = [
-        [".......LL.......", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+        [".........LLL....", ".......LLLVL....", ".....LLVLL......", "......LV........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
          "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
          "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNNN.", "...GGGGGGGGGNNN.", "....D....D......"],
-        ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+        ["........LLL.....", "......LLLVL.....", ".....LLVLL......", "......LV........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
          "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
          "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"],
-        [".....LL.........", "......LL........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+        [".......LLL......", ".....LLLVL......", ".....LLVLL......", "......LV........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
          "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
          "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNnN.", "....D....D......"],
     ]
@@ -34,8 +35,9 @@ struct PixelSage: View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
                        colors: ["G": Self.theme, "L": Color(red: 88 / 255, green: 132 / 255, blue: 76 / 255),
                                 "F": Color(red: 40 / 255, green: 42 / 255, blue: 46 / 255), "K": Color(red: 235 / 255, green: 240 / 255, blue: 230 / 255),
-                                "M": Color(red: 90 / 255, green: 120 / 255, blue: 80 / 255), "N": Color(red: 240 / 255, green: 232 / 255, blue: 210 / 255),
-                                "n": Color(red: 140 / 255, green: 130 / 255, blue: 110 / 255), "D": Color(red: 104 / 255, green: 136 / 255, blue: 92 / 255)],
+                                "M": Color(red: 89 / 255, green: 131 / 255, blue: 104 / 255), "N": Color(red: 240 / 255, green: 232 / 255, blue: 210 / 255),
+                                "n": Color(red: 140 / 255, green: 130 / 255, blue: 110 / 255), "D": Color(red: 100 / 255, green: 148 / 255, blue: 118 / 255),
+                                "V": Color(red: 62 / 255, green: 92 / 255, blue: 53 / 255)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Sage")
     }
