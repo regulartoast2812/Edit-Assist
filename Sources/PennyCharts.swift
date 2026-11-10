@@ -1112,14 +1112,15 @@ struct PennyFigure: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                // The name keeps its room; a pill too long for what's left shrinks a little, then cuts.
+                Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 Spacer(minLength: 0)
                 if let pill {
-                    Text(pill).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1)
+                    Text(pill).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.75)
                         .foregroundStyle(pillColor ?? PennyStyle.words)
                         .padding(.horizontal, 6).padding(.vertical, 1.5)
                         .background((pillColor ?? .white).opacity(pillColor == nil ? 0.08 : 0.16), in: Capsule())
-                        .help(pillTip ?? "").layoutPriority(1)
+                        .help(pillTip ?? "")
                 }
             }
             .frame(height: 16)

@@ -48,7 +48,7 @@ struct ProductsView: View {
             } else {
                 // A gap under the Data card, so the search and the product's header don't touch it.
                 HStack(alignment: .top, spacing: 16) {
-                    list(products, selected: product)
+                    list(products, selected: product, days: days.now)
                     if let analysis, product != nil {
                         ProductDetail(analysis: analysis, loading: analysis.key != key, ledger: ledger).equatable()
                     } else {
@@ -66,29 +66,43 @@ struct ProductsView: View {
         }
     }
 
-    func list(_ products: [(name: String, numbers: Ledger.Numbers)], selected: String?) -> some View {
+    /// The products, most spent first, each with its CBH over the range, green when it made money and red when it lost,
+    /// and its ROAS coloured against its own breakeven as its page colours it (2026-11-10, you asked: CBH instead of
+    /// spend, to see which do well and study them); a product without the range's CBH yet shows –.
+    func list(_ products: [(name: String, numbers: Ledger.Numbers)], selected: String?, days: [String]) -> some View {
         let shown = search.isEmpty ? products : products.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        let summary = ledger.summary
         return VStack(alignment: .leading, spacing: 6) {
             TextField(L("Search"), text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
             HStack {
                 Text(L("%@ products", shown.count)).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
                 Spacer()
-                Text(L("SPENT · ROAS")).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
+                Text(L("CBH · ROAS")).font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
             }
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(shown, id: \.name) { item in
+                        let margin = summary.margin(of: item.name, on: days)
+                        let cbh = margin.days > 0 ? margin.margin.cbh : nil
+                        let color = cbh.map(PennyStyle.money)
+                        // ROAS against the product's own breakeven, as its page colours it: green profitable, yellow
+                        // above breakeven, red below (CBH counts every source, so a product can keep money while its
+                        // ads lose it).
+                        let roasColor = PennyStyle.roas(item.numbers.roas, Ledger.Profit(margin.margin) ?? .usual)
                         Button { chosen = item.name } label: {
                             HStack(spacing: 6) {
                                 Text(item.name).font(.system(size: 11, weight: item.name == selected ? .semibold : .regular)).lineLimit(1)
                                 Spacer(minLength: 4)
-                                Text(Ledger.money(item.numbers.spent)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
-                                Text(Ledger.ratio(item.numbers.roas)).font(.system(size: 10, weight: .medium).monospacedDigit()).frame(width: 34, alignment: .trailing)
+                                Text(cbh.map(Ledger.money) ?? "–").font(.system(size: 10, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(color ?? .secondary)
+                                Text(Ledger.ratio(item.numbers.roas)).font(.system(size: 10, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(roasColor).frame(width: 34, alignment: .trailing)
                             }
                             .padding(.horizontal, 6).padding(.vertical, 4)
                             .background(item.name == selected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                        .help(cbh == nil ? L("CBH for these days isn't in yet") : L("Spent %@", Ledger.money(item.numbers.spent)))
                     }
                 }
             }.frame(height: 640)
@@ -237,7 +251,11 @@ struct ProductDetail: View, Equatable {
                     PennyFigure(name: "Marketing", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)),
                                 pill: L("ads %@", Ledger.money(total.spent)), pillTip: adsSpent)
                     FigureArrow()
-                    PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)))
+                    PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)),
+                                pill: now.revenue > 0 ? Ledger.percent(now.cost / now.revenue) : nil,
+                                pillTip: tip("Product cost as a share of revenue", a.marginBefore.days > 0 && then.revenue > 0 && now.revenue > 0
+                                             ? change(now.cost / now.revenue, then.cost / then.revenue, false) : nil,
+                                             then.revenue > 0 ? Ledger.percent(then.cost / then.revenue) : "–"))
                     FigureArrow()
                     PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)),
                                 pill: L("off revenue"), pillTip: L("Retail Operations' tax (stats_tax_amount), already taken off revenue, as the dashboard shows it"))
