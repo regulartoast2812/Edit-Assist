@@ -3,47 +3,39 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-/// Sage, the research helper: a small purple crystal, faceted like Obsidian's own (a light facet left, a shadow facet
-/// right), with round glasses and his notebook beside him (2026-11-09: you asked for a new look, purple like Obsidian).
-/// Working: sparkles glint at his tip, his eyes go to the book and its lines fill. Basil, the recipe helper, grew into him
-/// (2026-11-06): personal, not Crossian's; he researches your topics on YouTube and the web and keeps notes in your
-/// Obsidian vault.
+/// Sage, the research helper: a sage-green blob with a sage leaf on top, round glasses and a notebook. Working: he writes,
+/// the lines filling his notebook, and the leaf sways (2026-11-10: you asked for this look back over the purple crystal).
+/// Basil, the recipe helper, grown into him (you asked for it, 2026-11-06): personal, not Crossian's; he researches your
+/// topics on YouTube and the web and keeps notes in your Obsidian vault.
 struct PixelSage: View {
-    /// The helper's colour, the crystal's (Obsidian's purple): their page and sidebar button take it.
-    static let theme = Color(red: 127 / 255, green: 109 / 255, blue: 242 / 255)
+    /// The helper's colour, the body's: their page and sidebar button take it.
+    static let theme = Color(red: 150 / 255, green: 186 / 255, blue: 134 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["......HH........", ".....HHPS.......", "....HHPPPS......", "...HHPPPPPS.....",
-                       "..HHPPPPPPPS....", "..HPKKPPPKKPS...", "..HKWEKKKWEKS...", "..HPKKPPPKKPS...",
-                       "..HPPPPPPPPSSNNN", "..HPPPMMPPPSSNnN", "...PPPPPPPSS.NnN", "....SPPPPSS..NNN",
-                       ".....D...D......"]
-    static let blink = ["......HH........", ".....HHPS.......", "....HHPPPS......", "...HHPPPPPS.....",
-                        "..HHPPPPPPPS....", "..HPKKPPPKKPS...", "..HKSSKKKSSKS...", "..HPKKPPPKKPS...",
-                        "..HPPPPPPPPSSNNN", "..HPPPMMPPPSSNnN", "...PPPPPPPSS.NnN", "....SPPPPSS..NNN",
-                        ".....D...D......"]
+    static let rest = ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+                       "..GFFFGGFFFG....", "..GFKFFFFKFG....", "..GFFFGGFFFG....", "..GGGGMMGGGGNNN.",
+                       "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"]
+    static let blink = ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+                        "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFFFGGFFFG....", "..GGGGMMGGGGNNN.",
+                        "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"]
     static let working: [[String]] = [
-        ["......HH........", ".....HHPS..Y....", "....HHPPPS......", "...HHPPPPPS.....",
-         "..HHPPPPPPPS....", "..HPKKPPPKKPS...", "..HKEWKKKEWKS...", "..HPKKPPPKKPS...",
-         "..HPPPPPPPPSSNNN", "..HPPPMMPPPSSNnN", "...PPPPPPPSS.NNN", "....SPPPPSS..NNN",
-         ".....D...D......"],
-        ["......HH........", ".....HHPS.Y.....", "....HHPPPS......", "...HHPPPPPS.....",
-         "..HHPPPPPPPS....", "..HPKKPPPKKPS...", "..HKWEKKKWEKS...", "..HPKKPPPKKPS...",
-         "..HPPPPPPPPSSNNN", "..HPPPMMPPPSSNnN", "...PPPPPPPSS.NnN", "....SPPPPSS..NNN",
-         ".....D...D......"],
-        ["...Y..HH........", ".....HHPS.......", "....HHPPPS......", "...HHPPPPPS.....",
-         "..HHPPPPPPPS....", "..HPKKPPPKKPS...", "..HKEWKKKEWKS...", "..HPKKPPPKKPS...",
-         "..HPPPPPPPPSSNNN", "..HPPPMMPPPSSNNN", "...PPPPPPPSS.NnN", "....SPPPPSS..NNN",
-         ".....D...D......"],
+        [".......LL.......", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+         "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
+         "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNNN.", "...GGGGGGGGGNNN.", "....D....D......"],
+        ["......LL........", ".....LL.........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+         "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
+         "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNNN.", "....D....D......"],
+        [".....LL.........", "......LL........", "...GGGGGGGG.....", "..GGGGGGGGGG....",
+         "..GFFFGGFFFG....", "..GFFFFFFFFG....", "..GFKFGGFKFG....", "..GGGGMMGGGGNNN.",
+         "..GGGGGGGGGGNnN.", "..GGGGGGGGGGNnN.", "...GGGGGGGGGNnN.", "....D....D......"],
     ]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
-                       colors: ["P": Self.theme, "H": Color(red: 172 / 255, green: 158 / 255, blue: 255 / 255),
-                                "S": Color(red: 88 / 255, green: 68 / 255, blue: 196 / 255), "D": Color(red: 60 / 255, green: 44 / 255, blue: 140 / 255),
-                                "K": Color(red: 30 / 255, green: 27 / 255, blue: 46 / 255), "W": Color(red: 236 / 255, green: 232 / 255, blue: 255 / 255),
-                                "E": Color(red: 30 / 255, green: 27 / 255, blue: 46 / 255), "M": Color(red: 60 / 255, green: 44 / 255, blue: 140 / 255),
-                                "N": Color(red: 240 / 255, green: 232 / 255, blue: 210 / 255), "n": Color(red: 140 / 255, green: 130 / 255, blue: 110 / 255),
-                                "Y": Color(red: 1, green: 228 / 255, blue: 128 / 255)],
+                       colors: ["G": Self.theme, "L": Color(red: 88 / 255, green: 132 / 255, blue: 76 / 255),
+                                "F": Color(red: 40 / 255, green: 42 / 255, blue: 46 / 255), "K": Color(red: 235 / 255, green: 240 / 255, blue: 230 / 255),
+                                "M": Color(red: 90 / 255, green: 120 / 255, blue: 80 / 255), "N": Color(red: 240 / 255, green: 232 / 255, blue: 210 / 255),
+                                "n": Color(red: 140 / 255, green: 130 / 255, blue: 110 / 255), "D": Color(red: 104 / 255, green: 136 / 255, blue: 92 / 255)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Sage")
     }
