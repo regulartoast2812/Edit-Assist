@@ -50,6 +50,8 @@ struct FileChange: Identifiable {
         var folderColors: [String: String] = [:]
         /// The vault's tree as wide as you dragged it (nil: as it starts, 250 points).
         var treeWidth: Double?
+        /// The folder the tree is focused on (its contents shown as the whole tree), nil for the whole vault.
+        var focus: String?
 
         init() {}
         init(from decoder: Decoder) throws {
@@ -68,6 +70,7 @@ struct FileChange: Identifiable {
             recentOpen = try c.decodeIfPresent(Bool.self, forKey: .recentOpen) ?? true
             folderColors = try c.decodeIfPresent([String: String].self, forKey: .folderColors) ?? [:]
             treeWidth = try c.decodeIfPresent(Double.self, forKey: .treeWidth)
+            focus = try c.decodeIfPresent(String.self, forKey: .focus)
         }
     }
 
@@ -159,7 +162,7 @@ struct FileChange: Identifiable {
         }
         let path = found.standardizedFileURL.path
         if path != settings.vault {
-            settings.vault = path; settings.expanded = []
+            settings.vault = path; settings.expanded = []; settings.focus = nil
             // Tabs from another vault close (a topic's own notes stay).
             let recipes = Set(desk?.recipes.map(\.file.standardizedFileURL.path) ?? [])
             let gone = tabs.filter { !$0.file.standardizedFileURL.path.hasPrefix(path + "/") && !recipes.contains($0.file.standardizedFileURL.path) }
@@ -193,6 +196,7 @@ struct FileChange: Identifiable {
             reading = false
             guard self.vault == vault else { return }
             items = found; explorerOrder = order; self.look = look; version += 1
+            keepFocus()
             if let open = note { reveal(open) }
             watch(vault)
         }
@@ -202,6 +206,7 @@ struct FileChange: Identifiable {
     func readNow() {
         guard let vault else { items = []; return }
         items = Study.vaultItems(vault); explorerOrder = Study.explorerOrder(vault); look = Study.look(vault: vault); version += 1
+        keepFocus()
     }
 
     /// An Obsidian vault (a folder holding .obsidian) in Documents, iCloud's Obsidian folder or the home folder, up to 3
@@ -312,7 +317,8 @@ struct FileChange: Identifiable {
     private func reveal(_ file: URL) {
         guard let path = inVault(file) else { return }
         seen(path)
-        guard settings.follow else { return }
+        // Following never leaves a focused folder: a file outside it leaves the tree as it is.
+        guard settings.follow, inFocus(path) else { return }
         for folder in folders(above: path) where !settings.expanded.contains(folder) { settings.expanded.append(folder) }
     }
 
@@ -332,8 +338,44 @@ struct FileChange: Identifiable {
 
     /// A folder or file shown in the tree: the folders it's in open, then the tree brings its row into sight and lights it.
     func showInTree(_ path: String) {
+        leaveFocus(for: path)
         openFolders(above: path)
         spotlight = (path, (spotlight?.count ?? 0) + 1)
+    }
+
+    // MARK: Folder focus (2026-11-10): the tree shows one folder's contents, as Workflowy and Notebook Navigator hoist
+
+    /// The folder the tree is focused on, nil for the whole vault.
+    var focus: String? { settings.focus }
+
+    /// Whether a path shows in the tree as it is focused (everything without a focus).
+    func inFocus(_ path: String) -> Bool { settings.focus.map { Study.inside(path, $0) } ?? true }
+
+    /// The tree focused on a folder (nil or "" for the whole vault); remembered. Coming out to a folder it's in (or the
+    /// whole vault), the folder you were in is brought into sight and lit, so you see where you were.
+    func setFocus(_ folder: String?) {
+        let new = folder.flatMap { $0.isEmpty ? nil : $0 }, old = settings.focus
+        guard new != old else { return }
+        settings.focus = new
+        save()
+        if let old, Study.inside(old, new ?? "") { showInTree(old) }
+    }
+
+    /// One level up: the folder the focused one is in, or the whole vault.
+    func focusUp() { if let focus = settings.focus { setFocus(Study.focusUp(focus)) } }
+
+    /// Before a file or folder outside the focus is shown in the tree, the focus is left (quietly: it is what gets lit).
+    func leaveFocus(for path: String) {
+        guard !inFocus(path) else { return }
+        settings.focus = nil
+        save()
+    }
+
+    /// The focus dropped when its folder is gone from the vault (and named as the vault names it now).
+    private func keepFocus() {
+        guard settings.focus != nil else { return }
+        let kept = Study.keptFocus(settings.focus, items: items)
+        if kept != settings.focus { settings.focus = kept; save() }
     }
 
     /// The sort: yours, else the vault's (workspace.json), as Obsidian names them.
@@ -523,6 +565,7 @@ struct FileChange: Identifiable {
         shownRecent = shownRecent.map { Study.movedPath($0, moves) }
         settings.pinned = settings.pinned.map { Study.movedPath($0, moves) }
         settings.expanded = settings.expanded.map { Study.movedPath($0, moves) }
+        settings.focus = settings.focus.map { Study.movedPath($0, moves) }
         if !settings.folderColors.isEmpty {
             settings.folderColors = Dictionary(settings.folderColors.map { (Study.movedPath($0.key, moves), $0.value) }, uniquingKeysWith: { a, _ in a })
         }
@@ -542,6 +585,7 @@ struct FileChange: Identifiable {
         }
         settings.pinned.removeAll(where: gone)
         settings.recent.removeAll(where: gone); shownRecent.removeAll(where: gone)
+        if let focus = settings.focus, gone(focus) { settings.focus = nil }
         if !closing.isEmpty { closeTabs(closing) } else {
             if let tab { reveal(tab.file) }
             save()

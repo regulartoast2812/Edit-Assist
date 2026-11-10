@@ -2320,6 +2320,8 @@ struct Checks {
         // Sage's vault, note view, Bases and canvases (2026-11-09, brought back from Creative Assist).
         try await sageVault(check)
         try sageNotes(check)
+        // The Properties table edited in place, as in Obsidian (2026-11-10).
+        try sageProperties(check)
         try sageBases(check)
         // Sage as an agent (Vault Agent's commands, the CLI's stream, a run's files and Undo, models, the chat's Markdown).
         try sageAgent(check)

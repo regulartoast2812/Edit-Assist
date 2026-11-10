@@ -142,5 +142,48 @@ extension Checks {
               "A note's edit is undone only if it still reads as it was left")
         let again = SageVaultDesk(place: place)
         check(again.tabs.map(\.file.lastPathComponent) == ["Untitled.md", "K2.md", "K10.md"] && again.note?.lastPathComponent == "K2.md", "The tabs are kept for the next time")
+
+        // Folder focus (2026-11-10): the tree shows one folder's contents, as Workflowy and Notebook Navigator hoist.
+        check(Study.inside("K/Deep/Broth.md", "K") && Study.inside("k/deep", "K") && !Study.inside("K", "K") && !Study.inside("Kale/x.md", "K")
+              && Study.inside("K", "") && !Study.inside("", "")
+              && Study.scoped(["K/K2.md", "Soups/Pho.md", "K/Deep/Broth.md", "K"], to: "K") == ["K/K2.md", "K/Deep/Broth.md"] && Study.scoped(["a"], to: nil) == ["a"],
+              "Focused on a folder, only what's inside it counts (pinned, recent, search), whatever the case")
+        check(Study.focusLevels("A/B/C") == ["A", "A/B"] && Study.focusLevels("A").isEmpty && Study.focusUp("A/B/C") == "A/B" && Study.focusUp("A") == nil,
+              "The breadcrumb's levels above a focus, and one level up (the whole vault from a top folder)")
+        let listedNow = Study.vaultItems(vault)
+        check(Study.keptFocus("k/deep", items: listedNow) == "K/Deep" && Study.keptFocus("K/Gone", items: listedNow) == nil
+              && Study.keptFocus("K/K2.md", items: listedNow) == nil && Study.keptFocus(nil, items: listedNow) == nil,
+              "A focus is kept only while its folder is there, named as the vault names it (a file or a missing folder is no focus)")
+        desk.readNow()
+        desk.setFocus("K")
+        check(desk.focus == "K" && desk.inFocus("K/Deep/Broth.md") && !desk.inFocus("Soups/Phở.md") && !desk.inFocus("K") && SageVaultDesk(place: place).focus == "K",
+              "The tree focuses on a folder, remembered in notes.json")
+        desk.setFocus("K/Deep"); desk.focusUp()
+        let upOnce = desk.focus
+        desk.focusUp()
+        check(upOnce == "K" && desk.focus == nil, "Up a level from a focused folder, then out to the whole vault")
+        desk.setFocus("K")
+        desk.showInTree("Soups/Phở.md")
+        check(desk.focus == nil, "Showing something outside the focus in the tree leaves the focus first")
+        desk.setFocus("K/Deep"); desk.showInTree("K/Deep/Broth.md")
+        check(desk.focus == "K/Deep", "Showing something inside the focus keeps it")
+        desk.readNow()
+        check(desk.rename("K/Deep", to: "Stock") && desk.focus == "K/Stock", "A renamed focused folder keeps the focus: it follows the rename")
+        desk.readNow(); _ = desk.undo()
+        check(desk.focus == "K/Deep", "Undoing the rename takes the focus back with it")
+        desk.readNow()
+        desk.move(["K/Deep"], into: "Soups")
+        check(desk.focus == "Soups/Deep", "A moved focused folder keeps the focus where it went")
+        desk.readNow(); _ = desk.undo(); desk.readNow()
+        desk.delete(["K"])
+        check(desk.focus == nil, "Deleting the focused folder (or one it's in) ends the focus")
+        desk.readNow(); _ = desk.undo(); desk.readNow()
+        desk.setFocus("K/Deep")
+        try fm.moveItem(at: vault.appendingPathComponent("K/Deep"), to: vault.appendingPathComponent("K/Elsewhere"))
+        desk.readNow()
+        check(desk.focus == nil && SageVaultDesk(place: place).focus == nil,
+              "A focused folder gone outside Sage (moved in Finder or Obsidian) ends the focus when the vault is read again")
+        let older = try JSONDecoder().decode(SageVaultDesk.Settings.self, from: Data(#"{"vault":"/x","expanded":["A"],"follow":false}"#.utf8))
+        check(older.focus == nil && older.expanded == ["A"] && !older.follow, "An older notes.json, without a focus, still reads")
     }
 }

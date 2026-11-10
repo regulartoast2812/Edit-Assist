@@ -65,10 +65,11 @@ extension Checks {
         let typed = Study.properties("Created: 2026-04-29\nAuthor:\n  - \"[[Donald Miller]]\"\nSource: \"https://x.y/z\"\ntags: [food]\nTitle: Pho", types: ["Created": "date"])
         check(typed.contains("data-property-type=\"date\"") && typed.contains("type=\"date\" value=\"2026-04-29\"") && typed.contains("data-property-type=\"multitext\"")
               && typed.contains("<a data-href=\"Donald Miller\" href=\"sage-note:Donald Miller\" class=\"internal-link\">Donald Miller</a>") && typed.contains("class=\"metadata-link-inner external-link\"")
-              && typed.contains("data-property-type=\"tags\"") && typed.contains("<div class=\"metadata-input-longtext mod-truncate\" placeholder=\"Empty\">Pho</div>"),
+              && typed.contains("data-property-type=\"tags\"") && typed.contains(" class=\"metadata-input-longtext mod-truncate\" placeholder=\"Empty\">Pho</div>"),
               "Properties show as Obsidian shows each type: dates, lists, links, tags, text")
         let linked = Study.properties("Categories:\n  - \"[[Games]]\"\n  - \"[[Ghost Online|GO]]\"")
-        check(linked.contains("href=\"sage-note:Games\" class=\"internal-link\">Games</a>") && linked.contains(">GO</a>") && !linked.contains("[["),
+        check(linked.contains("href=\"sage-note:Games\" class=\"internal-link\">Games</a>") && linked.contains(">GO</a>")
+              && !linked.replacingOccurrences(of: #"data-value="[^"]*""#, with: "", options: .regularExpression).contains("[["),
               "A [[link]] in a note's properties shows as the link, as Obsidian shows it")
         let styled = Study.notePage("---\ncssclasses: wide\n---\nBody", look: Study.Look(), dark: true, title: "Pho", app: "sage://sage/obsidian/")
         check(styled.contains("<link rel=\"stylesheet\" href=\"sage://sage/obsidian/app.css\">") && styled.contains("src=\"sage://sage/obsidian/icons.js\"") && !styled.contains("--font-default:")

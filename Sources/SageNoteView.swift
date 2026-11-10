@@ -147,13 +147,20 @@ import WebKit
         return "\(file.path)|\(modified)|\(lookKey)|\(items.count)"
     }
 
+    /// What, in the look, draws the page anew when it changes (the property types too: a type you change in the table is
+    /// put in here at once, so the vault reading types.json back doesn't reload the page).
+    private func lookFingerprint(_ look: Study.Look, dark: Bool, vault: URL?, editing: Bool) -> String {
+        let types = look.types.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        return "\(look.css.count)|\(look.accent)|\(dark)|\(look.properties)|\(look.inlineTitle)|\(look.readable)|\(types)|\(vault?.path ?? "")|\(editing)"
+    }
+
     /// The file read off the main thread and made into its page: a note (with its pictures, when it is in the vault), a
     /// Base, a canvas, a picture, or a PDF in WebKit's own viewer. Redrawn only when the file, the vault or its look
     /// changed; the same note changed on disk is redrawn in place, and not while you're editing a part of it.
     func show(_ file: URL, look: Study.Look, dark: Bool, vault: URL?, items: [Study.VaultItem], path: String?) {
         let ext = file.pathExtension.lowercased()
         let editing = ext == "md" && self.editing(look)
-        let newLookKey = "\(look.css.count)|\(look.accent)|\(dark)|\(look.properties)|\(look.inlineTitle)|\(look.readable)|\(look.types.count)|\(vault?.path ?? "")|\(editing)"
+        let newLookKey = lookFingerprint(look, dark: dark, vault: vault, editing: editing)
         let same = isNote && file.standardizedFileURL == self.file?.standardizedFileURL && newLookKey == lookKey
         lookKey = newLookKey; self.items = items
         let wanted = key(file)
@@ -291,14 +298,15 @@ import WebKit
         guard let file else { return }
         let (look, items, path, vault) = (self.look, self.items, self.path, self.vault)
         Task {
-            let (html, lines) = await Task.detached { () -> (String, [String]) in
+            let (html, lines, front) = await Task.detached { () -> (String, [String], String?) in
                 let note = text ?? ((try? Study.readNote(file).text) ?? "")
                 var sizer = Study.noteSizer(note, look: look, title: file.deletingPathExtension().lastPathComponent)
                 if let vault, let path { sizer = Study.withVault(sizer, vault: vault, items: items, from: path, address: Study.vaultAddress) }
-                return (sizer, note.components(separatedBy: "\n"))
+                return (sizer, note.components(separatedBy: "\n"), Study.frontmatter(of: note))
             }.value
             guard file == self.file else { return }
-            post(["type": "body", "html": html, "lines": lines])
+            // With the frontmatter it was drawn from, so the Properties table's next change is written only over that.
+            post(["type": "body", "html": html, "lines": lines, "front": front ?? NSNull()])
         }
     }
 
@@ -351,6 +359,8 @@ import WebKit
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
         switch type {
         case "edit": edit(body)
+        // A property changed in the Properties table (its value, name, type, or removed or added).
+        case "property": property(body)
         // A canvas edited in place, a note's text changed on its card, a card's Markdown drawn.
         case "canvas-save": canvasSave(body)
         case "canvas-note": canvasNote(body)
@@ -489,8 +499,57 @@ import WebKit
         blockOpen = false
         guard let json = try? await web.evaluateJavaScript("window.sageFlush ? window.sageFlush() : ''") as? String, !json.isEmpty,
               var edit = Study.json(Data(json.utf8)) else { return }
+        if edit["type"] as? String == "property" { property(edit); return }
         edit["live"] = true
         self.edit(edit)
+    }
+
+    /// (2026-11-10) One property changed in the Properties table, as Obsidian's editor changes it: only that property's
+    /// lines, only if the frontmatter still reads as the table was drawn from it (`drawn`), the note kept first and
+    /// written in one step (Study.writeNote); then the note is redrawn in place. A type goes into the vault's
+    /// .obsidian/types.json, only when you change one, as Obsidian keeps it.
+    private func property(_ message: [String: Any]) {
+        func refused(_ text: String) { post(["type": "notice", "text": text, "property": true]); sendBody() }
+        guard isNote, let file else { post(["type": "notice", "text": L("Properties can only be changed in a note."), "property": true]); return }
+        let key = message["key"] as? String ?? ""
+        let drawn = message["drawn"] as? String
+        var type: String?
+        let change: Study.PropertyChange
+        switch message["op"] as? String {
+        case "set":
+            change = .set(key: key, values: (message["values"] as? [Any] ?? []).compactMap { $0 as? String },
+                          list: message["list"] as? Bool ?? false, plain: message["plain"] as? Bool ?? false)
+        case "rename": change = .rename(key: key, to: message["to"] as? String ?? "")
+        case "remove": change = .remove(key: key)
+        case "type":
+            guard let to = message["to"] as? String, ["text", "multitext", "number", "checkbox", "date", "datetime"].contains(to) else { sendBody(); return }
+            guard vault != nil else { refused(L("A property's type is kept in the vault's settings, and this note isn't in a vault.")); return }
+            type = to
+            change = .retype(key: key, list: to == "multitext")
+        default: sendBody(); return
+        }
+        do {
+            let was = try Study.readNote(file)
+            let result = Study.changeProperty(was.text, drawn: drawn, change)
+            switch result {
+            case .changed: refused(L("The note's properties changed elsewhere (in Obsidian?), so this wasn't saved. They're shown as the note has them now."))
+            case .taken: refused(L("There's already a property called “%@”.", message["to"] as? String ?? ""))
+            case .complex: refused(L("This value is more than the table shows, so it's changed as YAML: the corner button of the properties."))
+            case .unchanged, .written:
+                if let type, let vault {
+                    try Study.setPropertyType(key, to: type, vault: vault)
+                    // Under the name types.json has it (Study.typesJSON keeps an entry's spelling), as the vault will read it back.
+                    let name = look.types.keys.first { $0 == key } ?? look.types.keys.first { $0.caseInsensitiveCompare(key) == .orderedSame } ?? key
+                    look.types[name] = type
+                    lookKey = lookFingerprint(look, dark: dark, vault: vault, editing: editing(look))
+                }
+                if case .written(let text) = result {
+                    try Study.writeNote(file, text: text, was: was, keep: keep)
+                    shownKey = self.key(file)
+                    sendBody(text)
+                } else { sendBody(was.text) }
+            }
+        } catch { refused(L("Couldn't save the note: %@", error.localizedDescription)) }
     }
 }
 

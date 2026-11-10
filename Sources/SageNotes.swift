@@ -116,7 +116,7 @@ extension Study {
     static func notePage(_ text: String, look: Look, dark: Bool, title: String? = nil, app: String? = nil, editing: Bool = false, vault: String? = nil) -> String {
         let header = split(text).header
         let values = header.isEmpty ? [:] : Study.header(of: "---\n" + header + "\n---\n")
-        let shown = !header.isEmpty && look.properties != "hidden"
+        let shown = bodyStart(text) > 0 && look.properties != "hidden"
         let html = noteSizer(text, look: look, title: title)
         // The note's lines go with a page you can edit, so a block opens as the text it was drawn from.
         var lines = ""
@@ -124,6 +124,9 @@ extension Study {
             let all = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
             lines = "<script>window.sageLines = \(scriptJSON(all)); window.sageEdit = {\"tab\":\(scriptJSON(look.tab)),\"spellcheck\":\(look.spellcheck)};</script>"
         }
+        // (2026-11-10) What the Properties table was drawn from, so a change is written only over that, in either view.
+        let front = frontmatter(of: text).map(scriptJSON) ?? "null"
+        lines += "<script>window.sageProps = {\"front\":\(front),\"shown\":\(look.properties == "visible"),\"words\":\(scriptJSON(propertyWords))};</script>"
         // A note's cssclasses go on its view, as in Obsidian.
         let extra = values["cssclasses"] ?? values["cssclass"] ?? []
         let classes = extra.flatMap { $0.components(separatedBy: CharacterSet(charactersIn: " ,")) }
@@ -209,7 +212,7 @@ extension Study {
     static func noteSizer(_ text: String, look: Look, title: String?) -> String {
         let header = split(text).header
         let start = bodyStart(text)
-        let shown = !header.isEmpty && look.properties != "hidden"
+        let shown = start > 0 && look.properties != "hidden"
         var top = title != nil && look.inlineTitle ? "<div class=\"inline-title\" tabindex=\"-1\">\(escape(title!))</div>" : ""
         if shown && look.properties != "source" {
             top += properties(header, types: look.types).replacingOccurrences(of: "<div class=\"metadata-container\"",
@@ -302,7 +305,7 @@ extension Study {
         for line in header.components(separatedBy: "\n") {
             let indented = line.hasPrefix(" ") || line.hasPrefix("-")
             if indented && line.drop(while: { $0.isWhitespace }).hasPrefix("- "), let last { listed.insert(last); continue }
-            if indented { continue }
+            if indented || line.hasPrefix("#") { continue }
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = trimmedST(line[..<colon])
             last = key
@@ -311,6 +314,7 @@ extension Study {
             if !order.contains(key) { order.append(key) }
         }
         let typesLook = Look(types: types)
+        let spans = propertySpans(header.components(separatedBy: "\n"))
         let rows = order.map { key -> String in
             let list = values[key] ?? []
             let type: String
@@ -330,29 +334,37 @@ extension Study {
             let icon = ["tags": "lucide-tags", "aliases": "lucide-forward", "multitext": "lucide-list", "date": "lucide-calendar", "datetime": "lucide-clock",
                         "number": "lucide-binary", "checkbox": "lucide-check-square"][type] ?? "lucide-text"
             let first = list.first ?? ""
+            // (2026-11-10) Each value is edited where it is, as in Obsidian's Properties (pageScript's `props`), unless
+            // it's more than the table shows (a block or map, or several values under a one-value type): that's YAML.
+            let isList = ["tags", "aliases", "multitext"].contains(type)
+            let locked = spans.first { $0.key == key }?.complex ?? false || (!isList && list.count > 1)
+            let still = locked ? " readonly tabindex=\"-1\"" : ""
             let value: String
             switch type {
             case "tags", "aliases", "multitext":
                 value = "<div class=\"multi-select-container\" tabindex=\"-1\">"
                     + list.map { item in
                         let shown = type == "tags" ? escape(String(item.drop { $0 == "#" })) : propertyValue(item)
-                        return "<div class=\"multi-select-pill\" tabindex=\"0\"><div class=\"multi-select-pill-content\"><span>\(shown)</span></div></div>"
-                    }.joined() + "</div>"
-            case "date": value = "<input class=\"metadata-input metadata-input-text mod-date\" type=\"date\" value=\"\(attribute(first))\" readonly tabindex=\"-1\">"
-            case "datetime": value = "<input class=\"metadata-input metadata-input-text mod-datetime\" type=\"datetime-local\" value=\"\(attribute(String(first.prefix(16))))\" readonly tabindex=\"-1\">"
-            case "number": value = "<input class=\"metadata-input metadata-input-number\" type=\"number\" value=\"\(attribute(first))\" readonly tabindex=\"-1\">"
-            case "checkbox": value = "<input class=\"metadata-input-checkbox\" type=\"checkbox\"\(first == "true" ? " checked" : "") tabindex=\"-1\">"
-            case _ where isLink(first): value = "<div class=\"metadata-link\">\(propertyValue(first, kind: "metadata-link-inner "))<div class=\"metadata-link-flair\" data-sage-icon=\"lucide-pencil\"></div></div>"
-            default: value = "<div class=\"metadata-input-longtext mod-truncate\" placeholder=\"Empty\">\(escape(first))</div>"
+                        return "<div class=\"multi-select-pill\" tabindex=\"0\" data-value=\"\(attribute(item))\"><div class=\"multi-select-pill-content\"><span>\(shown)</span></div>"
+                            + (locked ? "" : "<div class=\"multi-select-pill-remove-button\" data-sage-icon=\"lucide-x\"></div>") + "</div>"
+                    }.joined() + (locked ? "" : "<div class=\"multi-select-input\" contenteditable=\"plaintext-only\" tabindex=\"0\"></div>") + "</div>"
+            case "date": value = "<input class=\"metadata-input metadata-input-text mod-date\" type=\"date\" value=\"\(attribute(first))\"\(still)>"
+            case "datetime": value = "<input class=\"metadata-input metadata-input-text mod-datetime\" type=\"datetime-local\" value=\"\(attribute(String(first.prefix(16))))\"\(still)>"
+            case "number": value = "<input class=\"metadata-input metadata-input-number\" type=\"number\" value=\"\(attribute(first))\"\(still)>"
+            case "checkbox": value = "<input class=\"metadata-input-checkbox\" type=\"checkbox\"\(first == "true" ? " checked" : "")\(locked ? " disabled" : "")>"
+            case _ where isLink(first) && !locked: value = "<div class=\"metadata-link\">\(propertyValue(first, kind: "metadata-link-inner "))<div class=\"metadata-link-flair\" data-sage-icon=\"lucide-pencil\"></div></div>"
+            default: value = "<div\(locked ? "" : " contenteditable=\"plaintext-only\"") class=\"metadata-input-longtext mod-truncate\" placeholder=\"Empty\">\(escape(first))</div>"
             }
-            return "<div class=\"metadata-property\" tabindex=\"0\" data-property-key=\"\(attribute(key))\" data-property-type=\"\(type)\">"
+            return "<div class=\"metadata-property\" tabindex=\"0\" data-property-key=\"\(attribute(key))\" data-property-type=\"\(type)\"\(isList ? "" : " data-value=\"\(attribute(first))\"")\(locked ? " data-sage-complex" : "")>"
                 + "<div class=\"metadata-property-key\"><span class=\"metadata-property-icon\" data-sage-icon=\"\(icon)\"></span>"
-                + "<input class=\"metadata-property-key-input\" type=\"text\" value=\"\(attribute(key))\" readonly tabindex=\"-1\"></div>"
+                + "<input class=\"metadata-property-key-input\" type=\"text\" value=\"\(attribute(key))\" autocapitalize=\"off\" spellcheck=\"false\"></div>"
                 + "<div class=\"metadata-property-value\">\(value)</div></div>"
         }
         return "<div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"\(rows.count)\"><div class=\"metadata-properties-heading\" tabindex=\"0\">"
             + "<div class=\"collapse-indicator collapse-icon\" data-sage-icon=\"right-triangle\"></div><div class=\"metadata-properties-title\">Properties</div></div>"
-            + "<div class=\"metadata-content\"><div class=\"metadata-properties\">\(rows.joined())</div></div></div>"
+            + "<div class=\"metadata-content\"><div class=\"metadata-properties\">\(rows.joined())</div>"
+            + "<div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\" data-sage-icon=\"lucide-plus\"></span>"
+            + "<span class=\"text-button-label\">\(escape(L("Add property")))</span></div></div></div>"
     }
 
     /// A number as .NET reads one (thousands commas allowed, spaces around).
@@ -670,6 +682,18 @@ extension Study {
     .metadata-property-key-input, .metadata-input { background: none; border: none; color: inherit; font: inherit; padding: 0; width: 100%; outline: none; }
     .metadata-property-value { color: var(--text-normal); overflow-wrap: anywhere; flex: 1; }
     .multi-select-pill { display: inline-block; background: var(--tag-background); color: var(--text-accent); padding: 0 .55em; border-radius: 1em; margin: 0 4px 2px 0; }
+    .multi-select-container { display: flex; flex-wrap: wrap; align-items: center; min-height: 1.5em; cursor: text; }
+    .multi-select-pill { display: inline-flex; align-items: center; gap: 3px; } .multi-select-pill-content { display: inline; }
+    .multi-select-pill-remove-button { display: inline-flex; cursor: pointer; opacity: .6; } .multi-select-pill-remove-button:hover { opacity: 1; }
+    .multi-select-pill-remove-button .svg-icon { width: 11px; height: 11px; } .multi-select-input { flex: 1; min-width: 3em; outline: none; }
+    .metadata-input-longtext { outline: none; min-height: 1.4em; cursor: text; } .metadata-input-longtext:empty::before { content: attr(placeholder); color: var(--text-faint); }
+    .metadata-property-icon { display: inline-flex; cursor: pointer; } .metadata-property-icon .svg-icon { width: 14px; height: 14px; }
+    .metadata-add-button { display: inline-flex; align-items: center; gap: 6px; padding: 3px 0; color: var(--text-faint); cursor: pointer; } .metadata-add-button:hover { color: var(--text-muted); }
+    .metadata-add-button .svg-icon { width: 14px; height: 14px; }
+    .menu { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 13px; color: var(--text-normal); }
+    .menu-item { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 4px; cursor: pointer; } .menu-item:hover { background: var(--background-modifier-hover); }
+    .menu-item.is-label { color: var(--text-muted); cursor: default; font-size: 12px; } .menu-item.is-label:hover { background: none; } .menu-item.is-warning { color: var(--text-error, #e5484d); }
+    .menu-item-icon { display: inline-flex; } .menu-item-icon .svg-icon { width: 14px; height: 14px; } .menu-separator { height: 1px; margin: 4px 0; background: var(--background-modifier-border); }
     .list-bullet, .copy-code-button { display: none; } .callout.is-collapsible > .callout-title { cursor: pointer; }
     """#
 
@@ -681,6 +705,11 @@ extension Study {
       display: flex; align-items: center; justify-content: center; font-size: 20px; }
     body[data-sage-edit] .markdown-preview-sizer [data-sage-from] { cursor: text; }
     body[data-sage-edit] .markdown-preview-sizer { padding-bottom: 35vh; }
+    /* The Properties table, edited in place (2026-11-10): its YAML from the corner button, the icon's menu where it was pressed. */
+    body[data-sage-edit] .metadata-container[data-sage-from] { position: relative; cursor: default; }
+    .metadata-container .metadata-property-icon { cursor: pointer; } .metadata-container .metadata-add-button { cursor: pointer; }
+    .metadata-property[data-sage-complex] .metadata-property-value { cursor: default; }
+    .sage-menu { position: fixed; z-index: 10000; min-width: 170px; } .sage-menu .sage-menu-check { margin-left: auto; }
     .sage-editing { margin: var(--p-spacing, 1em) 0; }
     .sage-source { display: block; box-sizing: border-box; width: calc(100% + 16px); margin: 0 -8px; padding: 6px 8px; resize: none; overflow: hidden;
       border: none; outline: none; border-radius: var(--radius-s, 4px); background: var(--background-primary-alt, rgba(127,127,127,.08));
@@ -963,12 +992,16 @@ extension Study {
       // editing, its corner button opens the block's Markdown.
       // A video or sound plays where it is too (2026-11-09: pressing play turned it into its ![[…]] line).
       var embeds = '.va-canvas-embed, .sage-base, .markdown-embed, .va-file-embed-scroll, .va-file-embed-frame, .pdf-embed, .media-embed:not(.image-embed), video, audio';
+      // The Properties table's own words, in your language (Study.propertyWords), and what it was drawn from.
+      var props = window.sageProps || {}, words = props.words || {};
       function decorate(root) {
         if (document.body.hasAttribute('data-sage-edit'))
           root.querySelectorAll('[data-sage-from]').forEach(function (block) {
-            if (!block.querySelector(embeds) || block.querySelector(':scope > .sage-edit-block')) return;
+            // The properties are edited in their table; their YAML, as before, from the corner button.
+            var yaml = block.classList.contains('metadata-container');
+            if ((!yaml && !block.querySelector(embeds)) || block.querySelector(':scope > .sage-edit-block')) return;
             var button = document.createElement('div');
-            button.className = 'sage-edit-block'; button.setAttribute('data-sage-icon', 'lucide-code-2'); button.title = 'Edit this block';
+            button.className = 'sage-edit-block'; button.setAttribute('data-sage-icon', 'lucide-code-2'); button.title = yaml ? (words.yaml || 'Edit the properties as YAML') : 'Edit this block';
             block.appendChild(button);
           });
         root.querySelectorAll('[data-sage-icon]').forEach(function (e) { e.innerHTML = svg(e.getAttribute('data-sage-icon')); });
@@ -1766,7 +1799,15 @@ extension Study {
         return edit;
       }
       // The app asks for what's still unsaved before it shows something else.
-      window.sageFlush = function () { var edit = finish(true); return edit ? JSON.stringify(edit) : ''; };
+      window.sageFlush = function () {
+        var edit = finish(true);
+        if (edit) return JSON.stringify(edit);
+        // A property being changed, or one still waiting to be sent.
+        var op = prop ? propClose(true, true) : null;
+        if (!op && propQueue.length && !propBusy) { op = propQueue.pop(); op.type = 'property'; op.drawn = front; }
+        propQueue = [];
+        return op ? JSON.stringify(op) : '';
+      };
 
       function start(block, from, to, caret) {
         var original = lines.slice(from, to + 1).join('\n');
@@ -1881,21 +1922,327 @@ extension Study {
         post({ type: 'follow', href: go.getAttribute('data-sage-href'), newTab: true });
       });
 
+      // MARK: Properties (2026-11-10, you asked): edited as in Obsidian's Properties table, in either view, never as
+      // YAML. A value is changed where it is (text, a number, a date or time, a tick, a list's pills with × and the space
+      // after them: Enter or a comma adds one, Backspace takes the last), a name by clicking it, the row's icon has the
+      // type and Remove, and Add property (or Cmd+;) adds one. Enter or leaving a field saves, Esc puts it back. Each
+      // change goes to Sage as one property's ('property'), written only over the frontmatter the table was drawn from
+      // (`front`), one at a time; the note is redrawn around the field you're in.
+      var front = props.front === undefined ? null : props.front;
+      var prop = null, propQueue = [], propBusy = false, propBody = null, propFocus = null, propMenu = null;
+      var propTypes = [['text', 'lucide-text'], ['multitext', 'lucide-list'], ['number', 'lucide-binary'], ['checkbox', 'lucide-check-square'], ['date', 'lucide-calendar'], ['datetime', 'lucide-clock']];
+      function propRow(el) { return el && el.closest ? el.closest('.metadata-property') : null; }
+      function propKey(row) { return row.getAttribute('data-property-key') || ''; }
+      function setOp(key, values, list, plain) { return { op: 'set', key: key, values: values, list: list, plain: plain }; }
+      function pillValues(row) {
+        return Array.prototype.map.call(row.querySelectorAll('.multi-select-pill'), function (p) { return p.getAttribute('data-value') || ''; });
+      }
+      function propSend(op) {
+        if (op.op === 'set') propQueue = propQueue.filter(function (q) { return !(q.op === 'set' && q.key === op.key); });
+        propQueue.push(op);
+        propPump();
+      }
+      function propPump() {
+        if (propBusy || !propQueue.length) return;
+        var op = propQueue.shift();
+        op.type = 'property'; op.drawn = front;
+        propBusy = true;
+        post(op);
+      }
+      function propOpen(row, kind, field) {
+        if (prop && prop.field === field) return;
+        if (prop) propClose(true);
+        prop = { row: row, kind: kind, field: field, key: propKey(row), fresh: !!row.sageFresh };
+        prop.was = kind === 'text' ? field.textContent : kind === 'list' ? '' : field.value;
+        prop.saved = kind === 'list' ? pillValues(row) : null;
+        post({ type: 'editing', on: true });
+      }
+      // The field left: saved when it changed (`save`), else put back. With `flushing`, the change is handed back, not sent.
+      function propClose(save, flushing) {
+        if (!prop) return null;
+        var p = prop, op = null;
+        prop = null;
+        if (p.kind === 'name') {
+          var name = p.field.value.trim();
+          if (p.fresh) {
+            var same = null;
+            document.querySelectorAll('.metadata-property').forEach(function (r) { if (r !== p.row && propKey(r).toLowerCase() === name.toLowerCase()) same = r; });
+            var box = p.row.closest('.metadata-container');
+            if (!save || !name || same) {
+              p.row.remove();
+              if (box && box.classList.contains('sage-new') && !box.querySelector('.metadata-property')) { var head = box.parentElement; box.remove(); if (head && !head.children.length) head.remove(); }
+              if (same && save) { propFocus = propKey(same); setTimeout(propRefocus, 0); }
+            } else {
+              p.row.sageFresh = false;
+              p.row.setAttribute('data-property-key', name);
+              op = setOp(name, [], false, false);
+              if (p.next) propFocus = name;
+            }
+          } else if (save && name && name !== p.key) {
+            // Known by its new name at once, so a change to its value right after goes to it.
+            op = { op: 'rename', key: p.key, to: name };
+            p.row.setAttribute('data-property-key', name);
+          } else p.field.value = p.key;
+        } else if (p.kind === 'text') {
+          var text = p.field.textContent.replace(/\s*\n\s*/g, ' ').trim();
+          if (save && text !== p.was.trim()) op = setOp(p.key, text ? [text] : [], false, false);
+          else p.field.textContent = p.was;
+          p.field.classList.add('mod-truncate');
+          if (!op && p.field.sageLink) p.field.replaceWith(p.field.sageLink);
+        } else if (p.kind === 'value') {
+          if (save && p.field.value !== p.was) op = setOp(p.key, p.field.value ? [p.field.value] : [], false, true);
+          else p.field.value = p.was;
+        } else if (p.kind === 'list') {
+          var typed = p.field.textContent.trim();
+          p.field.textContent = '';
+          if (save && typed) addPill(p.row, typed);
+          var now = pillValues(p.row);
+          if (JSON.stringify(now) !== JSON.stringify(p.saved)) op = setOp(p.key, now, true, false);
+        }
+        post({ type: 'editing', on: false });
+        if (op && flushing) { op.type = 'property'; op.drawn = front; return op; }
+        if (op) propSend(op);
+        setTimeout(propSettle, 300);
+        return op;
+      }
+      // Left without saving (the note changed elsewhere): Sage redraws it as it is.
+      function propDrop() {
+        if (!prop) return;
+        var field = prop.field;
+        prop = null;
+        post({ type: 'editing', on: false });
+        field.blur();
+      }
+      // Once you've left the table, it's drawn as the note now has it (links as links, the new values in their places).
+      function propSettle() {
+        if (prop || propBusy || propQueue.length || !propBody) return;
+        var message = propBody;
+        propBody = null;
+        applyBody(message);
+      }
+      // The note redrawn around the table you're in: everything but the header it sits in is replaced. False when the
+      // page isn't laid out so (then the redraw waits until you leave the field).
+      function propKeep(live, message) {
+        var place = sizer(), head = live.closest('.mod-header');
+        if (!place || !head || head.parentElement !== place) return true;
+        var t = document.createElement('template');
+        t.innerHTML = message.html;
+        var fresh = t.content.querySelector('.metadata-container');
+        if (fresh) ['data-sage-from', 'data-sage-to'].forEach(function (a) { if (fresh.hasAttribute(a)) live.setAttribute(a, fresh.getAttribute(a)); });
+        var freshHead = fresh ? fresh.closest('.mod-header') : t.content.querySelector('.mod-header');
+        Array.prototype.slice.call(place.children).forEach(function (c) { if (c !== head) c.remove(); });
+        var before = true;
+        Array.prototype.slice.call(t.content.childNodes).forEach(function (n) {
+          if (n === freshHead) { before = false; return; }
+          if (before) place.insertBefore(n, head); else place.appendChild(n);
+        });
+        lines = message.lines || lines;
+        decorate(place);
+        open = null;
+        waiting = false;
+        return true;
+      }
+      // After a new property's name, its value's field (as Obsidian moves on to it).
+      function propRefocus() {
+        if (!propFocus) return;
+        var name = propFocus, row = null;
+        propFocus = null;
+        document.querySelectorAll('.metadata-property').forEach(function (r) { if (propKey(r) === name) row = r; });
+        if (!row || row.hasAttribute('data-sage-complex')) return;
+        var field = row.querySelector('.multi-select-input, .metadata-input-longtext[contenteditable], input.metadata-input:not([readonly])');
+        if (field) field.focus();
+      }
+      function pillHtml(type, value) {
+        var link = /^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]$/.exec(value), shown = type === 'tags' ? value.replace(/^#+/, '') : link ? (link[2] || link[1]) : value;
+        return '<div class="multi-select-pill-content"><span>' + esc(shown) + '</span></div><div class="multi-select-pill-remove-button">' + svg('lucide-x') + '</div>';
+      }
+      function addPill(row, value) {
+        if (row.getAttribute('data-property-type') === 'tags') value = value.replace(/^#+/, '');
+        value = value.trim();
+        if (!value || pillValues(row).indexOf(value) >= 0) return false;
+        var pill = document.createElement('div');
+        pill.className = 'multi-select-pill'; pill.tabIndex = 0; pill.setAttribute('data-value', value);
+        pill.innerHTML = pillHtml(row.getAttribute('data-property-type'), value);
+        var input = row.querySelector('.multi-select-input');
+        input.parentElement.insertBefore(pill, input);
+        return true;
+      }
+      // A list changed while you're in it: saved at once, as Obsidian does with each pill.
+      function listChanged(row) {
+        var values = pillValues(row);
+        if (prop && prop.row === row) prop.saved = values;
+        propSend(setOp(propKey(row), values, true, false));
+      }
+      // A value shown as its link: the pencil (or the space beside it) edits it as text, its [[ ]] kept.
+      function editLink(row) {
+        var link = row.querySelector('.metadata-link');
+        if (!link) return;
+        var field = document.createElement('div');
+        field.className = 'metadata-input-longtext'; field.setAttribute('placeholder', 'Empty'); field.setAttribute('contenteditable', 'plaintext-only');
+        field.textContent = row.getAttribute('data-value') || '';
+        field.sageLink = link;
+        link.replaceWith(field);
+        field.focus();
+        var range = document.createRange(); range.selectNodeContents(field); range.collapse(false);
+        var pick = getSelection(); pick.removeAllRanges(); pick.addRange(range);
+      }
+      // A new property's row (Add property, Cmd+;): its name first. A note without properties gets the table here; its
+      // frontmatter is written with the first one.
+      function propAdd() {
+        var box = document.querySelector('.metadata-container');
+        if (!box) {
+          var place = sizer();
+          if (!props.shown || !place) return;
+          var head = place.querySelector(':scope > .mod-header');
+          if (!head) {
+            head = document.createElement('div'); head.className = 'mod-header mod-ui';
+            var pusher = place.querySelector(':scope > .markdown-preview-pusher');
+            place.insertBefore(head, pusher ? pusher.nextSibling : place.firstChild);
+          }
+          box = document.createElement('div');
+          box.className = 'metadata-container sage-new';
+          box.innerHTML = '<div class="metadata-properties-heading"><div class="collapse-indicator collapse-icon">' + svg('right-triangle') + '</div><div class="metadata-properties-title">Properties</div></div>'
+            + '<div class="metadata-content"><div class="metadata-properties"></div></div>';
+          head.appendChild(box);
+        }
+        box.classList.remove('is-collapsed');
+        var row = document.createElement('div');
+        row.className = 'metadata-property'; row.setAttribute('data-property-key', ''); row.setAttribute('data-property-type', 'text');
+        row.sageFresh = true;
+        row.innerHTML = '<div class="metadata-property-key"><span class="metadata-property-icon">' + svg('lucide-text') + '</span>'
+          + '<input class="metadata-property-key-input" type="text" autocapitalize="off" spellcheck="false"></div>'
+          + '<div class="metadata-property-value"><div class="metadata-input-longtext" placeholder="Empty"></div></div>';
+        box.querySelector('.metadata-properties').appendChild(row);
+        row.querySelector('input').focus();
+      }
+      function propMenuClose() { if (propMenu) { propMenu.remove(); propMenu = null; } }
+      // The icon's menu: the property's type (as Obsidian's; tags, aliases and cssclasses keep theirs) and Remove.
+      function propMenuOpen(icon) {
+        propMenuClose();
+        var row = propRow(icon), key = propKey(row), type = row.getAttribute('data-property-type');
+        if (row.sageFresh) return;
+        function item(action, iconName, title, extra, checked) {
+          return '<div class="menu-item tappable' + (extra || '') + '" data-sage-action="' + attr(action) + '"><div class="menu-item-icon">' + svg(iconName) + '</div>'
+            + '<div class="menu-item-title">' + esc(title || '') + '</div>' + (checked ? '<div class="menu-item-icon sage-menu-check">' + svg('lucide-check') + '</div>' : '') + '</div>';
+        }
+        var html = '';
+        if (!/^(tags|aliases|cssclasses)$/i.test(key)) {
+          html += '<div class="menu-group"><div class="menu-item is-label"><div class="menu-item-title">' + esc(words.type || 'Property type') + '</div></div>';
+          propTypes.forEach(function (t) { html += item('type:' + t[0], t[1], words[t[0]], '', t[0] === type); });
+          html += '</div><div class="menu-separator"></div>';
+        }
+        html += '<div class="menu-group">' + item('remove', 'lucide-trash-2', words.remove || 'Remove', ' is-warning') + '</div>';
+        var menu = document.createElement('div');
+        menu.className = 'menu sage-menu';
+        menu.innerHTML = '<div class="menu-scroll">' + html + '</div>';
+        var r = icon.getBoundingClientRect();
+        menu.style.left = Math.max(4, r.left) + 'px'; menu.style.top = (r.bottom + 4) + 'px';
+        document.body.appendChild(menu);
+        var m = menu.getBoundingClientRect();
+        if (m.bottom > window.innerHeight - 4) menu.style.top = Math.max(4, r.top - m.height - 4) + 'px';
+        if (m.right > window.innerWidth - 4) menu.style.left = Math.max(4, window.innerWidth - m.width - 4) + 'px';
+        menu.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        menu.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          var choice = e.target.closest('[data-sage-action]');
+          if (!choice) return;
+          var action = choice.getAttribute('data-sage-action');
+          propMenuClose();
+          if (action === 'remove') { row.remove(); propSend({ op: 'remove', key: key }); }
+          else if (action.indexOf('type:') === 0 && action.slice(5) !== type) propSend({ op: 'type', key: key, to: action.slice(5) });
+        });
+        propMenu = menu;
+      }
+      document.addEventListener('mousedown', function (e) { if (propMenu && !propMenu.contains(e.target)) propMenuClose(); }, true);
+      document.addEventListener('scroll', function () { propMenuClose(); }, true);
+      function propClick(event, target) {
+        var heading = target.closest('.metadata-properties-heading');
+        if (heading) { heading.parentElement.classList.toggle('is-collapsed'); return; }
+        if (target.closest('.metadata-add-button')) { event.preventDefault(); propAdd(); return; }
+        var row = propRow(target);
+        if (!row) return;
+        var icon = target.closest('.metadata-property-icon');
+        if (icon) { event.preventDefault(); if (propMenu && propMenu.sageIcon === icon) propMenuClose(); else { propMenuOpen(icon); if (propMenu) propMenu.sageIcon = icon; } return; }
+        var x = target.closest('.multi-select-pill-remove-button');
+        if (x) { event.preventDefault(); x.closest('.multi-select-pill').remove(); listChanged(row); return; }
+        if (!target.closest('.metadata-property-value')) return;
+        // More than the table shows: its YAML, while editing.
+        if (row.hasAttribute('data-sage-complex')) {
+          var block = row.closest('[data-sage-from]');
+          if (editable && block && !waiting && !open) start(block, +block.getAttribute('data-sage-from'), +block.getAttribute('data-sage-to'), null);
+          return;
+        }
+        if (row.querySelector('.metadata-link')) { editLink(row); return; }
+        if (target.closest('input, [contenteditable], .multi-select-pill')) return;
+        // The space beside a value: its field, the caret at the end.
+        var field = row.querySelector('.multi-select-input, .metadata-input-longtext[contenteditable], input.metadata-input:not([readonly])');
+        if (!field) return;
+        field.focus();
+        if (field.isContentEditable) { var range = document.createRange(); range.selectNodeContents(field); range.collapse(false); var pick = getSelection(); pick.removeAllRanges(); pick.addRange(range); }
+      }
+      document.addEventListener('focusin', function (e) {
+        var t = e.target, row = propRow(t);
+        if (!row || !t.closest('.metadata-container')) return;
+        if (t.matches('.metadata-property-key-input')) propOpen(row, 'name', t);
+        else if (t.matches('.multi-select-input')) propOpen(row, 'list', t);
+        else if (t.matches('.metadata-input-longtext[contenteditable]')) { t.classList.remove('mod-truncate'); propOpen(row, 'text', t); }
+        else if (t.matches('input.metadata-input:not([readonly])')) propOpen(row, 'value', t);
+      });
+      document.addEventListener('focusout', function (e) { if (prop && e.target === prop.field) propClose(true); });
+      document.addEventListener('change', function (e) {
+        var box = e.target.closest && e.target.closest('.metadata-input-checkbox');
+        var row = propRow(box);
+        if (box && row && !box.disabled) propSend(setOp(propKey(row), [box.checked ? 'true' : 'false'], false, true));
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.metaKey && !e.shiftKey && !e.altKey && e.key === ';') { e.preventDefault(); if (prop) prop.field.blur(); propAdd(); return; }
+        if (propMenu && e.key === 'Escape') { e.preventDefault(); propMenuClose(); return; }
+        if (!prop || e.target !== prop.field || e.isComposing) return;
+        var p = prop;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); propClose(false); p.field.blur(); return; }
+        if (p.kind === 'list') {
+          var typed = p.field.textContent.trim();
+          if (e.key === 'Enter' || (e.key === ',' && !e.metaKey && !e.ctrlKey)) {
+            e.preventDefault();
+            if (typed) { p.field.textContent = ''; if (addPill(p.row, typed)) listChanged(p.row); }
+            else if (e.key === 'Enter') p.field.blur();
+          } else if (e.key === 'Backspace' && !p.field.textContent.length) {
+            var pills = p.row.querySelectorAll('.multi-select-pill');
+            if (pills.length) { e.preventDefault(); pills[pills.length - 1].remove(); listChanged(p.row); }
+          }
+        } else if (e.key === 'Enter') { e.preventDefault(); p.next = true; p.field.blur(); }
+      });
+      function applyBody(message) {
+        var place = sizer();
+        place.innerHTML = message.html;
+        lines = message.lines || lines;
+        decorate(place);
+        open = null;
+        waiting = false;
+        if (queued && editable) { var q = queued; queued = null; var at = document.elementFromPoint(q.x, q.y); if (at) openAt(at, q.x, q.y); }
+        propRefocus();
+      }
       window.sageReceive = function (message) {
         if (message.type === 'body') {
-          var place = sizer();
-          place.innerHTML = message.html;
-          lines = message.lines || lines;
-          decorate(place);
-          open = null;
-          waiting = false;
-          if (queued && editable) { var q = queued; queued = null; var at = document.elementFromPoint(q.x, q.y); if (at) openAt(at, q.x, q.y); }
+          if ('front' in message) front = message.front;
+          propBusy = false;
+          // While you're in a property's field, the note is redrawn around its table, which stays as you have it.
+          var live = prop && prop.row.isConnected ? prop.row.closest('.metadata-container') : null;
+          if (live && propKeep(live, message)) propBody = message;
+          else { propBody = null; applyBody(message); }
+          propPump();
         }
         else if (message.type === 'placed') {
           lines = message.lines || lines;
           if (open) { open.from = message.from; open.to = message.to; }
         }
-        else if (message.type === 'notice') { waiting = false; notice(message.text); if (window.sageCanvasMessage) window.sageCanvasMessage(message); }
+        else if (message.type === 'notice') {
+          waiting = false;
+          // A property change that couldn't be written: the field is left (nothing more sent), the table redrawn as the note has it.
+          if (message.property) { propQueue = []; propBusy = false; propDrop(); }
+          notice(message.text);
+          if (window.sageCanvasMessage) window.sageCanvasMessage(message);
+        }
         else if (window.sageCanvasMessage) window.sageCanvasMessage(message);
       };
 
@@ -1926,6 +2273,8 @@ extension Study {
           }
           return;
         }
+        // The properties, edited in their table (a link in a value still opens its note).
+        if (target.closest('.metadata-container')) { if (!target.closest('a')) propClick(event, target); return; }
         if (target.closest('a')) return;
         // A base: its views, its groups folding, a card opening its note.
         var tab = target.closest('[data-sage-view-tab]');
