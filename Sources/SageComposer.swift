@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Sage's message box (2026-11-10, you asked for one like Claude's that takes media and @ tags as Kino's prompt does):
-/// a rounded box in his purple while you write, the text growing a few lines then scrolling, files attached above it
+/// a rounded box in his colour while you write, the text growing a few lines then scrolling, files attached above it
 /// (+, dropped on the box or the chat, or pasted), and a row under it: + to attach, / for his commands, his model, and
 /// send (Stop while he works). Return sends, Shift+Return starts a line. Typing @ lists the vault's notes and files
 /// (Kino's list, `KinoTagPicker`); the one picked shows as a pill and is kept as its [[link]]. What a tag and an
