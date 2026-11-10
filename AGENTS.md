@@ -220,7 +220,7 @@ advice), for the team, is `prompting.md`, opened from How to prompt on his page;
 `api/user/auth-tokens/rotate` for the new one (one renewal shared by every request refused at once). The sign-in window
 uses a web data store of its own (`GrafanaWeb`, WKWebsiteDataStore(forIdentifier:), macOS 14; 2026-11-08, from the Windows
 app: you were asked to sign in too often) that keeps only Google's sign-in: Grafana's cookies are deleted from it as soon
-as the session is taken, so it never holds or renews Penny's session. When Grafana won't renew the session, Penny signs in
+as the session is taken, so it never holds or renews Penny's session. When Grafana won't renew the session, or refuses the renewed one at once (2026-11-10, after the Mac slept), Penny signs in
 again out of sight with it (`GrafanaWeb.silently`: a see-through window off every screen, 25 s, never focused; one at a
 time), and once when his page opens signed out; only when Google wants you is he signed out. He never sees or keeps the
 password and never reads your browsers. **Sign out** removes the store; a session ending does not. penny/sign-ins.log says

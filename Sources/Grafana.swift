@@ -40,7 +40,7 @@ enum Grafana {
     enum Failure: Error { case signedOut, refused(Int, String) }
 
     /// A read (GET), or a query (POST to /api/ds/query), with the session; a session past its rotation is renewed once.
-    static func request(_ path: String, body: Data? = nil, renewed: Bool = false) async throws -> Data {
+    static func request(_ path: String, body: Data? = nil, renewed: Bool = false, again: Bool = false) async throws -> Data {
         guard let session else { throw Failure.signedOut }
         // "" is Grafana's own page, which URL(string:) can't make.
         guard let url = path.isEmpty ? base : URL(string: path, relativeTo: base) else { throw Failure.refused(0, L("Penny asked Grafana for a page that can't exist: %@", path)) }
@@ -59,8 +59,10 @@ enum Grafana {
             // Renewed (Grafana's rotation), or failing that signed in again with the remembered Google account.
             if !renewed {
                 if try await renewal.renew(refused: session) { return try await self.request(path, body: body, renewed: true) }
-                if await renewal.again(refused: session) { return try await self.request(path, body: body, renewed: true) }
             }
+            // Renewal failed, or the renewed session was refused at once (2026-11-10, after the Mac slept): sign in
+            // again with the remembered Google account, once, before giving up.
+            if !again, await renewal.again(refused: session) { return try await self.request(path, body: body, renewed: true, again: true) }
             if Self.session == session {
                 Self.session = nil
                 note("Signed out: Grafana refused the session on \(url.path)\(renewed ? " just after it was renewed" : "")")
@@ -232,6 +234,8 @@ final class PennyDesk: ObservableObject {
     @Published private(set) var exploring = false
     @Published private(set) var reading = false
     @Published private(set) var failure: String?
+    /// Signing in again out of sight with the remembered Google account, when the page opens signed out.
+    @Published private(set) var signingInAgain = false
     /// Penny's own copy of the ads' numbers by product, kept up to date while you are signed in.
     let ledger = PennyLedger()
     private var sources: [Grafana.Source]
@@ -283,10 +287,15 @@ final class PennyDesk: ObservableObject {
             // Signed out when the page opens (the session ended while the app was closed): once, sign in again by himself.
             if Grafana.session == nil, !triedAgain, let again = Grafana.signInAgain {
                 triedAgain = true
-                if let session = await again() {
+                signingInAgain = true
+                let session = await again()
+                signingInAgain = false
+                if let session {
                     Grafana.session = session
                     Grafana.note("Signed in again by himself when Penny opened")
                     ledger.start()
+                } else {
+                    Grafana.note("Couldn't sign in again by himself when Penny opened: Google wanted you, or no account is remembered")
                 }
             }
             guard Grafana.session != nil else { state = .signedOut; return }

@@ -110,7 +110,10 @@ struct PennyPage: View {
     @ViewBuilder var account: some View {
         switch desk.state {
         case .checking, .signedIn:
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(L("Checking with Grafana…")).font(.system(size: 12)) }
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(desk.signingInAgain ? L("Signing in again with your Google account, out of sight (up to 25 seconds)…") : L("Checking with Grafana…")).font(.system(size: 12))
+            }
         case .failed(let reason):
             status(false, reason)
             HStack(spacing: 8) {

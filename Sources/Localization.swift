@@ -926,6 +926,7 @@ enum Vietnamese {
         "%@ and up": "%@ trở lên",
         "share of spend": "tỷ lệ chi tiêu",
         "share of revenue": "tỷ lệ doanh thu",
+        "Signing in again with your Google account, out of sight (up to 25 seconds)…": "Đang đăng nhập lại bằng tài khoản Google của bạn, chạy ngầm (tối đa 25 giây)…",
         "Grafana's database was busy and dropped the copy of %@ three times; Penny tries again in 5 minutes. Nothing copied before is lost.": "Cơ sở dữ liệu của Grafana đang bận và đã bỏ bản sao %@ ba lần; Penny sẽ thử lại sau 5 phút. Dữ liệu đã sao chép trước đó không bị mất.",
         "Last %@ days the ads ran": "%@ ngày chạy gần nhất",
         "Orders then": "Đơn khi đó",
