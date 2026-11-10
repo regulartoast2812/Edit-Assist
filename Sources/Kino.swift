@@ -2175,11 +2175,9 @@ final class KinoPromptTextView: NSTextView {
 /// A named file in the prompt: a rounded pill with its name, in its role's colour; with a command, the role before the
 /// name ("Start · K2") in that role's colour.
 final class KinoTagAttachment: NSTextAttachment {
-    /// What it is in the text kept: "@K2", or "/start @K2".
+    /// What it is in the text kept: "@K2", or "/start @K2" (Sage's tags: "[[Notes/Idea]]").
     let written: String
-    init(_ file: KinoPromptTag, command: KinoRole? = nil, seconds: Double? = nil) {
-        written = command.map { KinoPrompt.written($0, file.handle, seconds: seconds) } ?? "@" + file.handle
-        super.init(data: nil, ofType: nil)
+    convenience init(_ file: KinoPromptTag, command: KinoRole? = nil, seconds: Double? = nil) {
         let tint = command?.tint ?? file.tint
         let text = NSMutableAttributedString()
         if let command {
@@ -2187,10 +2185,17 @@ final class KinoTagAttachment: NSTextAttachment {
             text.append(NSAttributedString(string: L(command.short) + time + "  ", attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .bold), .foregroundColor: tint.withAlphaComponent(0.8)]))
         }
         text.append(NSAttributedString(string: file.name, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: tint]))
+        self.init(written: command.map { KinoPrompt.written($0, file.handle, seconds: seconds) } ?? "@" + file.handle,
+                  text: text, tint: tint, fill: command == nil ? 0.16 : 0.24)
+    }
+    /// Any pill: `written` kept in the text, `text` drawn on a rounded fill of `tint` (shared with Sage's message box).
+    init(written: String, text: NSAttributedString, tint: NSColor, fill: CGFloat = 0.16) {
+        self.written = written
+        super.init(data: nil, ofType: nil)
         let size = NSSize(width: ceil(text.size().width) + 16, height: 21)
         image = NSImage(size: size, flipped: false) { rect in
             let shape = NSBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 0.5), xRadius: 5, yRadius: 5)
-            tint.withAlphaComponent(command == nil ? 0.16 : 0.24).setFill()
+            tint.withAlphaComponent(fill).setFill()
             shape.fill()
             tint.withAlphaComponent(0.5).setStroke()
             shape.lineWidth = 1

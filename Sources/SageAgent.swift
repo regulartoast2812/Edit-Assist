@@ -322,11 +322,13 @@ extension Study {
     }
 
     /// Claude's arguments, Vault Agent's: a first turn fixes the session's id, later turns resume it.
-    static func claudeArguments(_ settings: AgentSettings, session: String, resume: Bool) -> [String] {
+    /// `folders`: more folders it may read and work in besides the vault (Sage's attachments, when files you attached are there).
+    static func claudeArguments(_ settings: AgentSettings, session: String, resume: Bool, folders: [String] = []) -> [String] {
         var arguments = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
         if !settings.claudeModel.isEmpty { arguments += ["--model", settings.claudeModel] }
         arguments += ["--permission-mode", settings.permissionMode.isEmpty ? "bypassPermissions" : settings.permissionMode]
         if !settings.claudeEffort.isEmpty { arguments += ["--effort", settings.claudeEffort] }
+        if !folders.isEmpty { arguments += ["--add-dir"] + folders }
         return arguments + (resume ? ["--resume", session] : ["--session-id", session])
     }
 

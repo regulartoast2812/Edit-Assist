@@ -61,8 +61,11 @@ struct SageIcon: View {
 /// written into the topic's folder and opens in Notes; a note can be asked about. Narrower windows stack the columns.
 struct SagePage: View {
     @ObservedObject var desk: SageDesk
-    @State private var draft = ""
+    /// The message being written: its text, tags and files (SageComposer.swift).
+    @StateObject private var composer = SageComposerModel()
     @State private var dropping = false
+    /// Files dragged over the chat, to attach.
+    @State private var chatDropping = false
     @State private var findChat = ""
     @State private var history = false
     @State private var words = ""
@@ -325,7 +328,6 @@ struct SagePage: View {
     var chatColumn: some View {
         panel(L("CHAT"), trailing: {
             HStack(spacing: 6) {
-                SageModelMenu(desk: desk)
                 Button { history.toggle() } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 22, height: 20) }.buttonStyle(.plain).modifier(SageHoverLit()).help(L("Past chats"))
                     .popover(isPresented: $history, arrowEdge: .bottom) { historyList.padding(10).frame(width: 300) }
                 Button { desk.newChat() } label: { Image(systemName: "square.and.pencil").frame(width: 22, height: 20) }.buttonStyle(.plain).modifier(SageHoverLit()).help(L("New chat")).disabled(desk.current == nil)
@@ -334,6 +336,16 @@ struct SagePage: View {
             Text(desk.conversations.first { $0.id == desk.current }.map { $0.title.isEmpty ? L("New chat") : $0.title } ?? L("New chat"))
                 .font(.system(size: 12, weight: .semibold)).lineLimit(1)
             conversation
+        }
+        // Files dropped anywhere on the chat are attached to the message being written.
+        .onDrop(of: [.fileURL], isTargeted: $chatDropping) { composer.attach($0) }
+        .overlay {
+            if chatDropping {
+                RoundedRectangle(cornerRadius: 10).strokeBorder(accent, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .background(accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay { Label(L("Drop to attach"), systemImage: "paperclip").font(.system(size: 12, weight: .medium)).foregroundStyle(accent) }
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -384,6 +396,8 @@ struct SagePage: View {
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
                         Text(md: L("He works in your vault with full tools: any note, its properties, bases and canvases, many notes at once. On the open note: **/process**, **/summarize**, **/review**, **/categorize**, **/links**, **/rename**, **/fetch**, **/transcribe**; **/memory** opens his memories. Words after a command are added to it."))
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(md: L("Type **@** to tag a note or file of your vault (\"summarise @Note\", \"compare @A with @B\"). Attach pictures, videos, PDFs or any file with **+**, by dropping them here or pasting: he looks at them."))
+                            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(desk.chat) { message($0) }
                     if answering && desk.agentMessage == nil {
@@ -394,8 +408,9 @@ struct SagePage: View {
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
             }
-            // The chat panel fills the columns' height: its title rows, the box and the padding take about 118 pt.
-            .frame(height: max(300, columnsHeight - 118))
+            // The chat panel fills the columns' height: its title rows, the box and the padding take about 118 pt, and
+            // the message box more as it grows (its text, its files, its row of buttons).
+            .frame(height: max(240, columnsHeight - 118 - (composer.height + 36 + (composer.files.isEmpty ? 0 : 68) - 24)))
             .onAppear { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.current) { _, _ in reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             .onChange(of: desk.chat.count) { _, _ in withAnimation { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) } }
@@ -405,30 +420,25 @@ struct SagePage: View {
                 if desk.agentMessage != nil { reader.scrollTo(desk.chat.last?.id, anchor: .bottom) }
             }
         }
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(L("Message Sage"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1 ... 5).onSubmit(send)
-            if desk.agentRun != nil {
-                Button { desk.stopAgent() } label: { Label(L("Stop"), systemImage: "stop.fill") }.help(L("Stops Sage and the commands he started"))
-            } else {
-                Button(L("Send"), action: send).disabled(desk.thinking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
+        SageComposer(desk: desk, vault: desk.vault, model: composer, send: send)
     }
 
     private func send() {
-        guard !desk.thinking else { return }
-        desk.send(draft); draft = ""
+        guard !desk.thinking, !composer.isEmpty else { return }
+        desk.send(composer.text, files: composer.files)
+        composer.clear()
     }
 
     func message(_ message: Study.Message) -> some View {
         HStack(alignment: .top, spacing: 8) {
             if message.fromSage { PixelSage(pixel: 1.25).frame(width: 22) } else { Spacer(minLength: 40) }
             VStack(alignment: message.fromSage ? .leading : .trailing, spacing: 8) {
+                if let files = message.files, !files.isEmpty { SageMessageFiles(paths: files, accent: accent) }
                 if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Group {
-                        // His replies drawn as Markdown, as Vault Agent's panel draws them; yours as you typed them.
+                        // His replies drawn as Markdown, as Vault Agent's panel draws them; yours as you typed them, each tag a link to its note.
                         if message.fromSage { SageMarkdown(text: message.text) { desk.openLink($0) } } else {
-                            Text(message.text).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            SageSentText(text: message.text, accent: accent) { desk.openLink($0) }
                         }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 7)

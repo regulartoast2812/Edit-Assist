@@ -359,6 +359,9 @@ enum Study {
         var run: AgentRun? = nil
         /// A request waiting for you to choose the agent's model (the first run asks), sent once you do.
         var ask: String? = nil
+        /// The files you attached (full paths: in the vault, or copied into sage/attachments/; SageComposerText.swift).
+        /// Nil in older chats and in messages without any.
+        var files: [String]? = nil
     }
 
     /// One conversation in the chat's history: titled by your first message (empty until you write one), newest first in the list.
@@ -371,7 +374,10 @@ enum Study {
         var agent: AgentSession? = nil
 
         var title: String {
-            let first = messages.first { !$0.fromSage }?.text ?? ""
+            // Tags as their names; a message of files alone by its first file's name.
+            let message = messages.first { !$0.fromSage }
+            var first = Study.tagsShown(message?.text ?? "")
+            if first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let file = message?.files?.first { first = (file as NSString).lastPathComponent }
             let line = first.split(whereSeparator: \.isNewline).first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !line.isEmpty else { return "" }
             return line.count > 60 ? String(line.prefix(57)).trimmingCharacters(in: .whitespaces) + "…" : line

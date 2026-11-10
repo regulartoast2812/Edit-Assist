@@ -106,8 +106,8 @@ extension SageDesk {
         edit(messageID, in: id) { message in
             request = message.ask
             message.ask = nil
-            message.text = effort.isEmpty ? L("I'll use %@ from now on. Change it any time from the model menu at the top of the chat.", model)
-                                          : L("I'll use %@ (%@ effort) from now on. Change it any time from the model menu at the top of the chat.", model, effort)
+            message.text = effort.isEmpty ? L("I'll use %@ from now on. Change it any time from the model menu under the message box.", model)
+                                          : L("I'll use %@ (%@ effort) from now on. Change it any time from the model menu under the message box.", model, effort)
         }
         choose(model: model, effort: effort)
         saveChats()
@@ -128,8 +128,9 @@ extension SageDesk {
         return path.hasPrefix("/") ? nil : (file, path)
     }
 
-    /// One of Vault Agent's commands, from the chat ("/review in three bullets") or the note bar.
-    func quick(_ name: String, extra: String, in id: UUID) async {
+    /// One of Vault Agent's commands, from the chat ("/review in three bullets") or the note bar. `note`: a note the
+    /// message tags ("/summarize @Note"), worked on instead of the open one; `context`: the message's tags and files.
+    func quick(_ name: String, extra: String, in id: UUID, note: String? = nil, context: String = "") async {
         switch name {
         case "memory":
             await openMemories(in: id)
@@ -137,15 +138,15 @@ extension SageDesk {
             _ = await runMedia(name, in: id)
         case "localize":
             // Process & localize, as Vault Agent: the media fetched first, then processed only when that worked.
-            if await runMedia("fetch", in: id) { await runQuick("process", extra: extra, in: id) }
+            if await runMedia("fetch", in: id) { await runQuick("process", extra: extra, in: id, note: note, context: context) }
         default:
-            await runQuick(name, extra: extra, in: id)
+            await runQuick(name, extra: extra, in: id, note: note, context: context)
         }
     }
 
-    private func runQuick(_ name: String, extra: String, in id: UUID) async {
-        let active = workVault.flatMap { openNote(in: $0) }?.path
-        await runAgent(Study.expandSlash("/\(name) \(extra)", active: active), in: id)
+    private func runQuick(_ name: String, extra: String, in id: UUID, note: String? = nil, context: String = "") async {
+        let active = note ?? workVault.flatMap { openNote(in: $0) }?.path
+        await runAgent(Study.expandSlash("/\(name) \(extra)", active: active) + context, in: id)
     }
 
     /// Sage saying something went wrong, as a failure line under his message.
@@ -194,7 +195,7 @@ extension SageDesk {
         guard let model = chosenModel(provider) else {
             await loadAgentModels()
             // The first run: which model, and how hard it thinks (you asked for no default, 2026-11-09).
-            var message = Study.Message(fromSage: true, text: L("Before I work in your vault: which model should I use, and with how much effort? I'll remember it; change it any time from the model menu at the top of the chat."))
+            var message = Study.Message(fromSage: true, text: L("Before I work in your vault: which model should I use, and with how much effort? I'll remember it; change it any time from the model menu under the message box."))
             message.ask = request
             append(message, to: id)
             return
@@ -221,7 +222,10 @@ extension SageDesk {
         if let file = active?.file { await Task.detached { backups.keep(file) }.value }
 
         let session = previous ?? (codex ? nil : UUID().uuidString.lowercased())
-        let arguments = codex ? Study.codexArguments(settings, session: previous) : Study.claudeArguments(settings, session: session ?? "", resume: previous != nil)
+        // Files attached from outside the vault are in Sage's attachments folder: Claude may read there too.
+        let attachments = Self.attachmentsPlace.path
+        let arguments = codex ? Study.codexArguments(settings, session: previous)
+            : Study.claudeArguments(settings, session: session ?? "", resume: previous != nil, folders: request.contains(attachments) ? [attachments] : [])
         var environment = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser
         let pythons = (try? FileManager.default.contentsOfDirectory(atPath: home.appendingPathComponent("Library/Python").path)) ?? []

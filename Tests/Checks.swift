@@ -2318,6 +2318,8 @@ struct Checks {
         // Sage as an agent (Vault Agent's commands, the CLI's stream, a run's files and Undo, models, the chat's Markdown).
         try sageAgent(check)
         try await sageMedia(check)
+        // Sage's message box: @ tags, attached files kept with the chat, what he is told about them.
+        try sageComposer(check)
         // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
         do {
             let missing = (EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }
