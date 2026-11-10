@@ -630,6 +630,19 @@ enum Ledger {
 
     // MARK: Copying
 
+    /// What a folder takes on disk, everything in it, and how many files.
+    nonisolated static func size(of folder: URL) -> (bytes: Int64, files: Int) {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileSizeKey, .isRegularFileKey]
+        guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return (0, 0) }
+        var bytes: Int64 = 0, files = 0
+        for case let file as URL in walk {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            bytes += Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
+            files += 1
+        }
+        return (bytes, files)
+    }
+
     /// A failure that passes: Grafana's database is a read-only replica, and it cancels a query when it has to catch up
     /// with the main one ("canceling statement due to conflict with recovery", 2026-11-09), or a gateway or the network
     /// hiccups. Penny asks again soon rather than giving up for half an hour.
@@ -863,6 +876,9 @@ final class PennyLedger: ObservableObject {
     @Published private(set) var failure: String?
     /// When the copy runs again by itself.
     @Published private(set) var next: Date?
+    /// What the copy takes on disk (penny/history) and how many files, measured off the main thread when the app
+    /// opens and after each copy (2026-11-10: you asked to see it).
+    @Published private(set) var stored: (bytes: Int64, files: Int)?
     /// Days you picked that are older than the copy keeps: copied once, and kept.
     private var asked: Set<String> = []
     var onSignedOut: (() -> Void)?
@@ -873,6 +889,16 @@ final class PennyLedger: ObservableObject {
 
     init() {
         summary = (try? Data(contentsOf: Self.summaryFile)).flatMap { try? Ledger.decoder.decode(Ledger.Summary.self, from: $0) } ?? Ledger.Summary()
+        measure()
+    }
+
+    /// Measures the copy on disk again, off the main thread.
+    func measure() {
+        let folder = Self.folder
+        Task.detached(priority: .utility) { [weak self] in
+            let size = Ledger.size(of: folder)
+            await MainActor.run { self?.stored = size }
+        }
     }
 
     /// The products copied, most spent over the days first.
@@ -945,6 +971,7 @@ final class PennyLedger: ObservableObject {
             }
         }
         copying = nil
+        measure()
     }
 
     /// Asked again after 10 and 30 seconds when the failure passes (`Ledger.passing`), three times in all.

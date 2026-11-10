@@ -787,6 +787,16 @@ struct DataState: View {
                 Text("·").foregroundStyle(.secondary)
                 Text(L("Grafana has today up to %@, Alaska time", Ledger.hourName(hour))).foregroundStyle(.secondary)
             }
+            Spacer(minLength: 12)
+            // What the copy takes on disk, and its folder in Finder to zip, copy or share (2026-11-10: you asked).
+            if let stored = ledger.stored {
+                Label(L("%@ saved", ByteCountFormatter.string(fromByteCount: stored.bytes, countStyle: .file)), systemImage: "internaldrive")
+                    .foregroundStyle(.secondary)
+                    .help(L("%@ files in %@: each product's days, and the summary", String(stored.files), PennyLedger.folder.path))
+            }
+            Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
+                .buttonStyle(.bordered).controlSize(.small)
+                .help(L("Opens the folder Penny keeps the copy in, selected, to compress, copy or share"))
         }
     }
 

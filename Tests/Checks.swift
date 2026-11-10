@@ -1383,6 +1383,12 @@ struct Checks {
             check(Ledger.passing(Grafana.Failure.refused(400, "db query error: pq: canceling statement due to conflict with recovery"))
                   && Ledger.passing(Grafana.Failure.refused(504, "")) && !Ledger.passing(Grafana.Failure.refused(400, "syntax error at or near")) && !Ledger.passing(Grafana.Failure.signedOut),
                   "A busy replica or a gateway's hiccup is asked again; a bad query or a lost session isn't")
+            let sized = FileManager.default.temporaryDirectory.appendingPathComponent("penny-size-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: sized.appendingPathComponent("P"), withIntermediateDirectories: true)
+            try? Data(count: 5000).write(to: sized.appendingPathComponent("P/a.json.gz")); try? Data(count: 10).write(to: sized.appendingPathComponent("summary.json"))
+            let measured = Ledger.size(of: sized)
+            check(measured.files == 2 && measured.bytes >= 5010, "Penny measures what his copy takes on disk, every file in it")
+            try? FileManager.default.removeItem(at: sized)
             let trickle = spentDay("2026-11-10", [(1, 10, 0), (2, 10, 0), (3, 10, 0)])
             check(!Ledger.ran(trickle) && Ledger.ran(spentDay("2026-11-11", (0 ..< 12).map { ($0, 5, 0) })) && Ledger.ran(spentDay("2026-11-12", [(4, 300, 0)])),
                   "A day counts for the hours when the ads ran in 12 hours or spent $300")
