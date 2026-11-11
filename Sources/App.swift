@@ -111,15 +111,27 @@ struct ContentView: View {
         renamingTitle = false; titleFocused = false
     }
     @State private var settingsDestination: String?
+    /// The sidebar folded to a rail of icons (you asked for it, 2026-11-11); remembered across launches.
+    @AppStorage("sidebarCollapsed") private var sidebarCollapsed = false
+    /// The rail item under the pointer, the one whose card shows, where it is, and whether the pointer is on the card.
+    @State private var railPointer: String?
+    @State private var railCard: String?
+    @State private var railFrame: CGRect = .zero
+    @State private var railCardHovered = false
+    static let railWidth: CGFloat = 64
     var body: some View {
         HStack(spacing: 0) {
-            sidebar.frame(width: 224)
+            Group { if sidebarCollapsed { rail } else { sidebar } }
+                .frame(width: sidebarCollapsed ? Self.railWidth : 224)
                 // The page remembered from last time (Store.tab), if it's still here; else the function's page.
                 .onAppear { if !(["function", "project", "Assistant"] + Self.helpers.map(\.tab)).contains(s.tab) { s.tab = "function" } }
             Divider()
             VStack(spacing: 0) {
-                header
-                Divider()
+                // A helper's page has no project header: the project and detection are for functions (you asked, 2026-11-11).
+                if !Self.helpers.contains(where: { $0.tab == s.tab }) {
+                    header
+                    Divider()
+                }
                 // The run bar belongs to functions: a helper's page shows it only while a function runs, to pause or stop it.
                 if !Self.helpers.contains(where: { $0.tab == s.tab }) || s.busy {
                     footer
@@ -172,6 +184,21 @@ struct ContentView: View {
                 }
             }
         }
+        .coordinateSpace(.named("window"))
+        // The folded sidebar's card: the item in full beside its icon while the pointer is on either.
+        .overlay(alignment: .topLeading) {
+            if sidebarCollapsed, let key = railCard {
+                GeometryReader { window in
+                    railCardView(key)
+                        .onHover { inside in railCardHovered = inside; if !inside { hideRailCardSoon() } }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: 236)
+                        .offset(x: Self.railWidth + 6, y: max(8, min(railFrame.minY - 6, window.size.height - 150)))
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: railCard)
         .overlayPreferenceValue(GuideTargets.self) { anchors in GuideOverlay(anchors: anchors).environmentObject(s) }
         // Bo asking you to rebuild an account Finder has stopped showing properly.
         .modifier(BoReconnectDialog(watcher: s.bo, busy: s.busy))
@@ -226,6 +253,11 @@ struct ContentView: View {
                     Text(md: L("EDIT ASSIST")).font(.system(size: 14, weight: .heavy, design: .rounded)).tracking(1.3)
                     Text(md: L("Your editing companion")).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
+                Spacer(minLength: 0)
+                Button { withAnimation(.easeOut(duration: 0.18)) { sidebarCollapsed = true } } label: {
+                    Image(systemName: "sidebar.left").font(.system(size: 13)).foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
+                }.buttonStyle(.plain).help(L("Fold the sidebar to icons"))
             }.padding(.top, 14)
             // Projects, functions and helpers scroll when the window is too short for them all; the rest stays put.
             ScrollView {
@@ -233,16 +265,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack { label(L("PROJECTS")); Spacer(); Button { s.addProject() } label: { Image(systemName: "plus") }.buttonStyle(.plain).disabled(s.busy) }
                         ForEach(s.projects) { project in
-                            Button { if s.selected != project.id { s.select(project.id) }; s.tab = "project" } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "film.stack").foregroundStyle(s.selected == project.id ? accent : .secondary)
-                                    Text(project.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                                    Spacer(minLength: 0)
-                                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(s.selected == project.id ? accent.opacity(s.tab == "project" ? 0.16 : 0.07) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                                    .foregroundStyle(s.selected == project.id && s.tab == "project" ? accent : .primary)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(s.busy)
+                            projectRow(project)
                                 .guideTarget(project.id == s.selected ? "project" : "other-project")
                                 .sidebarDraggable("project:" + project.id.uuidString, dragging: $draggingRow, disabled: s.busy) { id in
                                     guard let moved = UUID(uuidString: id), let place = s.projects.firstIndex(where: { $0.id == project.id }) else { return }
@@ -306,6 +329,162 @@ struct ContentView: View {
                 .guideTarget("log")
             Text(md: L("Edit Assist · Preview")).font(.system(size: 10)).foregroundStyle(.secondary)
         }.padding(18).background(panel.opacity(0.55))
+    }
+
+    /// A project in the sidebar (and in the folded sidebar's card): opens its page.
+    func projectRow(_ project: Project) -> some View {
+        Button { if s.selected != project.id { s.select(project.id) }; s.tab = "project" } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "film.stack").foregroundStyle(s.selected == project.id ? accent : .secondary)
+                Text(project.name).font(.system(size: 12, weight: .medium)).lineLimit(2)
+                Spacer(minLength: 0)
+            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(s.selected == project.id ? accent.opacity(s.tab == "project" ? 0.16 : 0.07) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(s.selected == project.id && s.tab == "project" ? accent : .primary)
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(s.busy)
+    }
+
+    /// The sidebar folded: one icon per project, function and helper, in the same order; hovering one shows it in full
+    /// beside the rail (its card works like the row: Run, Pause, open the page). The logo opens the sidebar again.
+    var rail: some View {
+        VStack(spacing: 12) {
+            Button { withAnimation(.easeOut(duration: 0.18)) { railCard = nil; sidebarCollapsed = false } } label: {
+                Image(systemName: "cursorarrow.motionlines").font(.system(size: 22)).foregroundStyle(accent)
+                    .frame(width: 40, height: 36).contentShape(Rectangle())
+            }.buttonStyle(.plain).help(L("Open the sidebar")).padding(.top, 14)
+            ScrollView {
+                VStack(spacing: 7) {
+                    ForEach(s.projects) { project in
+                        let on = s.selected == project.id
+                        Button { if !on { s.select(project.id) }; s.tab = "project" } label: {
+                            railTile(selected: on && s.tab == "project", color: accent, lit: on) {
+                                Text(Self.monogram(project.name)).font(.system(size: 12, weight: .bold, design: .rounded))
+                            }
+                        }.buttonStyle(.plain).disabled(s.busy)
+                            .railHover("project:" + project.id.uuidString, in: self)
+                            .guideTarget(on ? "project" : "other-project")
+                            .sidebarDraggable("project:" + project.id.uuidString, dragging: $draggingRow, disabled: s.busy) { id in
+                                guard let moved = UUID(uuidString: id), let place = s.projects.firstIndex(where: { $0.id == project.id }) else { return }
+                                s.moveProject(moved, to: place)
+                            }
+                    }
+                    Button { s.addProject() } label: {
+                        Image(systemName: "plus").font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 40, height: 26).contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(s.busy).help(L("New project"))
+                    Divider().padding(.horizontal, 6).padding(.vertical, 5)
+                    let functions = SidebarOrder.ordered(EditFunction.allCases.map(\.rawValue), saved: functionOrder)
+                    ForEach(functions.compactMap(EditFunction.init)) { job in
+                        railFunction(job)
+                            .railHover("function:" + job.rawValue, in: self)
+                            .guideTarget(job == s.function ? "function" : "other-function")
+                            .sidebarDraggable("function:" + job.rawValue, dragging: $draggingRow) { id in
+                                functionOrder = SidebarOrder.moved(id, to: job.rawValue, in: functions)
+                            }
+                    }
+                    Divider().padding(.horizontal, 6).padding(.vertical, 5)
+                    let helpers = SidebarOrder.ordered(Self.helpers.map(\.tab), saved: helperOrder)
+                    ForEach(helpers, id: \.self) { tab in
+                        let color = Self.helperThemes[tab] ?? accent
+                        Button { s.tab = tab } label: {
+                            railTile(selected: s.tab == tab, color: color, lit: s.tab == tab) { helperIcon(tab) }
+                        }.buttonStyle(.plain)
+                            .railHover("helper:" + tab, in: self)
+                            .sidebarDraggable("helper:" + tab, dragging: $draggingRow) { id in
+                                helperOrder = SidebarOrder.moved(id, to: tab, in: helpers)
+                            }
+                    }
+                }.padding(.vertical, 2)
+            }.scrollIndicators(.never)
+            VStack(spacing: 6) {
+                if s.update != nil {
+                    Button { s.installUpdate() } label: {
+                        Image(systemName: s.installingUpdate ? "hourglass" : "arrow.down.circle.fill").font(.system(size: 16)).foregroundStyle(accent)
+                            .frame(width: 40, height: 32).background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 9))
+                    }.buttonStyle(.plain).disabled(s.busy || s.installingUpdate).railHover("note:" + L("Update to latest version"), in: self)
+                }
+                Button { settingsOpen = true } label: { railIcon("gearshape") }.buttonStyle(.plain).railHover("note:" + L("Settings"), in: self)
+                Button { techStackOpen = true } label: { railIcon("square.stack.3d.up") }.buttonStyle(.plain).railHover("note:" + L("Tech stack"), in: self)
+                Menu {
+                    ForEach(EditFunction.allCases) { job in Button(L(job.title)) { s.startGuide(job) } }
+                } label: { railIcon("questionmark.circle") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(s.busy).tint(.primary)
+                    .railHover("note:" + L("Guide"), in: self)
+                LogSidebarItem(open: $logOpen, compact: true).environmentObject(s)
+                    .popover(isPresented: $logOpen, arrowEdge: .trailing) { ErrorLogView().environmentObject(s) }
+                    .guideTarget("log").railHover("note:" + L("Log"), in: self)
+            }
+        }.padding(.horizontal, 10).padding(.bottom, 14).frame(maxWidth: .infinity).background(panel.opacity(0.55))
+    }
+
+    /// A project's initials for the rail ("Shelara" → "Sh", "Crafty Hold" → "CH").
+    static func monogram(_ name: String) -> String {
+        let words = name.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }).filter { $0.first?.isLetter == true || $0.first?.isNumber == true }
+        if words.count >= 2 { return String(words[0].prefix(1) + words[1].prefix(1)).uppercased() }
+        return words.first.map { $0.prefix(1).uppercased() + $0.dropFirst().prefix(1).lowercased() } ?? "?"
+    }
+
+    func railIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 40, height: 30).contentShape(Rectangle())
+    }
+
+    func railTile<Content: View>(selected: Bool, color: Color, lit: Bool, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(width: 40, height: 40)
+            .background(color.opacity(selected ? 0.16 : lit ? 0.07 : 0.04), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color.opacity(selected ? 0.4 : 0), lineWidth: 1))
+            .foregroundStyle(selected || lit ? color : .secondary)
+            .contentShape(Rectangle())
+    }
+
+    /// A function on the rail: its icon inside a ring of its progress; while it runs, the icon pauses and continues it.
+    func railFunction(_ job: EditFunction) -> some View {
+        let showing = s.tab == "function" && s.function == job
+        let running = s.activeFunction == job
+        let tint: Color = running && s.runPaused ? .orange : accent
+        return Button { if running { s.toggleRunPause() } else { s.function = job; s.tab = "function" } } label: {
+            railTile(selected: showing, color: accent, lit: running) {
+                ZStack {
+                    Circle().stroke(.white.opacity(0.08), lineWidth: 2.5)
+                    Circle().trim(from: 0, to: s.progress(of: job).fraction).stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: running ? (s.runPaused ? "play.fill" : "pause.fill") : job.icon).font(.system(size: running ? 10 : 12))
+                        .foregroundStyle(running ? tint : showing ? accent : .secondary)
+                }.frame(width: 28, height: 28)
+            }
+        }.buttonStyle(.plain)
+    }
+
+    /// What the card beside the rail shows: the row itself for a project, function or helper, else the item's name.
+    @ViewBuilder func railCardView(_ key: String) -> some View {
+        let kind = String(key.prefix { $0 != ":" })
+        let id = String(key.drop { $0 != ":" }.dropFirst())
+        Group {
+            if kind == "function", let job = EditFunction(rawValue: id) {
+                functionRow(job)
+            } else if kind == "helper" {
+                helper(id)
+            } else if kind == "project", let uuid = UUID(uuidString: id), let project = s.projects.first(where: { $0.id == uuid }) {
+                projectRow(project)
+            } else {
+                Text(id).font(.system(size: 12, weight: .medium)).padding(.horizontal, 10).padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(6)
+        .background(panel, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.09), lineWidth: 1))
+        .shadow(color: .black.opacity(0.45), radius: 14, y: 4)
+    }
+
+    /// The pointer on a rail item shows its card at once; leaving it (and the card) hides the card a moment later,
+    /// so the pointer can cross the gap onto the card to press Run.
+    func railEnter(_ key: String, frame: CGRect) { railPointer = key; railCard = key; railFrame = frame }
+    func railLeave(_ key: String) { if railPointer == key { railPointer = nil }; hideRailCardSoon() }
+    func hideRailCardSoon() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            if railPointer == nil && !railCardHovered { railCard = nil }
+        }
     }
 
     private var techStackSheet: some View {
@@ -733,18 +912,20 @@ struct ContentView: View {
     ]
     @ViewBuilder func helper(_ tab: String) -> some View {
         if let helper = Self.helpers.first(where: { $0.tab == tab }) {
-            helperRow(helper.tab, helper.name, helper.role) {
-                switch tab {
-                case "amir": AmirIcon(watcher: s.amir)
-                case "tala": PixelTala(pixel: 1.1)
-                case "bo": BoIcon(watcher: s.bo)
-                case "pix": PixIcon(desk: s.studio.pix)
-                case "don": DonIcon(don: s.studio.don)
-                case "kino": PixelKino(pixel: 1.25)
-                case "sage": SageIcon(desk: s.sage)
-                default: PennyIcon(desk: s.penny)
-                }
-            }
+            helperRow(helper.tab, helper.name, helper.role) { helperIcon(tab) }
+        }
+    }
+    /// A helper's pixel icon, alive as in its row (the sidebar and the folded rail both show it).
+    @ViewBuilder func helperIcon(_ tab: String) -> some View {
+        switch tab {
+        case "amir": AmirIcon(watcher: s.amir)
+        case "tala": PixelTala(pixel: 1.1)
+        case "bo": BoIcon(watcher: s.bo)
+        case "pix": PixIcon(desk: s.studio.pix)
+        case "don": DonIcon(don: s.studio.don)
+        case "kino": PixelKino(pixel: 1.25)
+        case "sage": SageIcon(desk: s.sage)
+        default: PennyIcon(desk: s.penny)
         }
     }
 
@@ -1462,6 +1643,8 @@ func severityColor(_ done: Double?) -> Color {
 struct LogSidebarItem: View {
     @EnvironmentObject var s: Store
     @Binding var open: Bool
+    /// On the folded sidebar: the icon alone, with the count of new problems as a badge.
+    var compact = false
     @State private var pulse = false
     var worst: Color {
         let fresh = s.problems.suffix(s.unseenProblems)
@@ -1471,6 +1654,19 @@ struct LogSidebarItem: View {
     var body: some View {
         let alerting = s.unseenProblems > 0
         Button { open.toggle(); s.unseenProblems = 0 } label: {
+            if compact {
+                Image(systemName: alerting ? "exclamationmark.triangle.fill" : "doc.text.magnifyingglass").font(.system(size: 14))
+                    .foregroundStyle(alerting ? worst : .secondary)
+                    .frame(width: 40, height: 30)
+                    .background(alerting ? worst.opacity(pulse ? 0.22 : 0.08) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(alignment: .topTrailing) {
+                        if alerting {
+                            Text("\(s.unseenProblems)").font(.system(size: 8, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1)
+                                .background(worst, in: Capsule()).foregroundStyle(.black).offset(x: 2, y: -2)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            } else {
             HStack(spacing: 6) {
                 Label(L("Log"), systemImage: alerting ? "exclamationmark.triangle.fill" : "doc.text.magnifyingglass").font(.system(size: 12))
                     .foregroundStyle(alerting ? worst : .primary)
@@ -1489,6 +1685,7 @@ struct LogSidebarItem: View {
                 }
             }
             .contentShape(Rectangle())
+            }
         }
         .buttonStyle(.plain)
         .onAppear { pulse = false; withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { pulse = true } }
@@ -1554,7 +1751,23 @@ enum SidebarOrder {
     }
 }
 
+/// A folded-sidebar item: tells the page when the pointer comes onto it (with where it is) and leaves it.
+struct RailHover: ViewModifier {
+    let key: String
+    let enter: (String, CGRect) -> Void
+    let leave: (String) -> Void
+    @State private var frame: CGRect = .zero
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("window")) } action: { frame = $0 }
+            .onHover { inside in if inside { enter(key, frame) } else { leave(key) } }
+    }
+}
+
 extension View {
+    func railHover(_ key: String, in page: ContentView) -> some View {
+        modifier(RailHover(key: key, enter: page.railEnter, leave: page.railLeave))
+    }
     /// A sidebar row you can drag to another place in its own list ("kind:id"); the others slide aside as it passes.
     func sidebarDraggable(_ id: String, dragging: Binding<String?>, disabled: Bool = false, move: @escaping (String) -> Void) -> some View {
         let kind = id.prefix { $0 != ":" }

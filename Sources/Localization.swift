@@ -465,6 +465,8 @@ enum Vietnamese {
         "Done": "Xong",
         "Cancel": "Huỷ",
         "New project": "Dự án mới",
+        "Fold the sidebar to icons": "Thu gọn thanh bên thành biểu tượng",
+        "Open the sidebar": "Mở thanh bên",
         "Quit Edit Assist": "Thoát Edit Assist",
         "Permissions…": "Quyền…",
         "Connection settings": "Cài đặt kết nối",
