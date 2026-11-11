@@ -388,6 +388,8 @@ import WebKit
         case "edit": edit(body)
         // A property changed in the Properties table (its value, name, type, or removed or added).
         case "property": property(body)
+        // (2026-11-11) Cells of a base's table changed: typed, picked, pasted, cleared or undone.
+        case "base-cell": baseCells(body)
         // A canvas edited in place, a note's text changed on its card, a card's Markdown drawn.
         case "canvas-save": canvasSave(body)
         case "canvas-note": canvasNote(body)
@@ -528,6 +530,7 @@ import WebKit
         guard let json = try? await web.evaluateJavaScript("window.sageFlush ? window.sageFlush() : ''") as? String, !json.isEmpty,
               var edit = Study.json(Data(json.utf8)) else { return }
         // Another file shown while it was asked: what was typed goes into the note it was typed in, never this one.
+        if edit["type"] as? String == "base-cell" { baseCells(edit, redraw: target == file); return }
         if let target, target != file {
             if edit["type"] as? String != "property" { editQuietly(edit, in: target) }
             return
@@ -595,6 +598,69 @@ import WebKit
                 } else { sendBody(was.text) }
             }
         } catch { refused(L("Couldn't save the note: %@", error.localizedDescription)) }
+    }
+}
+
+extension SageNotePage {
+    /// (2026-11-11) Cells of a base's table, in this base or one embedded in this note, each written into its note as the
+    /// Properties table writes a property (`Study.changeCell`): only that property's lines, only if the note's value still
+    /// reads as the cell showed it, the note kept first. Then the base is drawn again in place.
+    func baseCells(_ message: [String: Any], redraw: Bool = true) {
+        guard let vault else { return }
+        let root = vault.standardizedFileURL.path + "/"
+        var refused = 0, failed: String?
+        var done: [[String: Any]] = []
+        for raw in message["edits"] as? [[String: Any]] ?? [] {
+            let strings = { (key: String) in (raw[key] as? [Any] ?? []).compactMap { $0 as? String } }
+            let edit = Study.BaseCellEdit(path: raw["path"] as? String ?? "", key: raw["key"] as? String ?? "", was: strings("was"), values: strings("values"),
+                                          list: raw["list"] as? Bool ?? false, plain: raw["plain"] as? Bool ?? false)
+            let full = vault.appendingPathComponent(edit.path).standardizedFileURL
+            guard !edit.key.isEmpty, full.pathExtension.lowercased() == "md", full.path.hasPrefix(root) else { continue }
+            do {
+                let was = try Study.readNote(full)
+                switch Study.changeCell(was.text, edit) {
+                case .written(let text):
+                    try Study.writeNote(full, text: text, was: was, keep: keep)
+                    done.append(raw)
+                case .unchanged: done.append(raw)
+                case .changed, .complex: refused += 1
+                }
+            } catch { failed = error.localizedDescription }
+        }
+        if let failed { post(["type": "notice", "text": L("Couldn't save the note: %@", failed)]) }
+        else if refused > 0 {
+            post(["type": "notice", "text": refused == 1 ? L("That note changed elsewhere (in Obsidian?) or its value is more than a cell shows, so it wasn't saved. The table shows it as it is now.")
+                                                          : L("%d notes changed elsewhere (in Obsidian?) or hold more than a cell shows, so they weren't saved. The table shows them as they are now.", refused)])
+        }
+        post(["type": "base-saved", "done": done])
+        guard redraw else { return }
+        freshen(paths: (message["edits"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String })
+        redrawBase()
+    }
+
+    /// The edited notes' dates brought up to date in the vault's list, so Bases reads them again (it keeps notes by date).
+    private func freshen(paths: [String]) {
+        guard let vault else { return }
+        let wanted = Set(paths.map { $0.lowercased() })
+        for i in items.indices where wanted.contains(items[i].path.lowercased()) {
+            if let date = try? vault.appendingPathComponent(items[i].path).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate { items[i].modified = date }
+        }
+    }
+
+    /// The base drawn again from the notes as they are now and swapped in, keeping the view, scroll and cells picked;
+    /// a note embedding one is redrawn as after any change.
+    private func redrawBase() {
+        guard let file, let vault else { return }
+        guard file.pathExtension.lowercased() == "base" else { sendBody(); return }
+        let (items, path) = (self.items, self.path)
+        Task {
+            let html = await Task.detached { () -> String? in
+                guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+                return Study.withVault(Study.baseHTML(text, vault: vault, items: items, address: Study.vaultAddress, selfPath: path), vault: vault, items: items, from: path, address: Study.vaultAddress)
+            }.value
+            guard let html, file == self.file else { return }
+            post(["type": "base-html", "html": html])
+        }
     }
 }
 

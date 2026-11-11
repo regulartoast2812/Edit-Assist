@@ -806,6 +806,7 @@ extension Study {
         let root = yaml(baseText) as? YamlMap ?? YamlMap()
         let finder = LinkFinder(items)
         let notes = baseNotes(vault: vault, items: items, finder: finder)
+        let types = vaultTypes(vault)
         let selfNote = selfPath.flatMap { path in notes.first { same($0.item.path, path) } }
         var problems: [String] = []
         func compile(_ expression: String) -> Compiled? {
@@ -951,12 +952,27 @@ extension Study {
                 }
                 return cellHTML(row, id, value, finder, address, items)
             }
+            // (2026-11-11) A property column is edited in place: how (Study.cellKind) and, for a menu or a list, the
+            // values the vault already uses for it, most used first. Formula and file columns stay read only.
+            var kinds: [String: String] = [:], options: [String: [String]] = [:]
+            for column in columns where column.id.hasPrefix("note.") {
+                let key = String(column.id.dropFirst(5))
+                let kind = cellKind(key: key, type: types.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value,
+                                    values: ordered.map { row in cell(row, column.id) }, chips: chips.contains(column.id))
+                kinds[column.id] = kind
+                if kind == "select" || kind == "list" {
+                    var counts: [String: (shown: String, count: Int)] = [:]
+                    for note in notes { for value in cellValues(note.prop(key)) { counts[value.lowercased(), default: (value, 0)].count += 1 } }
+                    options[column.id] = counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.shown.lowercased() < $1.shown.lowercased() }.prefix(200).map(\.shown)
+                }
+            }
             if type == "table" {
                 html += "<table class=\"sage-base-table\"><colgroup>"
                 for column in columns { html += column.width.map { "<col style=\"width: \($0)px\">" } ?? "<col>" }
                 html += "</colgroup><thead><tr>"
                 for column in columns {
-                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\">"
+                    let listed = options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? ""
+                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\"\(listed)>"
                         + "<span class=\"bases-table-header-icon\" data-sage-icon=\"\(columnIcon(column.id))\"></span>\(escape(column.title))</th>"
                 }
                 html += "</tr></thead>"
@@ -964,8 +980,18 @@ extension Study {
                     html += "<tbody>"
                     if group.title != nil { html += "<tr class=\"sage-base-group-row\"><td colspan=\"\(columns.count)\">\(heading(group))</td></tr>" }
                     for row in group.rows {
-                        html += "<tr class=\"sage-base-row\">"
-                        for column in columns { html += "<td><div class=\"sage-base-cell bases-rendered-value\">\(value(row, column.id, cell(row, column.id)))</div></td>" }
+                        html += "<tr class=\"sage-base-row\" data-sage-path=\"\(attribute(row.note.item.path))\">"
+                        for column in columns {
+                            let v = cell(row, column.id)
+                            var editing = ""
+                            if let kind = kinds[column.id], row.note.item.ext == ".md" {
+                                editing = " data-sage-kind=\"\(kind)\" data-sage-key=\"\(attribute(String(column.id.dropFirst(5))))\" data-sage-was=\"\(attribute(Study.scriptJSON(cellValues(v))))\""
+                            }
+                            let shown = kinds[column.id] == "checkbox"
+                                ? "<input type=\"checkbox\" class=\"metadata-input-checkbox\" data-sage-tick\(cellValues(v).first?.lowercased() == "true" ? " checked" : "")>"
+                                : value(row, column.id, v)
+                            html += "<td data-sage-cell\(editing)><div class=\"sage-base-cell bases-rendered-value\">\(shown)</div></td>"
+                        }
                         html += "</tr>"
                     }
                     html += "</tbody>"

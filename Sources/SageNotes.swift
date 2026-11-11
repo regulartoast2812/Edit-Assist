@@ -778,6 +778,26 @@ extension Study {
     .sage-base .bases-group-heading .collapse-icon .svg-icon { width: 14px; height: 14px; transition: transform .15s; }
     .sage-base .bases-group-count { color: var(--text-faint); font-size: var(--font-ui-smaller, 12px); }
     .sage-base-none { color: var(--text-faint); } .sage-base .sage-base-cell { overflow-wrap: break-word; }
+    .sage-base-table td[data-sage-cell] { cursor: default; } .sage-base-table td[data-sage-kind] .sage-chip { cursor: pointer; }
+    .sage-base-table td.sage-cell-picked { background: rgba(var(--interactive-accent-rgb, 124, 58, 237), 0.12) !important; }
+    .sage-base-table td.sage-cell-focus { box-shadow: inset 0 0 0 2px var(--interactive-accent) !important; }
+    .sage-base-table td.sage-cell-focus.is-idle { box-shadow: inset 0 0 0 2px var(--background-modifier-border-hover) !important; }
+    .sage-base-table input[data-sage-tick] { cursor: pointer; }
+    .sage-cell-catcher { position: fixed; left: -10000px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .sage-cell-editor { position: fixed; z-index: 60; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 5px 9px; max-width: 480px;
+      background: var(--background-primary); border-radius: var(--radius-s, 4px); box-shadow: 0 0 0 2px var(--interactive-accent), var(--shadow-s, 0 2px 8px rgba(0,0,0,.25)); font-family: var(--font-interface, inherit); }
+    .sage-cell-editor .sage-cell-field { flex: 1 1 80px; min-width: 80px; width: 100%; margin: 0; padding: 0; border: none !important; outline: none !important; box-shadow: none !important; background: transparent !important;
+      color: var(--text-normal); font: inherit; font-size: var(--font-text-size, inherit); line-height: 1.5; resize: none; height: auto; }
+    .sage-cell-editor input[type=date], .sage-cell-editor input[type=datetime-local] { color-scheme: light dark; }
+    .sage-cell-pills { display: contents; }
+    .sage-cell-pill { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 1px 4px 1px 8px; border-radius: var(--pill-radius, 12px); background: var(--pill-background, var(--background-modifier-hover)); color: var(--pill-color, var(--text-normal)); font-size: var(--font-ui-small, 13px); }
+    .sage-cell-pill-x { display: inline-flex; cursor: pointer; color: var(--text-faint); } .sage-cell-pill-x:hover { color: var(--text-normal); } .sage-cell-pill-x .svg-icon { width: 12px; height: 12px; }
+    .sage-cell-menu { position: fixed; z-index: 61; box-sizing: border-box; max-width: 360px; max-height: 260px; overflow-y: auto; padding: 4px; background: var(--background-secondary, var(--background-primary));
+      border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); box-shadow: var(--shadow-l, 0 8px 24px rgba(0,0,0,.35)); font-family: var(--font-interface, inherit); font-size: var(--font-ui-small, 13px); }
+    .sage-cell-menu[hidden] { display: none; }
+    .sage-cell-option { padding: 5px 8px; border-radius: var(--radius-s, 4px); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-normal); }
+    .sage-cell-option.is-lit { background: var(--background-modifier-hover); } .sage-cell-option.is-current { font-weight: var(--font-semibold, 600); }
+    .sage-cell-option.is-new { color: var(--text-accent); } .sage-cell-option.is-clear { color: var(--text-muted); border-top: 1px solid var(--background-modifier-border); margin-top: 2px; }
     .sage-base-cards-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 18px; }
     .sage-base-cards-group[hidden] { display: none; }
     .sage-base-card { display: flex; flex-direction: column; padding-bottom: 10px; overflow: hidden; cursor: pointer; user-select: none;
@@ -2387,6 +2407,434 @@ extension Study {
           shownKey = '';
           if (!frame) frame = requestAnimationFrame(update);
         }).observe(scroller, { childList: true, subtree: true });
+      })();
+      // (2026-11-11, you asked) A base's table edited in place, as a spreadsheet: a click picks a cell (Shift or a drag picks
+      // more), a second click, a double-click, Enter or typing edits it (text, number, date, a menu of the values the vault
+      // uses, a list's pills); a chip opens its menu at once, a tick toggles. Cmd+C, X and V copy, cut and paste
+      // (tab-separated, as spreadsheets do, so a range pastes from Numbers, Sheets or Excel), Delete clears, Cmd+Z undoes
+      // and Cmd+Shift+Z redoes. Each cell is one property of one note, written by Sage (`baseCells`) only if the note still
+      // reads as the cell showed it. Formula and file columns are read only.
+      (function () {
+        var pick = null, editor = null, drag = null, undo = [], redo = [], sent = [];
+        var catcher = document.createElement('textarea');
+        catcher.className = 'sage-cell-catcher'; catcher.setAttribute('aria-hidden', 'true'); catcher.tabIndex = -1;
+        document.body.appendChild(catcher);
+        var plainKinds = { number: 1, checkbox: 1, date: 1, datetime: 1 };
+
+        function rowsOf(table) { return Array.prototype.filter.call(table.querySelectorAll('tr.sage-base-row'), function (tr) { return tr.offsetParent !== null; }); }
+        function posOf(td) { var table = td.closest('table'); return { table: table, r: rowsOf(table).indexOf(td.parentElement), c: td.cellIndex }; }
+        function cellAt(table, r, c) { var tr = rowsOf(table)[r]; return tr ? tr.cells[c] || null : null; }
+        function box() {
+          if (!pick) return null;
+          return { r0: Math.min(pick.a.r, pick.f.r), r1: Math.max(pick.a.r, pick.f.r), c0: Math.min(pick.a.c, pick.f.c), c1: Math.max(pick.a.c, pick.f.c) };
+        }
+        function picked() {
+          var b = box(), out = [];
+          if (!b) return out;
+          var list = rowsOf(pick.table);
+          for (var r = b.r0; r <= b.r1; r++) { var line = []; for (var c = b.c0; c <= b.c1; c++) line.push(list[r] ? list[r].cells[c] : null); out.push(line); }
+          return out;
+        }
+        function was(td) { try { return JSON.parse(td.getAttribute('data-sage-was') || '[]'); } catch (e) { return []; } }
+        function textOf(td) {
+          if (!td) return '';
+          if (td.hasAttribute('data-sage-kind')) return was(td).join(', ');
+          return (td.innerText || '').replace(/[\t\r\n]+/g, ' ').trim();
+        }
+        function tsv() { return picked().map(function (line) { return line.map(textOf).join('\t'); }).join('\n'); }
+        function prime() {
+          if (editor) return;
+          catcher.value = tsv() || ' ';
+          if (document.activeElement !== catcher) catcher.focus({ preventScroll: true });
+          catcher.select();
+        }
+        function paint() {
+          document.querySelectorAll('.sage-cell-picked, .sage-cell-focus').forEach(function (e) { e.classList.remove('sage-cell-picked', 'sage-cell-focus'); });
+          if (!pick || !pick.table.isConnected) { pick = null; return; }
+          picked().forEach(function (line) { line.forEach(function (td) { if (td) td.classList.add('sage-cell-picked'); }); });
+          var f = cellAt(pick.table, pick.f.r, pick.f.c);
+          if (f) {
+            f.classList.add('sage-cell-focus');
+            var view = f.closest('.bases-view'), fr = f.getBoundingClientRect();
+            if (view) {
+              var vr = view.getBoundingClientRect(), head = view.querySelector('thead'), top = vr.top + (head ? head.offsetHeight : 0);
+              if (fr.left < vr.left) view.scrollLeft -= vr.left - fr.left; else if (fr.right > vr.right) view.scrollLeft += fr.right - vr.right;
+              if (fr.top < top) view.scrollTop -= top - fr.top; else if (fr.bottom > vr.bottom) view.scrollTop += fr.bottom - vr.bottom;
+            }
+            f.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }
+          prime();
+        }
+        function unpick() { pick = null; paint(); if (document.activeElement === catcher) catcher.blur(); }
+        function move(dr, dc, extend) {
+          if (!pick) return;
+          var list = rowsOf(pick.table), cols = list.length ? list[0].cells.length : 0;
+          var r = Math.max(0, Math.min(list.length - 1, pick.f.r + dr)), c = Math.max(0, Math.min(cols - 1, pick.f.c + dc));
+          pick.f = { r: r, c: c };
+          if (!extend) pick.a = { r: r, c: c };
+          paint();
+        }
+
+        // What a typed or pasted value becomes in a cell of each kind (null: it can't go there).
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        function asValues(kind, text) {
+          text = (text || '').replace(/ /g, ' ').trim();
+          if (!text) return [];
+          if (kind === 'list') {
+            var items = [], depth = 0, at = '';
+            for (var i = 0; i < text.length; i++) {
+              var ch = text[i];
+              if (ch === '[') depth++; else if (ch === ']') depth = Math.max(0, depth - 1);
+              if (ch === ',' && depth === 0) { items.push(at); at = ''; } else at += ch;
+            }
+            items.push(at);
+            return items.map(function (s) { return s.trim(); }).filter(Boolean);
+          }
+          if (kind === 'checkbox') return [/^(true|yes|y|1|x|✓|✔|on|checked)$/i.test(text) ? 'true' : 'false'];
+          if (kind === 'number') { var n = text.replace(/[, _]/g, ''); return isFinite(+n) && n !== '' ? [n] : null; }
+          if (kind === 'date' || kind === 'datetime') {
+            var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(text), d = m ? null : new Date(text);
+            if (!m && (!d || isNaN(d))) return null;
+            var day = m ? m[1] + '-' + m[2] + '-' + m[3] : d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+            if (kind === 'date') return [day];
+            return [day + 'T' + (m ? (m[4] || '00') + ':' + (m[5] || '00') : pad(d.getHours()) + ':' + pad(d.getMinutes()))];
+          }
+          return [text.replace(/[\r\n\t]+/g, ' ')];
+        }
+        function same(a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
+        function editFor(td, values) {
+          var kind = td && td.getAttribute('data-sage-kind');
+          if (!kind || !values) return null;
+          var old = was(td);
+          if (same(old, values)) return null;
+          return { path: td.parentElement.getAttribute('data-sage-path'), key: td.getAttribute('data-sage-key'), was: old, values: values, list: kind === 'list', plain: !!plainKinds[kind] };
+        }
+        function send(edits, kind) {
+          edits = edits.filter(Boolean);
+          if (!edits.length) return;
+          sent.push(kind || 'do');
+          post({ type: 'base-cell', edits: edits });
+        }
+        function inverse(e) { return { path: e.path, key: e.key, was: (e.values || []).map(function (v) { return String(v).trim(); }).filter(Boolean), values: e.was, list: e.list, plain: e.plain }; }
+        function readOnly() { notice('Formulas and file details come from the base and the files; change those in the note or the base itself.'); }
+
+        // Clearing, pasting and toggling: every picked cell that can be edited.
+        function clear() {
+          var edits = [], skipped = 0;
+          picked().forEach(function (line) { line.forEach(function (td) { if (!td) return; if (td.hasAttribute('data-sage-kind')) edits.push(editFor(td, [])); else skipped++; }); });
+          send(edits);
+          if (skipped && !edits.filter(Boolean).length) readOnly();
+        }
+        function paste(text) {
+          if (!pick) return;
+          var lines = text.replace(/\r\n?/g, '\n').split('\n');
+          if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+          var grid = lines.map(function (l) { return l.split('\t'); });
+          var b = box(), edits = [], bad = 0, skipped = 0;
+          var single = grid.length === 1 && grid[0].length === 1;
+          var r1 = single ? b.r1 : b.r0 + grid.length - 1, c1 = single ? b.c1 : b.c0 + grid[0].length - 1;
+          for (var r = b.r0; r <= r1; r++) for (var c = b.c0; c <= c1; c++) {
+            var td = cellAt(pick.table, r, c), text = single ? grid[0][0] : (grid[r - b.r0] || [])[c - b.c0];
+            if (!td || text === undefined) continue;
+            var kind = td.getAttribute('data-sage-kind');
+            if (!kind) { skipped++; continue; }
+            var values = asValues(kind, text);
+            if (!values) { bad++; continue; }
+            edits.push(editFor(td, values));
+          }
+          send(edits);
+          if (!single) { var list = rowsOf(pick.table); pick.a = { r: b.r0, c: b.c0 }; pick.f = { r: Math.min(r1, list.length - 1), c: Math.min(c1, list[0].cells.length - 1) }; paint(); }
+          if (bad) notice(bad + (bad === 1 ? ' value didn’t fit its column (a number or a date), so it was left out.' : ' values didn’t fit their columns (numbers or dates), so they were left out.'));
+          else if (skipped && !edits.filter(Boolean).length) readOnly();
+        }
+        function toggle(td) {
+          var on = was(td)[0] === 'true';
+          send([editFor(td, [on ? 'false' : 'true'])]);
+        }
+        function step(back) {
+          var from = back ? undo : redo;
+          if (!from.length) return;
+          send(from.pop(), back ? 'undo' : 'redo');
+        }
+
+        // The editor: laid over the cell (fixed, so the view's scrolling never clips its menu), moved as the page scrolls.
+        function optionsOf(td) {
+          var th = td.closest('table').querySelector('thead tr').cells[td.cellIndex];
+          try { return JSON.parse(th.getAttribute('data-sage-options') || '[]'); } catch (e) { return []; }
+        }
+        function edit(td, typed) {
+          var kind = td.getAttribute('data-sage-kind');
+          if (!kind) { readOnly(); return; }
+          if (kind === 'checkbox') { toggle(td); return; }
+          if (editor) editor.close(true);
+          var old = was(td), shell = document.createElement('div'), menu = null, lit = 0, pills = old.slice(), field;
+          shell.className = 'sage-cell-editor';
+          if (kind === 'date' || kind === 'datetime') {
+            field = document.createElement('input');
+            field.type = kind === 'date' ? 'date' : 'datetime-local';
+            field.value = old[0] ? (kind === 'date' ? old[0].slice(0, 10) : old[0].replace(' ', 'T').slice(0, 16)) : '';
+          } else if (kind === 'list') {
+            field = document.createElement('input'); field.type = 'text';
+          } else {
+            field = document.createElement(kind === 'text' ? 'textarea' : 'input');
+            if (kind !== 'text') field.type = 'text';
+            if (kind === 'number') field.inputMode = 'decimal';
+            field.value = typed !== undefined ? typed : old.join(', ');
+            if (kind === 'text') field.rows = 1;
+          }
+          if (kind === 'list' && typed !== undefined) field.value = typed;
+          field.className = 'sage-cell-field';
+          field.spellcheck = kind === 'text';
+          var pillBox = null;
+          if (kind === 'list') { pillBox = document.createElement('div'); pillBox.className = 'sage-cell-pills'; shell.appendChild(pillBox); }
+          shell.appendChild(field);
+          document.body.appendChild(shell);
+          post({ type: 'editing', on: true });
+
+          function drawPills() {
+            if (!pillBox) return;
+            pillBox.textContent = '';
+            pills.forEach(function (v, i) {
+              var p = document.createElement('span'); p.className = 'sage-cell-pill'; p.textContent = v;
+              var x = document.createElement('span'); x.className = 'sage-cell-pill-x'; x.innerHTML = svg('lucide-x'); x.title = 'Remove';
+              x.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); pills.splice(i, 1); drawPills(); drawMenu(); place(); });
+              p.appendChild(x); pillBox.appendChild(p);
+            });
+          }
+          function choices() {
+            if (kind !== 'select' && kind !== 'list') return null;
+            var q = field.value.trim().toLowerCase(), all = optionsOf(td);
+            var list = all.filter(function (o) { return (!q || o.toLowerCase().indexOf(q) >= 0) && (kind !== 'list' || pills.indexOf(o) < 0); }).slice(0, 50)
+              .map(function (o) { return { value: o, label: o }; });
+            if (q && !all.some(function (o) { return o.toLowerCase() === q; })) list.unshift({ value: field.value.trim(), label: 'Add “' + field.value.trim() + '”', fresh: true });
+            if (kind === 'select' && old.length && !q) list.push({ value: '', label: 'Clear', clear: true });
+            return list;
+          }
+          function drawMenu() {
+            var list = choices();
+            if (!list) return;
+            if (!menu) { menu = document.createElement('div'); menu.className = 'sage-cell-menu'; document.body.appendChild(menu); }
+            lit = Math.max(0, Math.min(lit, list.length - 1));
+            menu.textContent = '';
+            menu.hidden = !list.length;
+            list.forEach(function (o, i) {
+              var row = document.createElement('div');
+              row.className = 'sage-cell-option' + (i === lit ? ' is-lit' : '') + (o.fresh ? ' is-new' : '') + (o.clear ? ' is-clear' : '') + (kind === 'select' && old[0] === o.value && !o.fresh ? ' is-current' : '');
+              row.textContent = o.label;
+              row.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); choose(o); });
+              row.addEventListener('mousemove', function () { if (lit !== i) { lit = i; menu.querySelectorAll('.sage-cell-option').forEach(function (r, j) { r.classList.toggle('is-lit', j === i); }); } });
+              menu.appendChild(row);
+            });
+            var current = menu.querySelector('.is-lit'); if (current) current.scrollIntoView({ block: 'nearest' });
+          }
+          function choose(o) {
+            if (kind === 'select') { field.value = o.value; close(true); return; }
+            if (o.value && pills.indexOf(o.value) < 0) pills.push(o.value);
+            field.value = ''; lit = 0; drawPills(); drawMenu(); place(); field.focus();
+          }
+          function place() {
+            if (!td.isConnected) { close(false); return; }
+            var r = td.getBoundingClientRect();
+            shell.style.left = Math.max(4, r.left) + 'px'; shell.style.top = r.top + 'px';
+            shell.style.minWidth = Math.max(r.width, kind === 'list' || kind === 'select' ? 220 : 160) + 'px';
+            shell.style.minHeight = r.height + 'px';
+            if (field.tagName === 'TEXTAREA') { field.style.height = 'auto'; field.style.height = Math.min(field.scrollHeight, 240) + 'px'; }
+            if (menu) {
+              var s = shell.getBoundingClientRect(), below = innerHeight - s.bottom;
+              menu.style.left = s.left + 'px'; menu.style.minWidth = s.width + 'px';
+              if (below < 180 && s.top > below) { menu.style.top = ''; menu.style.bottom = (innerHeight - s.top + 4) + 'px'; }
+              else { menu.style.bottom = ''; menu.style.top = (s.bottom + 4) + 'px'; }
+            }
+          }
+          function valuesNow() {
+            if (kind === 'list') { var extra = asValues('list', field.value) || []; return pills.concat(extra.filter(function (v) { return pills.indexOf(v) < 0; })); }
+            return asValues(kind, field.value);
+          }
+          function pending() { var v = valuesNow(); return v ? editFor(td, v) : null; }
+          function close(save, then) {
+            if (!editor || editor.shell !== shell) return;
+            var change = save ? pending() : null;
+            if (save && !valuesNow()) notice(kind === 'number' ? 'That isn’t a number, so it wasn’t saved.' : 'That isn’t a date, so it wasn’t saved.');
+            editor = null;
+            removeEventListener('scroll', place, true); removeEventListener('resize', place);
+            shell.remove(); if (menu) menu.remove();
+            post({ type: 'editing', on: false });
+            if (change) send([change]);
+            if (then) then(); else paint();
+          }
+          field.addEventListener('input', function () { lit = 0; drawMenu(); place(); });
+          field.addEventListener('keydown', function (e) {
+            if (e.isComposing) return;
+            e.stopPropagation();
+            var list = menu && !menu.hidden ? menu.querySelectorAll('.sage-cell-option') : [];
+            if (e.key === 'Escape') { e.preventDefault(); close(false); return; }
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && list.length) {
+              e.preventDefault(); lit = (lit + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; drawMenu(); return;
+            }
+            if (e.key === 'Tab') { e.preventDefault(); close(true, function () { move(0, e.shiftKey ? -1 : 1); }); return; }
+            if (kind === 'list') {
+              if ((e.key === 'Enter' || e.key === ',') && field.value.trim()) {
+                e.preventDefault();
+                var opts = choices(); choose(e.key === 'Enter' && opts && opts[lit] ? opts[lit] : { value: field.value.trim() });
+                return;
+              }
+              if (e.key === 'Backspace' && !field.value && pills.length) { e.preventDefault(); pills.pop(); drawPills(); drawMenu(); place(); return; }
+              if (e.key === 'Enter') { e.preventDefault(); close(true, function () { move(1, 0); }); }
+              return;
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              var o = kind === 'select' && list.length ? choices()[lit] : null;
+              if (o && field.value.trim()) { field.value = o.value; }
+              close(true, function () { move(1, 0); });
+            }
+          });
+          editor = { shell: shell, close: close, pending: pending, has: function (el) { return shell.contains(el) || (menu && menu.contains(el)); } };
+          drawPills(); drawMenu();
+          addEventListener('scroll', place, true); addEventListener('resize', place);
+          place();
+          field.focus({ preventScroll: true });
+          if (field.setSelectionRange && field.type !== 'date' && field.type !== 'datetime-local') { var end = field.value.length; field.setSelectionRange(typed !== undefined ? end : 0, end); }
+        }
+
+        // Picking with the mouse; links in a cell still open their note, a tick still toggles.
+        function tdOf(target) {
+          var td = target.closest && target.closest('.sage-base-table td[data-sage-cell]');
+          return td && td.closest('.bases-view') ? td : null;
+        }
+        document.addEventListener('mousedown', function (e) {
+          if (e.button !== 0) return;
+          if (editor && editor.has(e.target)) return;
+          if (editor) editor.close(true, function () {});
+          var td = tdOf(e.target);
+          if (!td) { if (pick && !e.target.closest('.sage-cell-menu')) unpick(); return; }
+          if (e.target.closest('a, [data-sage-tick]')) { pick = { table: td.closest('table'), a: posOf(td), f: posOf(td) }; paint(); return; }
+          e.preventDefault();
+          var at = posOf(td), focusBefore = pick && pick.table === at.table && pick.a.r === pick.f.r && pick.a.c === pick.f.c && pick.f.r === at.r && pick.f.c === at.c;
+          if (e.shiftKey && pick && pick.table === at.table) pick.f = { r: at.r, c: at.c };
+          else pick = { table: at.table, a: { r: at.r, c: at.c }, f: { r: at.r, c: at.c } };
+          drag = { td: td, again: focusBefore && !e.shiftKey, moved: false };
+          paint();
+          var chip = e.target.closest('.sage-chip');
+          if (chip && td.getAttribute('data-sage-kind') === 'select' && !e.shiftKey) { drag = null; edit(td); }
+        }, true);
+        document.addEventListener('mousemove', function (e) {
+          if (!drag || !pick || !(e.buttons & 1)) return;
+          var td = tdOf(e.target);
+          if (!td || td === drag.td && !drag.moved || td.closest('table') !== pick.table) return;
+          drag.moved = true;
+          var at = posOf(td);
+          if (at.r !== pick.f.r || at.c !== pick.f.c) { pick.f = { r: at.r, c: at.c }; paint(); }
+        });
+        document.addEventListener('mouseup', function (e) {
+          var d = drag; drag = null;
+          if (d && d.again && !d.moved && tdOf(e.target) === d.td) edit(d.td);
+        });
+        document.addEventListener('dblclick', function (e) {
+          var td = tdOf(e.target);
+          if (!td || e.target.closest('a, [data-sage-tick]') || (editor && editor.has(e.target))) return;
+          e.preventDefault();
+          if (!editor) edit(td);
+        }, true);
+        document.addEventListener('click', function (e) {
+          var tick = e.target.closest && e.target.closest('.sage-base-table input[data-sage-tick]');
+          if (!tick) return;
+          e.preventDefault(); e.stopPropagation();
+          var td = tick.closest('td');
+          if (td) toggle(td);
+        }, true);
+
+        // Keys, while cells are picked (the hidden box holds the focus, so Cmd+C and Cmd+V reach the page).
+        catcher.addEventListener('keydown', function (e) {
+          if (!pick || e.isComposing) return;
+          var key = e.key, meta = e.metaKey || e.ctrlKey;
+          if (meta && key.toLowerCase() === 'z') { e.preventDefault(); e.stopPropagation(); step(!e.shiftKey); return; }
+          if (meta && key.toLowerCase() === 'a') {
+            e.preventDefault(); e.stopPropagation();
+            var list = rowsOf(pick.table); pick.a = { r: 0, c: 0 }; pick.f = { r: list.length - 1, c: list.length ? list[0].cells.length - 1 : 0 }; paint(); return;
+          }
+          if (meta) return;
+          var moves = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+          if (moves[key]) { e.preventDefault(); e.stopPropagation(); move(moves[key][0], moves[key][1], e.shiftKey); return; }
+          var f = cellAt(pick.table, pick.f.r, pick.f.c);
+          if (key === 'Tab') { e.preventDefault(); e.stopPropagation(); move(0, e.shiftKey ? -1 : 1); return; }
+          if (key === 'Escape') { e.preventDefault(); e.stopPropagation(); unpick(); return; }
+          if (key === 'Enter' || key === 'F2') { e.preventDefault(); e.stopPropagation(); if (f) edit(f); return; }
+          if (key === 'Backspace' || key === 'Delete') { e.preventDefault(); e.stopPropagation(); clear(); return; }
+          if (key === ' ' && f && f.getAttribute('data-sage-kind') === 'checkbox') { e.preventDefault(); e.stopPropagation(); toggle(f); return; }
+          if (key.length === 1 && !e.altKey && f) {
+            var kind = f.getAttribute('data-sage-kind');
+            e.preventDefault(); e.stopPropagation();
+            if (!kind) { readOnly(); return; }
+            if (kind === 'text' || kind === 'number' || kind === 'select' || kind === 'list') { pick.a = { r: pick.f.r, c: pick.f.c }; paint(); edit(f, key); }
+            else edit(f);
+          }
+        });
+        catcher.addEventListener('copy', function (e) { if (!pick) return; e.preventDefault(); e.clipboardData.setData('text/plain', tsv()); });
+        catcher.addEventListener('cut', function (e) { if (!pick) return; e.preventDefault(); e.clipboardData.setData('text/plain', tsv()); clear(); });
+        catcher.addEventListener('paste', function (e) { if (!pick) return; e.preventDefault(); paste(e.clipboardData.getData('text/plain') || ''); });
+        catcher.addEventListener('blur', function () { setTimeout(function () { if (!editor && document.activeElement !== catcher && pick) { document.querySelectorAll('.sage-cell-focus').forEach(function (c) { c.classList.add('is-idle'); }); } }, 0); });
+        catcher.addEventListener('focus', function () { document.querySelectorAll('.sage-cell-focus.is-idle').forEach(function (c) { c.classList.remove('is-idle'); }); });
+
+        // What Sage says back: which changes were written (they can be undone), and the base drawn again, which keeps the
+        // view, the folded groups, where it was scrolled and the cells picked.
+        function swapBase(html) {
+          var base = document.querySelector('.sage-file-view > [data-sage-base]');
+          if (!base) return;
+          var tab = base.querySelector('.sage-base-tab.is-active'), shown = tab ? tab.getAttribute('data-sage-view-tab') : '0';
+          var scrolls = Array.prototype.map.call(base.querySelectorAll('[data-sage-view]'), function (v) { return [v.scrollTop, v.scrollLeft]; });
+          var folded = Array.prototype.map.call(base.querySelectorAll('.bases-group-heading.is-collapsed'), function (h) { return h.closest('[data-sage-view]').getAttribute('data-sage-view') + '|' + h.textContent; });
+          var keep = null;
+          if (pick && base.contains(pick.table)) {
+            var list = rowsOf(pick.table), at = function (p) { return { path: list[p.r] && list[p.r].getAttribute('data-sage-path'), c: p.c }; };
+            keep = { a: at(pick.a), f: at(pick.f) };
+          }
+          var holder = document.createElement('div'); holder.innerHTML = html;
+          decorate(holder);
+          var fresh = holder.querySelector('[data-sage-base]');
+          if (!fresh) return;
+          base.replaceWith(fresh);
+          var t = fresh.querySelector('[data-sage-view-tab="' + shown + '"]');
+          if (t) {
+            fresh.querySelectorAll('[data-sage-view-tab]').forEach(function (x) { x.classList.toggle('is-active', x === t); });
+            fresh.querySelectorAll('[data-sage-view]').forEach(function (v) { v.hidden = v.getAttribute('data-sage-view') !== shown; });
+            var count = +t.getAttribute('data-sage-count'); fresh.querySelector('.bases-toolbar-result-count').textContent = count + (count === 1 ? ' result' : ' results');
+          }
+          fresh.querySelectorAll('.bases-group-heading').forEach(function (h) {
+            if (folded.indexOf(h.closest('[data-sage-view]').getAttribute('data-sage-view') + '|' + h.textContent) < 0) return;
+            h.classList.add('is-collapsed');
+            var chevron = h.querySelector('.collapse-icon'); if (chevron) chevron.classList.add('is-collapsed');
+            var body = h.closest('tbody'); if (body) body.classList.add('sage-collapsed'); else if (h.nextElementSibling) h.nextElementSibling.hidden = true;
+          });
+          fresh.querySelectorAll('[data-sage-view]').forEach(function (v, i) { if (scrolls[i]) { v.scrollTop = scrolls[i][0]; v.scrollLeft = scrolls[i][1]; } });
+          baseHeads();
+          if (keep) {
+            var view = fresh.querySelector('[data-sage-view="' + shown + '"]'), table = view && view.querySelector('table');
+            var rows = table ? rowsOf(table) : [], find = function (k) { var r = rows.findIndex(function (tr) { return tr.getAttribute('data-sage-path') === k.path; }); return r < 0 ? null : { r: r, c: k.c }; };
+            var a = find(keep.a), f = find(keep.f);
+            pick = table && a && f ? { table: table, a: a, f: f } : null;
+            if (!editor) paint();
+          }
+        }
+        var before = window.sageReceive;
+        window.sageReceive = function (message) {
+          if (message.type === 'base-saved') {
+            var kind = sent.shift() || 'do', done = (message.done || []).map(inverse);
+            if (done.length) { if (kind === 'undo') redo.push(done); else { undo.push(done); if (undo.length > 100) undo.shift(); if (kind === 'do') redo = []; } }
+            return;
+          }
+          if (message.type === 'base-html') { swapBase(message.html); return; }
+          if (before) before(message);
+        };
+        var flushBefore = window.sageFlush;
+        window.sageFlush = function () {
+          if (editor) {
+            var change = editor.pending();
+            var e = editor; editor = null; e.shell.remove(); document.querySelectorAll('.sage-cell-menu').forEach(function (m) { m.remove(); });
+            if (change) return JSON.stringify({ type: 'base-cell', edits: [change] });
+          }
+          return flushBefore ? flushBefore() : '';
+        };
       })();
     })();
     """#

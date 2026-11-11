@@ -124,5 +124,35 @@ extension Checks {
         check(kind.kind == "video" && kind.icon == "🎬" && kind.color == nil
               && Study.fileKind(path: "q.md", text: "---\ncategories:\n  - \"[[Quotes]]\"\n---\n").kind == "quote",
               "A note's kind for its icon in the tree: a video or web clipping, a quote, a course; its own icon and colour")
+
+        // Editing a base's table in place (2026-11-11): each cell is one property, written only if it still reads as shown.
+        do {
+            let note = "---\nStatus: Draft\ntags:\n  - a\n  - b\nviews: 12\n---\nBody"
+            func edit(_ key: String, _ was: [String], _ values: [String], list: Bool = false, plain: Bool = false) -> Study.BaseCellResult {
+                Study.changeCell(note, .init(path: "n.md", key: key, was: was, values: values, list: list, plain: plain))
+            }
+            check(Study.cellValues(["a", nil, "", "b"] as [Any?]) == ["a", "b"] && Study.cellValues("x") == ["x"] && Study.cellValues(nil) == [],
+                  "A cell holds a list's items or one value; empty ones don't count")
+            check(edit("status", ["Draft"], ["Done"]) == .written("---\nStatus: Done\ntags:\n  - a\n  - b\nviews: 12\n---\nBody"),
+                  "A cell is written under the name the note already uses (case aside), only that line changed, the body kept")
+            check(edit("Status", ["Old"], ["Done"]) == .changed, "A cell changed in the note since the table was drawn is never written over")
+            if case .written(let text) = edit("tags", ["a", "b"], ["a", "c", " "], list: true) {
+                check(text.contains("tags:\n  - a\n  - c\n") && !text.contains("  - b"), "A list cell writes its items as a list, blanks left out")
+            } else { check(false, "A list cell writes its items as a list, blanks left out") }
+            if case .written(let text) = edit("Owner", [], ["Mai"]) { check(text.contains("Owner: Mai") && text.hasSuffix("Body"), "An empty cell adds the property to the note") }
+            else { check(false, "An empty cell adds the property to the note") }
+            check(edit("Status", ["Draft"], ["Draft"]) == .unchanged, "A cell set to what it was writes nothing")
+            check(Study.cellKind(key: "tags", type: nil, values: [], chips: false) == "list" && Study.cellKind(key: "x", type: "number", values: [], chips: false) == "number"
+                  && Study.cellKind(key: "x", type: nil, values: ["true", "false"], chips: false) == "checkbox" && Study.cellKind(key: "x", type: nil, values: ["2026-01-02"], chips: false) == "date"
+                  && Study.cellKind(key: "x", type: nil, values: ["Draft"], chips: true) == "select" && Study.cellKind(key: "x", type: nil, values: ["12", "3.5"], chips: false) == "number"
+                  && Study.cellKind(key: "x", type: nil, values: ["hello"], chips: false) == "text",
+                  "A column is edited by the vault's type for it, else by what its values look like")
+            let items = Study.vaultItems(vault)
+            let html = Study.baseHTML("views:\n  - type: table\n    name: All\n    filters:\n      and:\n        - file.inFolder(\"Lib\")\n    order:\n      - file.name\n      - Created\n      - Author\n",
+                                      vault: vault, items: items, address: address, selfPath: "Lib/My.base")
+            check(html.contains("data-sage-path=\"Lib/Hub.md\"") && html.contains("data-sage-kind=\"date\"") && html.contains("data-sage-key=\"Created\"")
+                  && html.contains("data-sage-kind=\"list\"") && html.contains("data-sage-options="),
+                  "A base's table marks each row's note and each property cell's kind, so the page can edit it")
+        }
     }
 }
