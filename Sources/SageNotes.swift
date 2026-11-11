@@ -2430,7 +2430,7 @@ extension Study {
           shownName = null;
           if (!name) { e.target.textContent = was; return; }
           e.target.textContent = name;
-          if (name !== was) { shownName = was; post({ type: 'rename-note', name: name }); }
+          if (name !== was) { shownName = was; post({ type: 'rename-note', name: name, was: was }); }
         });
         document.addEventListener('keydown', function (e) {
           var el = e.target.matches && e.target.matches('.inline-title[contenteditable]') ? e.target : null;

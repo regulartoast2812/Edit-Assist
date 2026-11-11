@@ -401,6 +401,9 @@ import WebKit
                     guard let path, path.lowercased().hasSuffix(".md") else {
                         post(["type": "notice", "text": L("Only notes in your vault can be renamed here.")]); post(["type": "title-back"]); return
                     }
+                    // The tab may have moved on to another note as the title lost focus: only the note it was the title of.
+                    let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+                    if let was = body["was"] as? String, stem.trimmingCharacters(in: .whitespaces) != was.trimmingCharacters(in: .whitespaces) { return }
                     if !renameNote(path, name) { post(["type": "title-back"]) }
                 }
             }
