@@ -857,7 +857,7 @@ extension Study {
         var drawn: [(name: String, type: String, count: Int, html: String)] = []
         // A column's chips each in a colour of their own: in name order, a value whose colour is taken takes the next free
         // one. Worked out over the whole base, so a value keeps its colour in every view.
-        var everyone: [BaseContext]?
+        var everyone: [BaseContext]?, members: [BaseContext]?
         var chipHues: [String: [String: Int]] = [:]
         func chipHue(_ id: String, _ value: String) -> Int {
             let key = id.lowercased()
@@ -961,9 +961,20 @@ extension Study {
                                     values: ordered.map { row in cell(row, column.id) }, chips: chips.contains(column.id))
                 kinds[column.id] = kind
                 if kind == "select" || kind == "list" {
-                    var counts: [String: (shown: String, count: Int)] = [:]
-                    for note in notes { for value in cellValues(note.prop(key)) { counts[value.lowercased(), default: (value, 0)].count += 1 } }
-                    options[column.id] = counts.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.shown.lowercased() < $1.shown.lowercased() }.prefix(200).map(\.shown)
+                    // As Notion's options: only the notes this base shows (in any of its views), one per name as shown
+                    // ("[[Active]]" and "active" are one), spelt as most of them spell it.
+                    if members == nil {
+                        let viewFilters = views.map { filter($0["filters"]) }
+                        members = notes.map { BaseContext($0, finder, formulas, selfNote) }.filter { c in global(c) && viewFilters.contains { $0(c) } }
+                    }
+                    var counts: [String: (spellings: [String: Int], count: Int)] = [:]
+                    for context in members! { for value in cellValues(context.note.prop(key)) {
+                        let name = baseShown(value).lowercased()
+                        counts[name, default: ([:], 0)].count += 1
+                        counts[name]!.spellings[value, default: 0] += 1
+                    } }
+                    let spelt = counts.values.map { entry in (shown: entry.spellings.max { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }!.key, count: entry.count) }
+                    options[column.id] = spelt.sorted { $0.count != $1.count ? $0.count > $1.count : $0.shown.lowercased() < $1.shown.lowercased() }.prefix(200).map(\.shown)
                 }
             }
             if type == "table" {
@@ -971,7 +982,7 @@ extension Study {
                 for column in columns { html += column.width.map { "<col style=\"width: \($0)px\">" } ?? "<col>" }
                 html += "</colgroup><thead><tr>"
                 for column in columns {
-                    let listed = options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? ""
+                    let listed = (options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? "")
                         + (kinds[column.id] == "select" || kinds[column.id] == "list" && chips.contains(column.id) ? options[column.id].map { list in
                             " data-sage-hues=\"\(attribute(Study.scriptJSON(Dictionary(list.map { ($0, chipHue(column.id, $0)) }, uniquingKeysWith: { a, _ in a }))))\"" } ?? "" : "")
                     html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\"\(listed)>"

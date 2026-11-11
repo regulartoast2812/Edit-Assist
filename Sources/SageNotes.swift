@@ -2506,6 +2506,15 @@ extension Study {
           }
           return [text.replace(/[\r\n\t]+/g, ' ')];
         }
+        // A link's name as shown ([[Notes/Active|on]] → on, [[Active]] → Active); other text as it is.
+        function shown(v) {
+          var m = /^\[\[([^\]]*)\]\]$/.exec(String(v).trim());
+          if (!m) return String(v);
+          var inner = m[1], bar = inner.indexOf('|');
+          if (bar >= 0) return inner.slice(bar + 1);
+          inner = inner.split('#')[0];
+          return inner.slice(inner.lastIndexOf('/') + 1);
+        }
         function same(a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
         function editFor(td, values) {
           var kind = td && td.getAttribute('data-sage-kind');
@@ -2577,10 +2586,10 @@ extension Study {
           var th = td.closest('table').querySelector('thead tr').cells[td.cellIndex], hues = {};
           try { hues = JSON.parse(th.getAttribute('data-sage-hues') || '{}'); } catch (e) {}
           function hueOf(v) {
-            for (var k in hues) if (k.toLowerCase() === v.toLowerCase()) return hues[k];
+            for (var k in hues) if (shown(k).toLowerCase() === shown(v).toLowerCase()) return hues[k];
             var h = 0; for (var i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0; return h % 8;
           }
-          function chip(v) { var c = document.createElement('span'); c.className = 'sage-chip sage-hue-' + hueOf(v); c.textContent = v; return c; }
+          function chip(v) { var c = document.createElement('span'); c.className = 'sage-chip sage-hue-' + hueOf(v); c.textContent = shown(v); return c; }
           shell.className = 'sage-cell-editor' + (picker ? ' is-picker' : '');
           if (kind === 'date' || kind === 'datetime') {
             field = document.createElement('input');
@@ -2622,10 +2631,11 @@ extension Study {
           function choices() {
             if (!picker) return null;
             var typedNow = field.value.trim(), q = typedNow.toLowerCase(), all = optionsOf(td);
-            pills.forEach(function (v) { if (!all.some(function (o) { return o.toLowerCase() === v.toLowerCase(); })) all = [v].concat(all); });
-            var list = all.filter(function (o) { return (!q || o.toLowerCase().indexOf(q) >= 0) && (kind !== 'list' || pills.indexOf(o) < 0); }).slice(0, 100)
+            var key = function (v) { return shown(v).toLowerCase(); }, has = function (set, v) { return set.some(function (o) { return key(o) === key(v); }); };
+            pills.forEach(function (v) { if (!has(all, v)) all = [v].concat(all); });
+            var list = all.filter(function (o) { return (!q || key(o).indexOf(q) >= 0) && (kind !== 'list' || !has(pills, o)); }).slice(0, 100)
               .map(function (o) { return { value: o }; });
-            if (q && !all.some(function (o) { return o.toLowerCase() === q; })) list.push({ value: typedNow, fresh: true });
+            if (q && !all.some(function (o) { return key(o) === q; })) list.push({ value: typedNow, fresh: true });
             return list;
           }
           function drawMenu() {
@@ -2638,7 +2648,7 @@ extension Study {
             menu.appendChild(hint);
             list.forEach(function (o, i) {
               var row = document.createElement('div');
-              var current = kind === 'select' && pills[0] && pills[0].toLowerCase() === o.value.toLowerCase();
+              var current = kind === 'select' && pills[0] && shown(pills[0]).toLowerCase() === shown(o.value).toLowerCase();
               row.className = 'sage-cell-option' + (i === lit ? ' is-lit' : '') + (current ? ' is-current' : '');
               if (o.fresh) { var w = document.createElement('span'); w.className = 'sage-cell-create'; w.textContent = 'Create'; row.appendChild(w); }
               row.appendChild(chip(o.value));
@@ -2651,7 +2661,7 @@ extension Study {
           }
           function choose(o) {
             if (kind === 'select') { pills = o.value ? [o.value] : []; close(true); return; }
-            if (o.value && pills.indexOf(o.value) < 0) pills.push(o.value);
+            if (o.value && !pills.some(function (p) { return shown(p).toLowerCase() === shown(o.value).toLowerCase(); })) pills.push(o.value);
             field.value = ''; lit = 0; drawPills(); drawMenu(); place(); field.focus();
           }
           function place() {
@@ -2705,7 +2715,7 @@ extension Study {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); close(true, function () { move(1, 0); }); }
           });
           editor = { shell: shell, close: close, pending: pending, has: function (el) { return shell.contains(el); } };
-          if (kind === 'select' && pills[0] && typed === undefined) { var at = choices().findIndex(function (o) { return o.value.toLowerCase() === pills[0].toLowerCase(); }); lit = Math.max(0, at); }
+          if (kind === 'select' && pills[0] && typed === undefined) { var at = choices().findIndex(function (o) { return shown(o.value).toLowerCase() === shown(pills[0]).toLowerCase(); }); lit = Math.max(0, at); }
           drawPills(); drawMenu();
           addEventListener('scroll', place, true); addEventListener('resize', place);
           place();

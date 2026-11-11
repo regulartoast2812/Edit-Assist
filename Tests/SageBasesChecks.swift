@@ -153,6 +153,15 @@ extension Checks {
             check(html.contains("data-sage-path=\"Lib/Hub.md\"") && html.contains("data-sage-kind=\"date\"") && html.contains("data-sage-key=\"Created\"")
                   && html.contains("data-sage-kind=\"list\"") && html.contains("data-sage-options="),
                   "A base's table marks each row's note and each property cell's kind, so the page can edit it")
+            for (i, status) in ["Planned", "To film", "To film", "planned", "Planned"].enumerated() { try write("---\nStatus: \(status)\n---\n", "Show/E\(i).md") }
+            try write("---\nStatus: Assessment\n---\n", "Other/X.md")
+            let shows = Study.baseHTML("views:\n  - type: table\n    name: All\n    filters:\n      and:\n        - file.inFolder(\"Show\")\n    order:\n      - file.name\n      - Status\n",
+                                       vault: vault, items: Study.vaultItems(vault), address: address, selfPath: "Show/S.base")
+            let head = Study.firstMatch(#"data-sage-options="([^"]*)" data-sage-hues="([^"]*)""#, in: shows).map { $0[1] + "|" + $0[2] } ?? ""
+            let chip = Study.firstMatch(#"sage-chip (sage-hue-\d)">To film"#, in: shows).map { $0[1] } ?? "?"
+            check(head.contains("Planned") && head.contains("To film") && !head.contains("Assessment") && !head.contains("planned&quot;") && !head.contains("[[Planned]]")
+                  && head.contains("&quot;To film&quot;:\(chip.dropFirst(9))"),
+                  "A status column's menu holds this base's values only, one per name (case and [[ ]] aside), each in the colour its chips have: \(head)")
         }
     }
 }
