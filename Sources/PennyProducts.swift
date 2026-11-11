@@ -371,7 +371,7 @@ struct ProductDetail: View, Equatable {
             FigureFlow(gap: 16) {
                 PennyFigure(name: "ROAS", value: PennyStyle.times(total.roas), color: PennyStyle.roas(total.roas, profit), change: change(total.roas, before.roas, false), was: was(PennyStyle.times(before.roas)))
                 PennyFigure(name: "Orders", value: Ledger.whole(total.orders), change: change(total.orders, before.orders, true), was: was(Ledger.whole(before.orders)),
-                            pill: margined ? L("%@ in all", Ledger.whole(now.orders)) : nil,
+                            pill: margined ? L("%@ in all", Ledger.whole(now.orders)) : nil, pillColor: PennyStyle.blue,
                             pillTip: tip("Product orders, every source, from the days' CBH", cbhChange(now.orders, then.orders), Ledger.whole(then.orders)))
                 PennyFigure(name: "Cost per order", value: total.cpp.map(Ledger.money) ?? "–", change: change(total.cpp, before.cpp, false), upIsGood: false, was: was(before.cpp.map(Ledger.money) ?? "–"))
                 PennyFigure(name: "Order value", value: total.aov.map(Ledger.money) ?? "–", change: change(total.aov, before.aov, false), was: was(before.aov.map(Ledger.money) ?? "–"))

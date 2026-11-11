@@ -1108,8 +1108,8 @@ struct PennyFigure: View {
     /// A change that is neither good nor bad by itself (spend), shown grey.
     var neutral = false
     var was: String? = nil
-    /// A smaller figure that belongs with this one, in a pill at the top right: CBH's share of revenue, spend and
-    /// revenue an order (2026-11-10: they were cards of their own, and the page read as two rows of sixteen).
+    /// A smaller figure that belongs with this one, in a pill right after its name and in a colour, as the shares are
+    /// (2026-11-11, you asked: the same for all; it sat grey at the top right): every source's orders beside the ads'.
     var pill: String? = nil
     var pillColor: Color? = nil
     var pillTip: String? = nil
@@ -1127,8 +1127,8 @@ struct PennyFigure: View {
                 // The name keeps its room; a pill too long for what's left shrinks a little, then cuts.
                 Text(L(name)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 if let share { Self.pill(share, shareColor, shareTip).fixedSize() }
-                Spacer(minLength: 0)
                 if let pill { Self.pill(pill, pillColor, pillTip) }
+                Spacer(minLength: 0)
             }
             .frame(height: 16)
             Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(color ?? .primary).lineLimit(1).minimumScaleFactor(0.6)
