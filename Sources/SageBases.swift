@@ -806,6 +806,7 @@ extension Study {
         let root = yaml(baseText) as? YamlMap ?? YamlMap()
         let finder = LinkFinder(items)
         let notes = baseNotes(vault: vault, items: items, finder: finder)
+        let types = vaultTypes(vault)
         let selfNote = selfPath.flatMap { path in notes.first { same($0.item.path, path) } }
         var problems: [String] = []
         func compile(_ expression: String) -> Compiled? {
@@ -856,7 +857,7 @@ extension Study {
         var drawn: [(name: String, type: String, count: Int, html: String)] = []
         // A column's chips each in a colour of their own: in name order, a value whose colour is taken takes the next free
         // one. Worked out over the whole base, so a value keeps its colour in every view.
-        var everyone: [BaseContext]?
+        var everyone: [BaseContext]?, members: [BaseContext]?
         var chipHues: [String: [String: Int]] = [:]
         func chipHue(_ id: String, _ value: String) -> Int {
             let key = id.lowercased()
@@ -951,12 +952,40 @@ extension Study {
                 }
                 return cellHTML(row, id, value, finder, address, items)
             }
+            // (2026-11-11) A property column is edited in place: how (Study.cellKind) and, for a menu or a list, the
+            // values the vault already uses for it, most used first. Formula and file columns stay read only.
+            var kinds: [String: String] = [:], options: [String: [String]] = [:]
+            for column in columns where column.id.hasPrefix("note.") {
+                let key = String(column.id.dropFirst(5))
+                let kind = cellKind(key: key, type: types.first { $0.key.caseInsensitiveCompare(key) == .orderedSame }?.value,
+                                    values: ordered.map { row in cell(row, column.id) }, chips: chips.contains(column.id))
+                kinds[column.id] = kind
+                if kind == "select" || kind == "list" {
+                    // As Notion's options: only the notes this base shows (in any of its views), one per name as shown
+                    // ("[[Active]]" and "active" are one), spelt as most of them spell it.
+                    if members == nil {
+                        let viewFilters = views.map { filter($0["filters"]) }
+                        members = notes.map { BaseContext($0, finder, formulas, selfNote) }.filter { c in global(c) && viewFilters.contains { $0(c) } }
+                    }
+                    var counts: [String: (spellings: [String: Int], count: Int)] = [:]
+                    for context in members! { for value in cellValues(context.note.prop(key)) {
+                        let name = baseShown(value).lowercased()
+                        counts[name, default: ([:], 0)].count += 1
+                        counts[name]!.spellings[value, default: 0] += 1
+                    } }
+                    let spelt = counts.values.map { entry in (shown: entry.spellings.max { $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key }!.key, count: entry.count) }
+                    options[column.id] = spelt.sorted { $0.count != $1.count ? $0.count > $1.count : $0.shown.lowercased() < $1.shown.lowercased() }.prefix(200).map(\.shown)
+                }
+            }
             if type == "table" {
                 html += "<table class=\"sage-base-table\"><colgroup>"
                 for column in columns { html += column.width.map { "<col style=\"width: \($0)px\">" } ?? "<col>" }
                 html += "</colgroup><thead><tr>"
                 for column in columns {
-                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\">"
+                    let listed = (options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? "")
+                        + (kinds[column.id] == "select" || kinds[column.id] == "list" && chips.contains(column.id) ? options[column.id].map { list in
+                            " data-sage-hues=\"\(attribute(Study.scriptJSON(Dictionary(list.map { ($0, chipHue(column.id, $0)) }, uniquingKeysWith: { a, _ in a }))))\"" } ?? "" : "")
+                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\"\(listed)>"
                         + "<span class=\"bases-table-header-icon\" data-sage-icon=\"\(columnIcon(column.id))\"></span>\(escape(column.title))</th>"
                 }
                 html += "</tr></thead>"
@@ -964,8 +993,18 @@ extension Study {
                     html += "<tbody>"
                     if group.title != nil { html += "<tr class=\"sage-base-group-row\"><td colspan=\"\(columns.count)\">\(heading(group))</td></tr>" }
                     for row in group.rows {
-                        html += "<tr class=\"sage-base-row\">"
-                        for column in columns { html += "<td><div class=\"sage-base-cell bases-rendered-value\">\(value(row, column.id, cell(row, column.id)))</div></td>" }
+                        html += "<tr class=\"sage-base-row\" data-sage-path=\"\(attribute(row.note.item.path))\">"
+                        for column in columns {
+                            let v = cell(row, column.id)
+                            var editing = ""
+                            if let kind = kinds[column.id], row.note.item.ext == ".md" {
+                                editing = " data-sage-kind=\"\(kind)\" data-sage-key=\"\(attribute(String(column.id.dropFirst(5))))\" data-sage-was=\"\(attribute(Study.scriptJSON(cellValues(v))))\""
+                            }
+                            let shown = kinds[column.id] == "checkbox"
+                                ? "<input type=\"checkbox\" class=\"metadata-input-checkbox\" data-sage-tick\(cellValues(v).first?.lowercased() == "true" ? " checked" : "")>"
+                                : value(row, column.id, v)
+                            html += "<td data-sage-cell\(editing)><div class=\"sage-base-cell bases-rendered-value\">\(shown)</div></td>"
+                        }
                         html += "</tr>"
                     }
                     html += "</tbody>"
