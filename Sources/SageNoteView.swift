@@ -103,6 +103,8 @@ import WebKit
     var follow: (URL, Bool) -> Void = { _, _ in }
     var command: (String) -> Void = { _ in }
     var preview: (String, CGPoint?) -> Void = { _, _ in }
+    /// The note's title edited in place (2026-11-11, you asked): the vault path and the new name; false when refused.
+    var renameNote: (String, String) -> Bool = { _, _ in false }
     let keep: URL
 
     private var shownKey = "", lookKey = "", expected: URL?, page: String?
@@ -390,6 +392,32 @@ import WebKit
         case "property": property(body)
         // (2026-11-11) Cells of a base's table changed: typed, picked, pasted, cleared or undone.
         case "base-cell": baseCells(body)
+        // The title edited at the top of the note: renamed as the tree renames (links follow, Undo), what you were typing
+        // in the note saved first; a refused name puts the title back.
+        // A note's name edited in a base's table: renamed the same way, the vault's files read again, the base redrawn.
+        case "base-rename":
+            if let name = body["name"] as? String, let note = body["path"] as? String, let vault {
+                Task {
+                    await flush()
+                    let stem = ((note as NSString).lastPathComponent as NSString).deletingPathExtension
+                    guard note.lowercased().hasSuffix(".md"), (body["was"] as? String).map({ $0 == stem }) ?? true, renameNote(note, name) else { return }
+                    items = await Task.detached { Study.vaultItems(vault) }.value
+                    redrawBase()
+                }
+            }
+        case "rename-note":
+            if let name = body["name"] as? String {
+                Task {
+                    await flush()
+                    guard let path, path.lowercased().hasSuffix(".md") else {
+                        post(["type": "notice", "text": L("Only notes in your vault can be renamed here.")]); post(["type": "title-back"]); return
+                    }
+                    // The tab may have moved on to another note as the title lost focus: only the note it was the title of.
+                    let stem = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+                    if let was = body["was"] as? String, stem.trimmingCharacters(in: .whitespaces) != was.trimmingCharacters(in: .whitespaces) { return }
+                    if !renameNote(path, name) { post(["type": "title-back"]) }
+                }
+            }
         // A canvas edited in place, a note's text changed on its card, a card's Markdown drawn.
         case "canvas-save": canvasSave(body)
         case "canvas-note": canvasNote(body)
@@ -933,6 +961,7 @@ struct SageViewerPage: View {
             guard vault.tab?.id == id else { return }
             SageViewerPage.run(command, vault: vault)
         }
+        page.renameNote = { path, name in vault.rename(path, to: name) }
         page.preview = { href, at in
             guard let at, href.hasPrefix("sage-note:"), vault.vault != nil else { vault.preview = nil; return }
             let name = String(href.dropFirst("sage-note:".count)).removingPercentEncoding ?? ""

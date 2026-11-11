@@ -48,7 +48,7 @@ extension Checks {
               "Sage reads the vault's reading settings: properties, inline title, line width, view mode, tabs, spellcheck, property types, plugins")
         let bare = Study.notePage("---\nstatus: read\n---\nBody", look: reading, dark: true, title: "Pho")
         check(!bare.contains("class=\"metadata-container\"") && !bare.contains("class=\"inline-title\"")
-              && Study.notePage("Body", look: Study.Look(), dark: true, title: "Pho").contains("<div class=\"inline-title\" tabindex=\"-1\">Pho</div>"),
+              && Study.notePage("Body", look: Study.Look(), dark: true, title: "Pho").contains("<div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"false\" tabindex=\"-1\">Pho</div>"),
               "The note view follows the vault's reading settings: properties hidden, no inline title")
         let plugged = Study.notePage("Body", look: reading, dark: true, vault: Study.vaultBase)
         check(plugged.contains("href=\"\(Study.vaultBase).obsidian/plugins/vault-agent/styles.css\""), "Your enabled plugins' styles load from the vault, as in Obsidian")

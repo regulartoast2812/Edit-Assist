@@ -1000,6 +1000,11 @@ extension Study {
                             if let kind = kinds[column.id], row.note.item.ext == ".md" {
                                 editing = " data-sage-kind=\"\(kind)\" data-sage-key=\"\(attribute(String(column.id.dropFirst(5))))\" data-sage-was=\"\(attribute(Study.scriptJSON(cellValues(v))))\""
                             }
+                            // (2026-11-11, you asked) The file's name renames the note, as its title does.
+                            else if column.id == "file.name" || column.id == "file.basename", row.note.item.ext == ".md" {
+                                let stem = ((row.note.item.path as NSString).lastPathComponent as NSString).deletingPathExtension
+                                editing = " data-sage-kind=\"name\" data-sage-was=\"\(attribute(Study.scriptJSON([stem])))\""
+                            }
                             let shown = kinds[column.id] == "checkbox"
                                 ? "<input type=\"checkbox\" class=\"metadata-input-checkbox\" data-sage-tick\(cellValues(v).first?.lowercased() == "true" ? " checked" : "")>"
                                 : value(row, column.id, v)
