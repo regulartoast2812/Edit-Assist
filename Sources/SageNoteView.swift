@@ -394,6 +394,17 @@ import WebKit
         case "base-cell": baseCells(body)
         // The title edited at the top of the note: renamed as the tree renames (links follow, Undo), what you were typing
         // in the note saved first; a refused name puts the title back.
+        // A note's name edited in a base's table: renamed the same way, the vault's files read again, the base redrawn.
+        case "base-rename":
+            if let name = body["name"] as? String, let note = body["path"] as? String, let vault {
+                Task {
+                    await flush()
+                    let stem = ((note as NSString).lastPathComponent as NSString).deletingPathExtension
+                    guard note.lowercased().hasSuffix(".md"), (body["was"] as? String).map({ $0 == stem }) ?? true, renameNote(note, name) else { return }
+                    items = await Task.detached { Study.vaultItems(vault) }.value
+                    redrawBase()
+                }
+            }
         case "rename-note":
             if let name = body["name"] as? String {
                 Task {

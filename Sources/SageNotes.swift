@@ -2559,7 +2559,7 @@ extension Study {
         function same(a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
         function editFor(td, values) {
           var kind = td && td.getAttribute('data-sage-kind');
-          if (!kind || !values) return null;
+          if (!kind || kind === 'name' || !values) return null;
           var old = was(td);
           if (same(old, values)) return null;
           return { path: td.parentElement.getAttribute('data-sage-path'), key: td.getAttribute('data-sage-key'), was: old, values: values, list: kind === 'list', plain: !!plainKinds[kind] };
@@ -2576,7 +2576,7 @@ extension Study {
         // Clearing, pasting and toggling: every picked cell that can be edited.
         function clear() {
           var edits = [], skipped = 0;
-          picked().forEach(function (line) { line.forEach(function (td) { if (!td) return; if (td.hasAttribute('data-sage-kind')) edits.push(editFor(td, [])); else skipped++; }); });
+          picked().forEach(function (line) { line.forEach(function (td) { if (!td) return; if (td.hasAttribute('data-sage-kind') && td.getAttribute('data-sage-kind') !== 'name') edits.push(editFor(td, [])); else skipped++; }); });
           send(edits);
           if (skipped && !edits.filter(Boolean).length) readOnly();
         }
@@ -2592,7 +2592,7 @@ extension Study {
             var td = cellAt(pick.table, r, c), text = single ? grid[0][0] : (grid[r - b.r0] || [])[c - b.c0];
             if (!td || text === undefined) continue;
             var kind = td.getAttribute('data-sage-kind');
-            if (!kind) { skipped++; continue; }
+            if (!kind || kind === 'name') { skipped++; continue; }
             var values = asValues(kind, text);
             if (!values) { bad++; continue; }
             edits.push(editFor(td, values));
@@ -2618,9 +2618,10 @@ extension Study {
           try { return JSON.parse(th.getAttribute('data-sage-options') || '[]'); } catch (e) { return []; }
         }
         function edit(td, typed) {
-          var kind = td.getAttribute('data-sage-kind');
+          var kind = td.getAttribute('data-sage-kind'), naming = kind === 'name';
           if (!kind) { readOnly(); return; }
           if (kind === 'checkbox') { toggle(td); return; }
+          if (naming) kind = 'text';
           if (editor) editor.close(true);
           var old = was(td), shell = document.createElement('div'), field, picker = kind === 'select' || kind === 'list';
           var pills = old.slice(), menu = null, lit = 0, pillBox = null;
@@ -2720,10 +2721,13 @@ extension Study {
             if (kind === 'list') return pills.slice();
             return asValues(kind, field.value);
           }
-          function pending() { var v = valuesNow(); return v ? editFor(td, v) : null; }
+          function pending() { var v = valuesNow(); return v && !naming ? editFor(td, v) : null; }
           function close(save, then) {
             if (!editor || editor.shell !== shell) return;
             var change = save ? pending() : null;
+            // A note's name: renamed by Sage as the tree renames it (links follow; Undo is in Sage's list of changes).
+            var renamed = save && naming ? field.value.replace(/\s+/g, ' ').trim() : '';
+            if (renamed && renamed !== old[0]) post({ type: 'base-rename', path: td.parentElement.getAttribute('data-sage-path'), name: renamed, was: old[0] });
             if (save && !valuesNow()) notice(kind === 'number' ? 'That isn’t a number, so it wasn’t saved.' : 'That isn’t a date, so it wasn’t saved.');
             editor = null;
             removeEventListener('scroll', place, true); removeEventListener('resize', place);
@@ -2833,7 +2837,7 @@ extension Study {
             var kind = f.getAttribute('data-sage-kind');
             e.preventDefault(); e.stopPropagation();
             if (!kind) { readOnly(); return; }
-            if (kind === 'text' || kind === 'number' || kind === 'select' || kind === 'list') { pick.a = { r: pick.f.r, c: pick.f.c }; paint(); edit(f, key); }
+            if (kind === 'text' || kind === 'name' || kind === 'number' || kind === 'select' || kind === 'list') { pick.a = { r: pick.f.r, c: pick.f.c }; paint(); edit(f, key); }
             else edit(f);
           }
         });

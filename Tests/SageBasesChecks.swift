@@ -153,6 +153,7 @@ extension Checks {
             check(html.contains("data-sage-path=\"Lib/Hub.md\"") && html.contains("data-sage-kind=\"date\"") && html.contains("data-sage-key=\"Created\"")
                   && html.contains("data-sage-kind=\"list\"") && html.contains("data-sage-options="),
                   "A base's table marks each row's note and each property cell's kind, so the page can edit it")
+            check(html.contains("data-sage-kind=\"name\" data-sage-was=\"[&quot;Hub&quot;]\""), "A note's name in a base's table can be edited (it renames the note, as its title does)")
             for (i, status) in ["Planned", "To film", "To film", "planned", "Planned"].enumerated() { try write("---\nStatus: \(status)\n---\n", "Show/E\(i).md") }
             try write("---\nStatus: Assessment\n---\n", "Other/X.md")
             let shows = Study.baseHTML("views:\n  - type: table\n    name: All\n    filters:\n      and:\n        - file.inFolder(\"Show\")\n    order:\n      - file.name\n      - Status\n",
