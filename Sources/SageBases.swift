@@ -972,6 +972,8 @@ extension Study {
                 html += "</colgroup><thead><tr>"
                 for column in columns {
                     let listed = options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? ""
+                        + (kinds[column.id] == "select" || kinds[column.id] == "list" && chips.contains(column.id) ? options[column.id].map { list in
+                            " data-sage-hues=\"\(attribute(Study.scriptJSON(Dictionary(list.map { ($0, chipHue(column.id, $0)) }, uniquingKeysWith: { a, _ in a }))))\"" } ?? "" : "")
                     html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\"\(listed)>"
                         + "<span class=\"bases-table-header-icon\" data-sage-icon=\"\(columnIcon(column.id))\"></span>\(escape(column.title))</th>"
                 }

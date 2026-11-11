@@ -789,15 +789,20 @@ extension Study {
     .sage-cell-editor .sage-cell-field { flex: 1 1 80px; min-width: 80px; width: 100%; margin: 0; padding: 0; border: none !important; outline: none !important; box-shadow: none !important; background: transparent !important;
       color: var(--text-normal); font: inherit; font-size: var(--font-text-size, inherit); line-height: 1.5; resize: none; height: auto; }
     .sage-cell-editor input[type=date], .sage-cell-editor input[type=datetime-local] { color-scheme: light dark; }
+    .sage-cell-editor.is-picker { display: block; padding: 0; max-width: 360px; overflow: hidden; background: var(--background-secondary, var(--background-primary));
+      border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); box-shadow: var(--shadow-l, 0 8px 24px rgba(0,0,0,.35)); }
+    .sage-cell-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 9px; background: var(--background-modifier-form-field, var(--background-primary)); border-bottom: 1px solid var(--background-modifier-border); }
+    .sage-cell-top .sage-cell-field { font-size: var(--font-ui-small, 13px) !important; }
+    .sage-cell-top .sage-cell-field::placeholder { color: var(--text-faint); }
     .sage-cell-pills { display: contents; }
-    .sage-cell-pill { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 1px 4px 1px 8px; border-radius: var(--pill-radius, 12px); background: var(--pill-background, var(--background-modifier-hover)); color: var(--pill-color, var(--text-normal)); font-size: var(--font-ui-small, 13px); }
-    .sage-cell-pill-x { display: inline-flex; cursor: pointer; color: var(--text-faint); } .sage-cell-pill-x:hover { color: var(--text-normal); } .sage-cell-pill-x .svg-icon { width: 12px; height: 12px; }
-    .sage-cell-menu { position: fixed; z-index: 61; box-sizing: border-box; max-width: 360px; max-height: 260px; overflow-y: auto; padding: 4px; background: var(--background-secondary, var(--background-primary));
-      border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); box-shadow: var(--shadow-l, 0 8px 24px rgba(0,0,0,.35)); font-family: var(--font-interface, inherit); font-size: var(--font-ui-small, 13px); }
-    .sage-cell-menu[hidden] { display: none; }
-    .sage-cell-option { padding: 5px 8px; border-radius: var(--radius-s, 4px); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-normal); }
-    .sage-cell-option.is-lit { background: var(--background-modifier-hover); } .sage-cell-option.is-current { font-weight: var(--font-semibold, 600); }
-    .sage-cell-option.is-new { color: var(--text-accent); } .sage-cell-option.is-clear { color: var(--text-muted); border-top: 1px solid var(--background-modifier-border); margin-top: 2px; }
+    .sage-chip.sage-cell-pill { display: inline-flex; align-items: center; gap: 3px; padding-right: 4px; }
+    .sage-cell-pill-x { display: inline-flex; cursor: pointer; opacity: .7; } .sage-cell-pill-x:hover { opacity: 1; } .sage-cell-pill-x .svg-icon { width: 11px; height: 11px; }
+    .sage-cell-menu { max-height: 280px; overflow-y: auto; padding: 4px; font-family: var(--font-interface, inherit); font-size: var(--font-ui-small, 13px); }
+    .sage-cell-hint { padding: 4px 8px 6px; color: var(--text-faint); font-size: var(--font-ui-smaller, 12px); }
+    .sage-cell-option { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 8px; border-radius: var(--radius-s, 4px); cursor: pointer; color: var(--text-normal); }
+    .sage-cell-option .sage-chip { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .sage-cell-option.is-lit { background: var(--background-modifier-hover); }
+    .sage-cell-create { color: var(--text-muted); } .sage-cell-tick { margin-left: auto; display: inline-flex; color: var(--text-muted); } .sage-cell-tick .svg-icon { width: 14px; height: 14px; }
     .sage-base-cards-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 18px; }
     .sage-base-cards-group[hidden] { display: none; }
     .sage-base-card { display: flex; flex-direction: column; padding-bottom: 10px; overflow: hidden; cursor: pointer; user-select: none;
@@ -2567,14 +2572,25 @@ extension Study {
           if (!kind) { readOnly(); return; }
           if (kind === 'checkbox') { toggle(td); return; }
           if (editor) editor.close(true);
-          var old = was(td), shell = document.createElement('div'), menu = null, lit = 0, pills = old.slice(), field;
-          shell.className = 'sage-cell-editor';
+          var old = was(td), shell = document.createElement('div'), field, picker = kind === 'select' || kind === 'list';
+          var pills = old.slice(), menu = null, lit = 0, pillBox = null;
+          var th = td.closest('table').querySelector('thead tr').cells[td.cellIndex], hues = {};
+          try { hues = JSON.parse(th.getAttribute('data-sage-hues') || '{}'); } catch (e) {}
+          function hueOf(v) {
+            for (var k in hues) if (k.toLowerCase() === v.toLowerCase()) return hues[k];
+            var h = 0; for (var i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) >>> 0; return h % 8;
+          }
+          function chip(v) { var c = document.createElement('span'); c.className = 'sage-chip sage-hue-' + hueOf(v); c.textContent = v; return c; }
+          shell.className = 'sage-cell-editor' + (picker ? ' is-picker' : '');
           if (kind === 'date' || kind === 'datetime') {
             field = document.createElement('input');
             field.type = kind === 'date' ? 'date' : 'datetime-local';
             field.value = old[0] ? (kind === 'date' ? old[0].slice(0, 10) : old[0].replace(' ', 'T').slice(0, 16)) : '';
-          } else if (kind === 'list') {
+          } else if (picker) {
+            // As Notion's status and multi-select: the value(s) as pills on top, a search under them, every option below.
             field = document.createElement('input'); field.type = 'text';
+            field.placeholder = pills.length && kind === 'select' ? 'Search for another option…' : 'Search for an option…';
+            field.value = typed !== undefined ? typed : '';
           } else {
             field = document.createElement(kind === 'text' ? 'textarea' : 'input');
             if (kind !== 'text') field.type = 'text';
@@ -2582,12 +2598,14 @@ extension Study {
             field.value = typed !== undefined ? typed : old.join(', ');
             if (kind === 'text') field.rows = 1;
           }
-          if (kind === 'list' && typed !== undefined) field.value = typed;
           field.className = 'sage-cell-field';
           field.spellcheck = kind === 'text';
-          var pillBox = null;
-          if (kind === 'list') { pillBox = document.createElement('div'); pillBox.className = 'sage-cell-pills'; shell.appendChild(pillBox); }
-          shell.appendChild(field);
+          if (picker) {
+            var top = document.createElement('div'); top.className = 'sage-cell-top';
+            pillBox = document.createElement('div'); pillBox.className = 'sage-cell-pills';
+            top.appendChild(pillBox); top.appendChild(field); shell.appendChild(top);
+            menu = document.createElement('div'); menu.className = 'sage-cell-menu'; shell.appendChild(menu);
+          } else shell.appendChild(field);
           document.body.appendChild(shell);
           post({ type: 'editing', on: true });
 
@@ -2595,59 +2613,60 @@ extension Study {
             if (!pillBox) return;
             pillBox.textContent = '';
             pills.forEach(function (v, i) {
-              var p = document.createElement('span'); p.className = 'sage-cell-pill'; p.textContent = v;
+              var p = chip(v); p.classList.add('sage-cell-pill');
               var x = document.createElement('span'); x.className = 'sage-cell-pill-x'; x.innerHTML = svg('lucide-x'); x.title = 'Remove';
-              x.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); pills.splice(i, 1); drawPills(); drawMenu(); place(); });
+              x.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); pills.splice(i, 1); drawPills(); drawMenu(); place(); field.focus(); });
               p.appendChild(x); pillBox.appendChild(p);
             });
           }
           function choices() {
-            if (kind !== 'select' && kind !== 'list') return null;
-            var q = field.value.trim().toLowerCase(), all = optionsOf(td);
-            var list = all.filter(function (o) { return (!q || o.toLowerCase().indexOf(q) >= 0) && (kind !== 'list' || pills.indexOf(o) < 0); }).slice(0, 50)
-              .map(function (o) { return { value: o, label: o }; });
-            if (q && !all.some(function (o) { return o.toLowerCase() === q; })) list.unshift({ value: field.value.trim(), label: 'Add “' + field.value.trim() + '”', fresh: true });
-            if (kind === 'select' && old.length && !q) list.push({ value: '', label: 'Clear', clear: true });
+            if (!picker) return null;
+            var typedNow = field.value.trim(), q = typedNow.toLowerCase(), all = optionsOf(td);
+            pills.forEach(function (v) { if (!all.some(function (o) { return o.toLowerCase() === v.toLowerCase(); })) all = [v].concat(all); });
+            var list = all.filter(function (o) { return (!q || o.toLowerCase().indexOf(q) >= 0) && (kind !== 'list' || pills.indexOf(o) < 0); }).slice(0, 100)
+              .map(function (o) { return { value: o }; });
+            if (q && !all.some(function (o) { return o.toLowerCase() === q; })) list.push({ value: typedNow, fresh: true });
             return list;
           }
           function drawMenu() {
             var list = choices();
             if (!list) return;
-            if (!menu) { menu = document.createElement('div'); menu.className = 'sage-cell-menu'; document.body.appendChild(menu); }
             lit = Math.max(0, Math.min(lit, list.length - 1));
             menu.textContent = '';
-            menu.hidden = !list.length;
+            var hint = document.createElement('div'); hint.className = 'sage-cell-hint';
+            hint.textContent = list.length ? (kind === 'list' ? 'Select options or create one' : 'Select an option or create one') : 'No options yet: type one';
+            menu.appendChild(hint);
             list.forEach(function (o, i) {
               var row = document.createElement('div');
-              row.className = 'sage-cell-option' + (i === lit ? ' is-lit' : '') + (o.fresh ? ' is-new' : '') + (o.clear ? ' is-clear' : '') + (kind === 'select' && old[0] === o.value && !o.fresh ? ' is-current' : '');
-              row.textContent = o.label;
+              var current = kind === 'select' && pills[0] && pills[0].toLowerCase() === o.value.toLowerCase();
+              row.className = 'sage-cell-option' + (i === lit ? ' is-lit' : '') + (current ? ' is-current' : '');
+              if (o.fresh) { var w = document.createElement('span'); w.className = 'sage-cell-create'; w.textContent = 'Create'; row.appendChild(w); }
+              row.appendChild(chip(o.value));
+              if (current) { var tick = document.createElement('span'); tick.className = 'sage-cell-tick'; tick.innerHTML = svg('lucide-check'); row.appendChild(tick); }
               row.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); choose(o); });
               row.addEventListener('mousemove', function () { if (lit !== i) { lit = i; menu.querySelectorAll('.sage-cell-option').forEach(function (r, j) { r.classList.toggle('is-lit', j === i); }); } });
               menu.appendChild(row);
             });
-            var current = menu.querySelector('.is-lit'); if (current) current.scrollIntoView({ block: 'nearest' });
+            var l = menu.querySelector('.is-lit'); if (l) l.scrollIntoView({ block: 'nearest' });
           }
           function choose(o) {
-            if (kind === 'select') { field.value = o.value; close(true); return; }
+            if (kind === 'select') { pills = o.value ? [o.value] : []; close(true); return; }
             if (o.value && pills.indexOf(o.value) < 0) pills.push(o.value);
             field.value = ''; lit = 0; drawPills(); drawMenu(); place(); field.focus();
           }
           function place() {
             if (!td.isConnected) { close(false); return; }
             var r = td.getBoundingClientRect();
-            shell.style.left = Math.max(4, r.left) + 'px'; shell.style.top = r.top + 'px';
-            shell.style.minWidth = Math.max(r.width, kind === 'list' || kind === 'select' ? 220 : 160) + 'px';
-            shell.style.minHeight = r.height + 'px';
+            shell.style.minWidth = Math.max(r.width, picker ? 260 : 160) + 'px';
+            if (!picker) shell.style.minHeight = r.height + 'px';
             if (field.tagName === 'TEXTAREA') { field.style.height = 'auto'; field.style.height = Math.min(field.scrollHeight, 240) + 'px'; }
-            if (menu) {
-              var s = shell.getBoundingClientRect(), below = innerHeight - s.bottom;
-              menu.style.left = s.left + 'px'; menu.style.minWidth = s.width + 'px';
-              if (below < 180 && s.top > below) { menu.style.top = ''; menu.style.bottom = (innerHeight - s.top + 4) + 'px'; }
-              else { menu.style.bottom = ''; menu.style.top = (s.bottom + 4) + 'px'; }
-            }
+            var left = Math.max(4, Math.min(r.left, innerWidth - shell.offsetWidth - 8)), topAt = r.top;
+            if (topAt + shell.offsetHeight > innerHeight - 8) topAt = Math.max(4, innerHeight - 8 - shell.offsetHeight);
+            shell.style.left = left + 'px'; shell.style.top = topAt + 'px';
           }
           function valuesNow() {
-            if (kind === 'list') { var extra = asValues('list', field.value) || []; return pills.concat(extra.filter(function (v) { return pills.indexOf(v) < 0; })); }
+            if (kind === 'select') return pills.slice(0, 1);
+            if (kind === 'list') return pills.slice();
             return asValues(kind, field.value);
           }
           function pending() { var v = valuesNow(); return v ? editFor(td, v) : null; }
@@ -2657,7 +2676,7 @@ extension Study {
             if (save && !valuesNow()) notice(kind === 'number' ? 'That isn’t a number, so it wasn’t saved.' : 'That isn’t a date, so it wasn’t saved.');
             editor = null;
             removeEventListener('scroll', place, true); removeEventListener('resize', place);
-            shell.remove(); if (menu) menu.remove();
+            shell.remove();
             post({ type: 'editing', on: false });
             if (change) send([change]);
             if (then) then(); else paint();
@@ -2666,35 +2685,32 @@ extension Study {
           field.addEventListener('keydown', function (e) {
             if (e.isComposing) return;
             e.stopPropagation();
-            var list = menu && !menu.hidden ? menu.querySelectorAll('.sage-cell-option') : [];
-            if (e.key === 'Escape') { e.preventDefault(); close(false); return; }
+            var list = picker ? choices() : [];
+            if (e.key === 'Escape') { e.preventDefault(); close(picker); return; }
             if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && list.length) {
               e.preventDefault(); lit = (lit + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; drawMenu(); return;
             }
             if (e.key === 'Tab') { e.preventDefault(); close(true, function () { move(0, e.shiftKey ? -1 : 1); }); return; }
-            if (kind === 'list') {
-              if ((e.key === 'Enter' || e.key === ',') && field.value.trim()) {
+            if (picker) {
+              if (e.key === 'Enter') {
                 e.preventDefault();
-                var opts = choices(); choose(e.key === 'Enter' && opts && opts[lit] ? opts[lit] : { value: field.value.trim() });
+                if (list[lit] && (field.value.trim() || kind === 'select')) choose(list[lit]);
+                else close(true, function () { move(1, 0); });
                 return;
               }
-              if (e.key === 'Backspace' && !field.value && pills.length) { e.preventDefault(); pills.pop(); drawPills(); drawMenu(); place(); return; }
-              if (e.key === 'Enter') { e.preventDefault(); close(true, function () { move(1, 0); }); }
+              if (kind === 'list' && e.key === ',' && field.value.trim()) { e.preventDefault(); choose({ value: field.value.trim() }); return; }
+              if (e.key === 'Backspace' && !field.value && pills.length) { e.preventDefault(); pills.pop(); drawPills(); drawMenu(); place(); }
               return;
             }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              var o = kind === 'select' && list.length ? choices()[lit] : null;
-              if (o && field.value.trim()) { field.value = o.value; }
-              close(true, function () { move(1, 0); });
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); close(true, function () { move(1, 0); }); }
           });
-          editor = { shell: shell, close: close, pending: pending, has: function (el) { return shell.contains(el) || (menu && menu.contains(el)); } };
+          editor = { shell: shell, close: close, pending: pending, has: function (el) { return shell.contains(el); } };
+          if (kind === 'select' && pills[0] && typed === undefined) { var at = choices().findIndex(function (o) { return o.value.toLowerCase() === pills[0].toLowerCase(); }); lit = Math.max(0, at); }
           drawPills(); drawMenu();
           addEventListener('scroll', place, true); addEventListener('resize', place);
           place();
           field.focus({ preventScroll: true });
-          if (field.setSelectionRange && field.type !== 'date' && field.type !== 'datetime-local') { var end = field.value.length; field.setSelectionRange(typed !== undefined ? end : 0, end); }
+          if (!picker && field.setSelectionRange && field.type !== 'date' && field.type !== 'datetime-local') { var end = field.value.length; field.setSelectionRange(typed !== undefined ? end : 0, end); }
         }
 
         // Picking with the mouse; links in a cell still open their note, a tick still toggles.
@@ -2707,7 +2723,7 @@ extension Study {
           if (editor && editor.has(e.target)) return;
           if (editor) editor.close(true, function () {});
           var td = tdOf(e.target);
-          if (!td) { if (pick && !e.target.closest('.sage-cell-menu')) unpick(); return; }
+          if (!td) { if (pick) unpick(); return; }
           if (e.target.closest('a, [data-sage-tick]')) { pick = { table: td.closest('table'), a: posOf(td), f: posOf(td) }; paint(); return; }
           e.preventDefault();
           var at = posOf(td), focusBefore = pick && pick.table === at.table && pick.a.r === pick.f.r && pick.a.c === pick.f.c && pick.f.r === at.r && pick.f.c === at.c;
@@ -2830,7 +2846,7 @@ extension Study {
         window.sageFlush = function () {
           if (editor) {
             var change = editor.pending();
-            var e = editor; editor = null; e.shell.remove(); document.querySelectorAll('.sage-cell-menu').forEach(function (m) { m.remove(); });
+            var e = editor; editor = null; e.shell.remove();
             if (change) return JSON.stringify({ type: 'base-cell', edits: [change] });
           }
           return flushBefore ? flushBefore() : '';
