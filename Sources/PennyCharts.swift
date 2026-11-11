@@ -14,6 +14,8 @@ enum PennyStyle {
     static let orange = Color(red: 236 / 255, green: 131 / 255, blue: 90 / 255)
     static let blue = Color(red: 57 / 255, green: 135 / 255, blue: 229 / 255)
     static let violet = Color(red: 144 / 255, green: 133 / 255, blue: 233 / 255)
+    static let pink = Color(red: 225 / 255, green: 110 / 255, blue: 175 / 255)
+    static let teal = Color(red: 45 / 255, green: 185 / 255, blue: 175 / 255)
     static let muted = Color(red: 137 / 255, green: 135 / 255, blue: 129 / 255)
     static let grid = Color(red: 44 / 255, green: 44 / 255, blue: 42 / 255)
     static let baseline = Color(red: 72 / 255, green: 72 / 255, blue: 68 / 255)
@@ -35,6 +37,9 @@ enum PennyStyle {
     static func roas(_ value: Double?, _ profit: Ledger.Profit) -> Color { tone(Ledger.tone(roas: value, profit)) }
 
     static func money(_ value: Double) -> Color { value < 0 ? red : green }
+    /// A colour a third of the way to white, for words on a wash of itself: a pill's (2026-11-11: the shares' pills, in
+    /// their own colours at full strength, were hard to read on the dark).
+    static func light(_ color: Color) -> Color { Color(nsColor: NSColor(color).usingColorSpace(.sRGB)?.blended(withFraction: 0.35, of: .white) ?? NSColor(color)) }
 
     static func verdict(_ verdict: Ledger.HourRead.Verdict) -> Color {
         switch verdict {
@@ -1143,9 +1148,9 @@ struct PennyFigure: View {
 
     static func pill(_ text: String, _ color: Color?, _ tip: String?) -> some View {
         Text(text).font(.system(size: 10, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.75)
-            .foregroundStyle(color ?? PennyStyle.words)
+            .foregroundStyle(color.map(PennyStyle.light) ?? PennyStyle.words)
             .padding(.horizontal, 6).padding(.vertical, 1.5)
-            .background((color ?? .white).opacity(color == nil ? 0.08 : 0.16), in: Capsule())
+            .background((color ?? .white).opacity(color == nil ? 0.08 : 0.26), in: Capsule())
             .help(tip ?? "")
     }
 

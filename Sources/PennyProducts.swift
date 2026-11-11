@@ -319,6 +319,8 @@ struct ProductDetail: View, Equatable {
         // (fees and the like). (2026-11-10: first worked out with tax taken off a second time, $126 for Nov 8, not $311.)
         let rest = { (m: Ledger.Margin) in max(0, m.revenue - m.cost - m.spent - m.cbh) }
         // Each money figure's share of revenue, and its tip: the share against the days before.
+        // Each share in a colour of its own (2026-11-11: grey pills were hard to pick out): revenue blue as in the charts,
+        // CBH green or red, the costs violet, orange, pink and teal, away from the green, yellow and red that judge.
         let part = { (value: Double, m: Ledger.Margin) -> String? in m.revenue > 0 ? Ledger.percent(value / m.revenue) : nil }
         let partTip = { (name: String, value: (Ledger.Margin) -> Double) -> String in
             let shareNow: Double? = now.revenue > 0 ? value(now) / now.revenue : nil
@@ -333,22 +335,22 @@ struct ProductDetail: View, Equatable {
             if margined {
                 FigureFlow(gap: 16) {
                     PennyFigure(name: "Marketing", value: Ledger.money(now.spent), change: cbhChange(now.spent, then.spent), neutral: true, was: was(Ledger.money(then.spent)),
-                                share: part(now.spent, now), shareTip: partTip("Marketing", \.spent),
+                                share: part(now.spent, now), shareColor: PennyStyle.violet, shareTip: partTip("Marketing", \.spent),
                                 aside: L("ads %@", Ledger.money(total.spent)), asideTip: adsSpent)
                     FigureArrow()
                     PennyFigure(name: "Product cost", value: Ledger.money(now.cost), change: cbhChange(now.cost, then.cost), neutral: true, was: was(Ledger.money(then.cost)),
-                                share: part(now.cost, now), shareTip: partTip("Product cost", \.cost))
+                                share: part(now.cost, now), shareColor: PennyStyle.orange, shareTip: partTip("Product cost", \.cost))
                     FigureArrow()
                     PennyFigure(name: "Tax", value: Ledger.money(now.tax), change: cbhChange(now.tax, then.tax), neutral: true, was: was(Ledger.money(then.tax)),
-                                share: part(now.tax, now),
+                                share: part(now.tax, now), shareColor: PennyStyle.pink,
                                 shareTip: partTip("Tax", \.tax) + " · " + L("Retail Operations' tax (stats_tax_amount), already taken off revenue, as the dashboard shows it"))
                     FigureArrow()
                     PennyFigure(name: "Other costs", value: Ledger.money(rest(now)), change: cbhChange(rest(now), rest(then)), neutral: true,
                                 was: L("What CBH takes off besides product cost, tax and marketing: about 9% of revenue before tax (fees and the like). %@", was(Ledger.money(rest(then)))),
-                                share: part(rest(now), now), shareTip: partTip("Other costs", rest))
+                                share: part(rest(now), now), shareColor: PennyStyle.teal, shareTip: partTip("Other costs", rest))
                     FigureArrow()
                     PennyFigure(name: "Revenue", value: Ledger.money(now.revenue), change: cbhChange(now.revenue, then.revenue), was: was(Ledger.money(then.revenue)),
-                                share: now.revenue > 0 ? Ledger.percent(1) : nil, shareTip: L("Each figure here is a share of revenue, after tax"),
+                                share: now.revenue > 0 ? Ledger.percent(1) : nil, shareColor: PennyStyle.blue, shareTip: L("Each figure here is a share of revenue, after tax"),
                                 aside: L("ads %@", Ledger.money(total.revenue)), asideTip: adsRevenue)
                     FigureArrow()
                     PennyFigure(name: "CBH", value: Ledger.money(now.cbh), color: PennyStyle.money(now.cbh), change: cbhChange(now.cbh, then.cbh), was: was(Ledger.money(then.cbh)),
@@ -357,12 +359,12 @@ struct ProductDetail: View, Equatable {
             } else {
                 FigureFlow(gap: 16) {
                     PennyFigure(name: "Spent", value: Ledger.money(total.spent), change: change(total.spent, before.spent, true), neutral: true, was: was(Ledger.money(before.spent)),
-                                share: total.revenue > 0 ? Ledger.percent(total.spent / total.revenue) : nil,
+                                share: total.revenue > 0 ? Ledger.percent(total.spent / total.revenue) : nil, shareColor: PennyStyle.violet,
                                 shareTip: tip("Share of revenue", total.revenue > 0 && before.revenue > 0 ? change(total.spent / total.revenue, before.spent / before.revenue, false) : nil,
                                               before.revenue > 0 ? Ledger.percent(before.spent / before.revenue) : "–"))
                     FigureArrow()
                     PennyFigure(name: "Revenue", value: Ledger.money(total.revenue), change: change(total.revenue, before.revenue, true), was: was(Ledger.money(before.revenue)),
-                                share: total.revenue > 0 ? Ledger.percent(1) : nil, shareTip: L("Each figure here is a share of revenue, after tax"))
+                                share: total.revenue > 0 ? Ledger.percent(1) : nil, shareColor: PennyStyle.blue, shareTip: L("Each figure here is a share of revenue, after tax"))
                 }
             }
             FigureHeading(title: "Stats", note: "The ads, as copied hour by hour").padding(.top, 8)
