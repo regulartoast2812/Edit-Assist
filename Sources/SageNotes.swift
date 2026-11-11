@@ -213,7 +213,7 @@ extension Study {
         let header = split(text).header
         let start = bodyStart(text)
         let shown = start > 0 && look.properties != "hidden"
-        var top = title != nil && look.inlineTitle ? "<div class=\"inline-title\" tabindex=\"-1\">\(escape(title!))</div>" : ""
+        var top = title != nil && look.inlineTitle ? "<div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"false\" tabindex=\"-1\">\(escape(title!))</div>" : ""
         if shown && look.properties != "source" {
             top += properties(header, types: look.types).replacingOccurrences(of: "<div class=\"metadata-container\"",
                                                                               with: "<div data-sage-from=\"1\" data-sage-to=\"\(start - 2)\" class=\"metadata-container\"")
@@ -673,6 +673,7 @@ extension Study {
     mark { background: var(--text-highlight-bg); color: inherit; } hr { border: none; border-top: 1px solid var(--background-modifier-border); margin: 1.6em 0; }
     table { border-collapse: collapse; margin: 1em 0; } th, td { border: 1px solid var(--background-modifier-border); padding: 4px 10px; } th { background: var(--background-secondary); }
     img { max-width: 100%; border-radius: var(--radius-s); }
+    .inline-title[contenteditable] { cursor: text; outline: none; } .inline-title[contenteditable]:empty::before { content: 'Untitled'; color: var(--text-faint); }
     .inline-title { font-size: var(--inline-title-size, var(--h1-size)); font-weight: var(--inline-title-weight, 700); line-height: 1.2; margin: 0 0 .6em; color: var(--inline-title-color, var(--text-normal)); }
     pre.frontmatter { color: var(--text-muted); }
     a.tag { background: var(--tag-background); color: var(--text-accent); padding: .1em .55em; border-radius: 1em; font-size: .875em; }
@@ -2412,6 +2413,46 @@ extension Study {
           shownKey = '';
           if (!frame) frame = requestAnimationFrame(update);
         }).observe(scroller, { childList: true, subtree: true });
+      })();
+      // (2026-11-11, you asked) The title at the top is the file's name, edited in place as in Obsidian: Enter or a click
+      // away renames the note (links to it follow), Esc puts it back; one line, plain text.
+      (function () {
+        var shownName = null;
+        function title() { return document.querySelector('.inline-title[contenteditable]'); }
+        function cleaned(el) { return (el.innerText || '').replace(/[\r\n]+/g, ' ').replace(/\u00a0/g, ' ').trim(); }
+        function back() { var el = title(); if (el && shownName !== null) el.textContent = shownName; }
+        document.addEventListener('focusin', function (e) {
+          if (e.target.matches && e.target.matches('.inline-title[contenteditable]')) shownName = cleaned(e.target);
+        });
+        document.addEventListener('focusout', function (e) {
+          if (!(e.target.matches && e.target.matches('.inline-title[contenteditable]')) || shownName === null) return;
+          var name = cleaned(e.target), was = shownName;
+          shownName = null;
+          if (!name) { e.target.textContent = was; return; }
+          e.target.textContent = name;
+          if (name !== was) { shownName = was; post({ type: 'rename-note', name: name }); }
+        });
+        document.addEventListener('keydown', function (e) {
+          var el = e.target.matches && e.target.matches('.inline-title[contenteditable]') ? e.target : null;
+          if (!el || e.isComposing) return;
+          if (e.key === 'Enter' || e.key === 'Escape' || (e.key === 'Tab' && !e.shiftKey)) {
+            e.preventDefault(); e.stopPropagation();
+            if (e.key === 'Escape') el.textContent = shownName;
+            el.blur();
+            return;
+          }
+          e.stopPropagation();
+        }, true);
+        document.addEventListener('paste', function (e) {
+          if (!(e.target.closest && e.target.closest('.inline-title[contenteditable]'))) return;
+          e.preventDefault();
+          document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/[\r\n]+/g, ' '));
+        }, true);
+        var before = window.sageReceive;
+        window.sageReceive = function (message) {
+          if (message.type === 'title-back') { back(); shownName = null; return; }
+          if (before) before(message);
+        };
       })();
       // (2026-11-11, you asked) A base's table edited in place, as a spreadsheet: a click picks a cell (Shift or a drag picks
       // more), a second click, a double-click, Enter or typing edits it (text, number, date, a menu of the values the vault
