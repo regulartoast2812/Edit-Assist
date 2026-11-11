@@ -1,46 +1,47 @@
 import SwiftUI
 import WebKit
 
-/// Penny, the numbers helper: a businessman, a platinum blob with side-parted hair, gold glasses and a charcoal suit with
-/// a money-green tie, holding up a bar chart (a teal blob with a bun read as Perry the Platypus, 2026-11-03). Working:
-/// the bars rise and fall and his glasses catch the light. His eyes were a dark pixel each on a gold bar with gold under
-/// them, which read as a squint (2026-11-10: "creepy"); now they're tall and dark behind round gold glasses with light
-/// lenses, as the other helpers' eyes are tall.
+/// Penny, the numbers helper: a businessman, a platinum blob with side-parted hair and a charcoal suit with
+/// a money-green tie, holding up a bar chart (a teal blob with a bun read as Perry the Platypus, 2026-11-03). Tall dark eyes, a dark
+/// handlebar moustache and a pipe at the corner of his mouth, its bowl glowing and smoke curling up (2026-11-11, you
+/// asked: the gold glasses, first a squint, then big round lenses, were "too big and weird"). Working: the bars rise and
+/// fall and the smoke curls.
 struct PixelPenny: View {
     /// The helper's colour, the body's: their page and sidebar button take it.
     static let theme = Color(red: 205 / 255, green: 212 / 255, blue: 222 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
-                       ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
-                       ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"]
-    static let blink = ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
-                        ".GLLLGLLLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
-                        ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"]
+    static let rest = [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
+                       "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+                       "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."]
+    static let blink = [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOOOOOOOO......",
+                        "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+                        "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."]
     static let working: [[String]] = [
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
-         ".GLKLGLKLG.A....", ".GLKLOLKLG.A..Y.", ".OGGGOGGGO.A.PY.", ".SSSWTWSSSOAYPY.",
-         ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OgGGOgGGO......",
-         ".GLKLGLKLG.A.P..", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
-         ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OGGGOGGGO......",
-         ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.AY.Y.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
-         ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
-        ["...NNNNNN.......", "..NNnNNNNN......", ".NNOOOOOOO......", ".OgGGOgGGO......",
-         ".GLKLGLKLG.A..Y.", ".GLKLOLKLG.A.PY.", ".OGGGOGGGO.AYPY.", ".SSSWTWSSSOAYPY.",
-         ".SSSSTSSSS.AAAAA", "..SSSSSSSS......", "...D....D.......", "................"],
+        [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
+         "E..OOKOOOKOO.A....", "B..OMOOOOOMO.A..Y.", "BBBBMMMMMMMO.A.PY.", "...SSSWTWSSSOAYPY.",
+         "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
+        [".....NNNNNN.......", "m...NNnNNNNN......", ".m.NNOOOOOOO......", "m..OOKOOOKOO......",
+         "E..OOKOOOKOO.A.P..", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
+        [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
+         "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.AY.Y.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
+        [".....NNNNNN.......", "m...NNnNNNNN......", ".m.NNOOOOOOO......", "m..OOKOOOKOO......",
+         "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
     ]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
                        colors: ["O": Color(red: 205 / 255, green: 212 / 255, blue: 222 / 255), "D": Color(red: 95 / 255, green: 100 / 255, blue: 110 / 255),
                                 "N": Color(red: 45 / 255, green: 40 / 255, blue: 40 / 255), "n": Color(red: 110 / 255, green: 100 / 255, blue: 95 / 255),
-                                "G": Color(red: 205 / 255, green: 165 / 255, blue: 70 / 255), "g": Color(red: 1, green: 245 / 255, blue: 200 / 255),
                                 "K": Color(red: 25 / 255, green: 25 / 255, blue: 28 / 255), "S": Color(red: 80 / 255, green: 86 / 255, blue: 100 / 255),
                                 "W": Color(red: 240 / 255, green: 240 / 255, blue: 240 / 255), "T": Color(red: 60 / 255, green: 170 / 255, blue: 90 / 255),
                                 "A": Color(red: 200 / 255, green: 200 / 255, blue: 205 / 255), "Y": Color(red: 1, green: 214 / 255, blue: 80 / 255),
-                                "P": Color(red: 240 / 255, green: 120 / 255, blue: 110 / 255), "L": Color(red: 235 / 255, green: 240 / 255, blue: 248 / 255)],
+                                "P": Color(red: 240 / 255, green: 120 / 255, blue: 110 / 255), "M": Color(red: 45 / 255, green: 40 / 255, blue: 40 / 255),
+                                "B": Color(red: 125 / 255, green: 80 / 255, blue: 50 / 255), "E": Color(red: 240 / 255, green: 125 / 255, blue: 50 / 255),
+                                "m": Color(red: 175 / 255, green: 175 / 255, blue: 180 / 255).opacity(0.7)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Penny")
     }
