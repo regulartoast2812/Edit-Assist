@@ -950,6 +950,9 @@ struct DataState: View {
                     .foregroundStyle(.secondary)
                     .help(L("%@ files in %@: each product's days, and the summary", String(stored.files), PennyLedger.folder.path))
             }
+            Button { ledger.updateNow() } label: { Label(L("Update now"), systemImage: "arrow.clockwise") }
+                .buttonStyle(.bordered).controlSize(.small).disabled(ledger.copying != nil)
+                .help(L("Copies from Grafana now what isn't copied or settled yet, today first, rather than at the next half hour"))
             Button { NSWorkspace.shared.activateFileViewerSelecting([PennyLedger.folder]) } label: { Label(L("Show in Finder"), systemImage: "folder") }
                 .buttonStyle(.bordered).controlSize(.small)
                 .help(L("Opens the folder Penny keeps the copy in, selected, to compress, copy or share"))

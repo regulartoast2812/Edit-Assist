@@ -923,6 +923,7 @@ enum Vietnamese {
         "%@ and up": "%@ trở lên",
         "share of spend": "tỷ lệ chi tiêu",
         "share of revenue": "tỷ lệ doanh thu",
+        "Copies from Grafana now what isn't copied or settled yet, today first, rather than at the next half hour": "Chép ngay từ Grafana những gì chưa chép hoặc chưa chốt, hôm nay trước, thay vì đợi nửa giờ tới",
         "%@ as a share of revenue": "%@ trên doanh thu",
         "Each figure here is a share of revenue, after tax": "Mỗi số ở đây là tỷ lệ trên doanh thu, sau thuế",
         "Share of revenue": "Tỷ lệ trên doanh thu",

@@ -923,6 +923,14 @@ final class PennyLedger: ObservableObject {
 
     func stop() { loop?.cancel(); loop = nil; copying = nil; next = nil }
 
+    /// Copies now rather than at the next half hour, then every half hour from now (2026-11-11: you asked for a
+    /// button). Nothing happens while a copy is running.
+    func updateNow() {
+        guard copying == nil else { return }
+        stop()
+        start()
+    }
+
     /// What the product keeps over the days, from its CBH; the usual 1.8× line when none is copied for them.
     func profit(of product: String, on days: [String]) -> Ledger.Profit {
         Ledger.Profit(summary.margin(of: product, on: days).margin) ?? .usual
