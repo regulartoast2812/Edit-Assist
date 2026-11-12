@@ -2,8 +2,8 @@ import SwiftUI
 import WebKit
 
 /// Penny, the numbers helper: a businessman, a platinum blob with side-parted hair and a charcoal suit with
-/// a money-green tie, holding up a bar chart (a teal blob with a bun read as Perry the Platypus, 2026-11-03). Tall dark eyes, a dark
-/// handlebar moustache and a pipe at the corner of his mouth, its bowl glowing and smoke curling up (2026-11-11, you
+/// a money-green tie, holding up a bar chart (a teal blob with a bun read as Perry the Platypus, 2026-11-03). Tall dark eyes, a small dark
+/// moustache (2026-11-12: a handlebar the width of his face was "too long") and a pipe at the corner of his mouth, its bowl glowing and smoke curling up (2026-11-11, you
 /// asked: the gold glasses, first a squint, then big round lenses, were "too big and weird"). Working: the bars rise and
 /// fall and the smoke curls.
 struct PixelPenny: View {
@@ -13,23 +13,23 @@ struct PixelPenny: View {
     var busyUntil: Date?
     var previewOnHover = false
     static let rest = [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
-                       "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+                       "E..OOKOOOKOO.A..Y.", "B..OOOOOOOOO.A.PY.", "BBBBBOMMMOOO.AYPY.", "...SSSWTWSSSOAYPY.",
                        "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."]
     static let blink = [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOOOOOOOO......",
-                        "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+                        "E..OOKOOOKOO.A..Y.", "B..OOOOOOOOO.A.PY.", "BBBBBOMMMOOO.AYPY.", "...SSSWTWSSSOAYPY.",
                         "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."]
     static let working: [[String]] = [
         [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
-         "E..OOKOOOKOO.A....", "B..OMOOOOOMO.A..Y.", "BBBBMMMMMMMO.A.PY.", "...SSSWTWSSSOAYPY.",
+         "E..OOKOOOKOO.A....", "B..OOOOOOOOO.A..Y.", "BBBBBOMMMOOO.A.PY.", "...SSSWTWSSSOAYPY.",
          "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
         [".....NNNNNN.......", "m...NNnNNNNN......", ".m.NNOOOOOOO......", "m..OOKOOOKOO......",
-         "E..OOKOOOKOO.A.P..", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "E..OOKOOOKOO.A.P..", "B..OOOOOOOOO.A.PY.", "BBBBBOMMMOOO.AYPY.", "...SSSWTWSSSOAYPY.",
          "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
         [".....NNNNNN.......", ".m..NNnNNNNN......", "m..NNOOOOOOO......", ".m.OOKOOOKOO......",
-         "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.AY.Y.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "E..OOKOOOKOO.A..Y.", "B..OOOOOOOOO.AY.Y.", "BBBBBOMMMOOO.AYPY.", "...SSSWTWSSSOAYPY.",
          "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
         [".....NNNNNN.......", "m...NNnNNNNN......", ".m.NNOOOOOOO......", "m..OOKOOOKOO......",
-         "E..OOKOOOKOO.A..Y.", "B..OMOOOOOMO.A.PY.", "BBBBMMMMMMMO.AYPY.", "...SSSWTWSSSOAYPY.",
+         "E..OOKOOOKOO.A..Y.", "B..OOOOOOOOO.A.PY.", "BBBBBOMMMOOO.AYPY.", "...SSSWTWSSSOAYPY.",
          "...SSSSTSSSS.AAAAA", "....SSSSSSSS......", ".....D....D.......", ".................."],
     ]
     var body: some View {
