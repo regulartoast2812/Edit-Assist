@@ -392,6 +392,37 @@ import WebKit
         case "property": property(body)
         // (2026-11-11) Cells of a base's table changed: typed, picked, pasted, cleared or undone.
         case "base-cell": baseCells(body)
+        // A view's menus (2026-11-12, you asked): its name, layout, a copy, removing it, a new one; a column's sort, place, showing.
+        case "base-view":
+            if let index = (body["index"] as? NSNumber)?.intValue, let op = body["op"] as? String, let file, file.pathExtension.lowercased() == "base" {
+                let value = body["value"] as? String ?? "", column = body["column"] as? String ?? ""
+                let change: Study.BaseViewChange? = switch op {
+                case "rename": .rename(value)
+                case "layout": .layout(value)
+                case "duplicate": .duplicate
+                case "delete": .delete
+                case "add": .add(value)
+                case "sort": .sort(column: column, descending: value == "desc" ? true : value == "asc" ? false : nil)
+                case "left": .move(column: column, by: -1)
+                case "right": .move(column: column, by: 1)
+                case "hide": .hide(column: column)
+                case "show": .show(column: column)
+                default: nil
+                }
+                guard let change else { break }
+                let shown: Int = switch op { case "duplicate", "add": index + 1; case "delete": max(0, index - 1); default: index }
+                Task {
+                    let keep = self.keep
+                    let done = await Task.detached { () -> Bool in
+                        guard let was = try? Study.readNote(file), let text = Study.changeView(was.text, index: index, change) else { return false }
+                        if text != was.text { try? Study.writeNote(file, text: text, was: was, keep: keep) }
+                        return (try? Study.readNote(file).text) == text
+                    }.value
+                    guard file == self.file else { return }
+                    if done { shownKey = key(file) } else { post(["type": "notice", "text": L("Sage couldn't change this view in the base file.")]) }
+                    redrawBase(view: done ? shown : nil)
+                }
+            }
         // The base's view tabs dragged into a new order: the file's views: list rewritten to match (the page moved them already).
         case "base-views":
             if let order = (body["order"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }), let file, file.pathExtension.lowercased() == "base" {
@@ -691,7 +722,7 @@ extension SageNotePage {
 
     /// The base drawn again from the notes as they are now and swapped in, keeping the view, scroll and cells picked;
     /// a note embedding one is redrawn as after any change.
-    private func redrawBase() {
+    private func redrawBase(view: Int? = nil) {
         guard let file, let vault else { return }
         guard file.pathExtension.lowercased() == "base" else { sendBody(); return }
         let (items, path) = (self.items, self.path)
@@ -701,7 +732,7 @@ extension SageNotePage {
                 return Study.withVault(Study.baseHTML(text, vault: vault, items: items, address: Study.vaultAddress, selfPath: path), vault: vault, items: items, from: path, address: Study.vaultAddress)
             }.value
             guard let html, file == self.file else { return }
-            post(["type": "base-html", "html": html])
+            post(["type": "base-html", "html": html, "view": view ?? -1])
         }
     }
 }

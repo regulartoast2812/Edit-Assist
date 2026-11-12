@@ -157,6 +157,18 @@ extension Checks {
             check(Study.reorderViews(base, order: [2, 0, 1]) == "filters:\n  and:\n    - file.ext == \"md\"\nviews:\n  - type: table\n    name: C\n  - type: table\n    name: A\n    order:\n      - file.name\n  # B next\n  - type: cards\n    name: B\n\nformulas:\n  x: 1\n"
                   && Study.reorderViews(base, order: [0, 0, 1]) == nil && Study.reorderViews(base, order: [0, 1, 2]) == base,
                   "A base's views are reordered by moving only the views: list's items, each with its own lines; a wrong order writes nothing")
+            let two = "views:\n  - type: table\n    name: All\n    order:\n      - file.name\n      - Status\n  - type: cards\n    name: Grid\n"
+            check(Study.changeView(two, index: 0, .rename("My view: 1")) == two.replacingOccurrences(of: "name: All", with: "name: \"My view: 1\"")
+                  && Study.changeView(two, index: 1, .layout("table")) == two.replacingOccurrences(of: "- type: cards", with: "- type: table")
+                  && Study.changeView(two, index: 0, .sort(column: "note.Status", descending: true)) == two.replacingOccurrences(of: "      - Status\n", with: "      - Status\n    sort:\n      - property: Status\n        direction: DESC\n")
+                  && Study.changeView(two, index: 0, .move(column: "note.Status", by: -1)) == two.replacingOccurrences(of: "      - file.name\n      - Status", with: "      - Status\n      - file.name")
+                  && Study.changeView(two, index: 0, .hide(column: "file.name")) == two.replacingOccurrences(of: "      - file.name\n", with: "")
+                  && Study.changeView(two, index: 0, .show(column: "note.Pillar")) == two.replacingOccurrences(of: "      - Status\n", with: "      - Status\n      - Pillar\n")
+                  && Study.changeView(two, index: 0, .duplicate)?.contains("  - type: table\n    name: All copy\n    order:") == true
+                  && Study.changeView(two, index: 1, .delete) == "views:\n  - type: table\n    name: All\n    order:\n      - file.name\n      - Status\n"
+                  && Study.changeView(two, index: 1, .add("table"))?.hasSuffix("    name: Grid\n  - type: table\n    name: Table\n    order:\n      - file.name\n") == true
+                  && Study.changeView("views:\n  - type: table\n    name: A\n", index: 0, .delete) == nil,
+                  "A base view's menus change only that view's lines: name, layout, sort, columns moved, hidden and shown, a copy, a new view, removing one (never the last)")
             check(html.contains("data-sage-kind=\"name\" data-sage-was=\"[&quot;Hub&quot;]\""), "A note's name in a base's table can be edited (it renames the note, as its title does)")
             for (i, status) in ["Planned", "To film", "To film", "planned", "Planned"].enumerated() { try write("---\nStatus: \(status)\n---\n", "Show/E\(i).md") }
             try write("---\nStatus: Assessment\n---\n", "Other/X.md")

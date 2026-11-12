@@ -854,7 +854,7 @@ extension Study {
         var views = ((root["views"] as? [Any?]) ?? []).compactMap { $0 as? YamlMap }
         if views.isEmpty { var table = YamlMap(); table.set("type", "table"); table.set("name", "Table"); views.append(table) }
 
-        var drawn: [(name: String, type: String, count: Int, html: String)] = []
+        var drawn: [(name: String, type: String, count: Int, html: String, columns: [String])] = []
         // A column's chips each in a colour of their own: in name order, a value whose colour is taken takes the next free
         // one. Worked out over the whole base, so a value keeps its colour in every view.
         var everyone: [BaseContext]?, members: [BaseContext]?
@@ -985,7 +985,8 @@ extension Study {
                     let listed = (options[column.id].map { " data-sage-options=\"\(attribute(Study.scriptJSON($0)))\"" } ?? "")
                         + (kinds[column.id] == "select" || kinds[column.id] == "list" && chips.contains(column.id) ? options[column.id].map { list in
                             " data-sage-hues=\"\(attribute(Study.scriptJSON(Dictionary(list.map { ($0, chipHue(column.id, $0)) }, uniquingKeysWith: { a, _ in a }))))\"" } ?? "" : "")
-                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\"\(listed)>"
+                    let sorted = sorts.first.flatMap { $0.id == column.id ? ($0.down ? " data-sage-sort=\"desc\"" : " data-sage-sort=\"asc\"") : nil } ?? ""
+                    html += "<th class=\"sage-base-th\(column.id.hasPrefix("formula.") ? " mod-formula" : column.id.hasPrefix("file.") ? " mod-implicit" : "")\" data-sage-col=\"\(attribute(column.id))\"\(sorted)\(listed)>"
                         + "<span class=\"bases-table-header-icon\" data-sage-icon=\"\(columnIcon(column.id))\"></span>\(escape(column.title))</th>"
                 }
                 html += "</tr></thead>"
@@ -1042,24 +1043,33 @@ extension Study {
                 }
                 html += "</div>"
             }
-            drawn.append((viewName, type, count, html))
+            drawn.append((viewName, type, count, html, columns.map(\.id)))
         }
 
         let first = max(0, view.flatMap { view in drawn.firstIndex { same($0.name, view) } } ?? 0)
-        var page = "<div class=\"sage-base\(embedded ? " bases-embed" : "")\" data-sage-base><div class=\"bases-header\"><div class=\"bases-toolbar\">"
+        // Every column a view could show, for its Properties menu (2026-11-12): the file's details, the formulas and the
+        // properties the base's notes have.
+        if everyone == nil { everyone = notes.map { BaseContext($0, finder, formulas, selfNote) }.filter { global($0) } }
+        var propertyIDs: [String] = [], seenProperties: Set<String> = []
+        for context in everyone! { for key in context.note.props.keys where seenProperties.insert(key.lowercased()).inserted { propertyIDs.append("note." + key) } }
+        let candidates = ["file.name", "file.folder", "file.ext", "file.size", "file.ctime", "file.mtime", "file.tags", "file.links"]
+            + formulas.keys.sorted().map { "formula." + $0 } + propertyIDs.sorted { $0.lowercased() < $1.lowercased() }
+        let choosable = candidates.map { [$0, name(of: $0) ?? columnTitle($0)] }
+        var page = "<div class=\"sage-base\(embedded ? " bases-embed" : "")\" data-sage-base data-sage-props=\"\(attribute(Study.scriptJSON(choosable)))\"><div class=\"bases-header\"><div class=\"bases-toolbar\">"
         page += "<div class=\"sage-base-tabs\">"
         for (i, d) in drawn.enumerated() {
-            page += "<div role=\"button\" tabindex=\"0\" class=\"sage-base-tab\(i == first ? " is-active" : "")\" data-sage-view-tab=\"\(i)\" data-sage-count=\"\(d.count)\">"
-                + "<span data-sage-icon=\"\(d.type == "cards" ? "lucide-layout-grid" : "lucide-table")\"></span>\(escape(d.name))</div>"
+            page += "<div role=\"button\" tabindex=\"0\" class=\"sage-base-tab\(i == first ? " is-active" : "")\" data-sage-view-tab=\"\(i)\" data-sage-count=\"\(d.count)\" data-sage-type=\"\(d.type)\">"
+                + "<span data-sage-icon=\"\(d.type == "cards" ? "lucide-layout-grid" : "lucide-table")\"></span><span class=\"sage-base-tab-name\">\(escape(d.name))</span></div>"
         }
-        page += "</div><div class=\"bases-toolbar-result-count\">\(drawn[first].count) \(drawn[first].count == 1 ? "result" : "results")</div></div></div>"
+        page += "</div>" + (embedded ? "" : "<div role=\"button\" class=\"clickable-icon sage-base-add-view\" data-sage-add-view aria-label=\"New view\"><span data-sage-icon=\"lucide-plus\"></span></div>")
+        page += "<div class=\"bases-toolbar-result-count\">\(drawn[first].count) \(drawn[first].count == 1 ? "result" : "results")</div></div></div>"
         if !problems.isEmpty {
             var distinct: [String] = []
             for problem in problems where !distinct.contains(problem) { distinct.append(problem) }
             page += "<div class=\"bases-formula-error sage-base-problem\">Sage couldn't read part of this base: \(escape(distinct.prefix(3).joined(separator: "; ")))</div>"
         }
         for (i, d) in drawn.enumerated() {
-            page += "<div class=\"bases-view sage-base-view\" data-view-type=\"\(d.type)\" data-sage-view=\"\(i)\"\(i == first ? "" : " hidden")>\(d.html)</div>"
+            page += "<div class=\"bases-view sage-base-view\" data-view-type=\"\(d.type)\" data-sage-view=\"\(i)\" data-sage-cols=\"\(attribute(Study.scriptJSON(d.columns)))\"\(i == first ? "" : " hidden")>\(d.html)</div>"
         }
         return page + "</div>"
     }
@@ -1106,7 +1116,7 @@ extension Study {
     }
 
     /// "Author" and "note.Author" are the same column; file. and formula. columns keep their names.
-    private static func columnID(_ raw: String) -> String {
+    static func columnID(_ raw: String) -> String {
         var id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if id.hasPrefix("note.") { id = String(id.dropFirst(5)) }
         return id.hasPrefix("file.") || id.hasPrefix("formula.") || id.isEmpty ? id : "note." + id

@@ -763,6 +763,13 @@ extension Study {
     .sage-base-tab:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
     .sage-base-tab.is-active { background: var(--background-modifier-hover); color: var(--text-normal); font-weight: var(--font-semibold, 600); }
     .sage-base-tab .svg-icon { width: 14px; height: 14px; }
+    .sage-base-add-view { flex: none; display: inline-flex; align-items: center; padding: 4px 6px; margin-left: 2px; color: var(--text-faint); border-radius: var(--radius-s, 4px); cursor: pointer; }
+    .sage-base-add-view:hover { color: var(--text-normal); background: var(--background-modifier-hover); } .sage-base-add-view .svg-icon { width: 14px; height: 14px; }
+    .sage-base-tab-name[contenteditable] { outline: none; cursor: text; box-shadow: 0 0 0 1px var(--interactive-accent); border-radius: 3px; padding: 0 3px; }
+    .sage-file-view > [data-sage-base] .sage-base-table thead th { cursor: pointer; } .sage-base-table th[data-sage-sort] { color: var(--text-normal) !important; }
+    .sage-view-menu { position: fixed; z-index: 60; min-width: 190px; animation: sage-menu-in 0.12s ease-out; } .sage-view-menu .menu-item.is-disabled { opacity: 0.4; pointer-events: none; }
+    .sage-view-menu .menu-scroll { max-height: 60vh; overflow-y: auto; }
+    @keyframes sage-menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
     .sage-file-view > [data-sage-base] .sage-base-tab { cursor: grab; }
     .sage-base-tabs.is-sorting .sage-base-tab { cursor: grabbing; }
     .sage-base-tab.is-dragging { position: relative; z-index: 5; background: var(--background-secondary); color: var(--text-normal); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--background-modifier-border-hover); scale: 1.04; transition: scale 0.15s ease, box-shadow 0.15s ease; }
@@ -2858,7 +2865,7 @@ extension Study {
         var tabDrag = null, tabDragged = false;
         document.addEventListener('mousedown', function (e) {
           var tab = e.button === 0 && e.target.closest && e.target.closest('.sage-file-view > [data-sage-base] .sage-base-tab');
-          if (!tab) return;
+          if (!tab || e.target.closest('[contenteditable]')) return;
           tabDrag = { tab: tab, row: tab.parentElement, x: e.clientX, home: tab.offsetLeft, on: false, before: Array.prototype.map.call(tab.parentElement.children, function (t) { return t.getAttribute('data-sage-view-tab'); }).join() };
         }, true);
         document.addEventListener('mousemove', function (e) {
@@ -2908,10 +2915,134 @@ extension Study {
         }
         window.addEventListener('click', function (e) { if (tabDragged && e.target.closest && e.target.closest('.sage-base-tab')) { e.preventDefault(); e.stopPropagation(); } }, true);
 
-        function swapBase(html) {
+        // A view's menus (2026-11-12, you asked, as Obsidian's): right-click a tab for Rename, Layout, Properties,
+        // Duplicate and Delete, + for a new view; click or right-click a column's header to sort it, move it or hide it.
+        // Each is one change to the .base file ('base-view'), then the base is drawn again.
+        var viewMenu = null;
+        function viewMenuClose() { if (viewMenu) { viewMenu.remove(); viewMenu = null; } }
+        function ownBase(el) { return el && el.closest && el.closest('.sage-file-view > [data-sage-base]'); }
+        function h(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+        function openMenu(x, y, entries) {
+          viewMenuClose();
+          var html = '';
+          entries.forEach(function (e, i) {
+            if (e === '-') { html += '<div class="menu-separator"></div>'; return; }
+            if (e.label) { html += '<div class="menu-item is-label"><div class="menu-item-title">' + h(e.label) + '</div></div>'; return; }
+            html += '<div class="menu-item tappable' + (e.warn ? ' is-warning' : '') + (e.off ? ' is-disabled' : '') + '" data-sage-entry="' + i + '"><div class="menu-item-icon">' + svg(e.icon || '') + '</div>'
+              + '<div class="menu-item-title">' + h(e.title) + '</div>' + (e.checked ? '<div class="menu-item-icon sage-menu-check">' + svg('lucide-check') + '</div>' : '') + '</div>';
+          });
+          var menu = document.createElement('div');
+          menu.className = 'menu sage-menu sage-view-menu';
+          menu.innerHTML = '<div class="menu-scroll">' + html + '</div>';
+          menu.style.left = x + 'px'; menu.style.top = y + 'px';
+          document.body.appendChild(menu);
+          var m = menu.getBoundingClientRect();
+          if (m.bottom > window.innerHeight - 4) menu.style.top = Math.max(4, window.innerHeight - m.height - 4) + 'px';
+          if (m.right > window.innerWidth - 4) menu.style.left = Math.max(4, window.innerWidth - m.width - 4) + 'px';
+          menu.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); });
+          menu.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            var item = e.target.closest('[data-sage-entry]');
+            if (!item) return;
+            var entry = entries[+item.getAttribute('data-sage-entry')];
+            viewMenuClose();
+            if (entry && entry.run) entry.run();
+          });
+          viewMenu = menu;
+        }
+        document.addEventListener('mousedown', function (e) { if (viewMenu && !viewMenu.contains(e.target)) viewMenuClose(); }, true);
+        document.addEventListener('scroll', function (e) { if (viewMenu && !viewMenu.contains(e.target)) viewMenuClose(); }, true);
+        document.addEventListener('keydown', function (e) { if (viewMenu && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); viewMenuClose(); } }, true);
+        function viewSend(index, op, value, column) { post({ type: 'base-view', index: +index, op: op, value: value || '', column: column || '' }); }
+        function renameView(tab) {
+          var name = tab.querySelector('.sage-base-tab-name');
+          if (!name) return;
+          var old = name.textContent, done = false;
+          name.setAttribute('contenteditable', 'plaintext-only'); name.setAttribute('spellcheck', 'false');
+          name.focus();
+          var range = document.createRange(); range.selectNodeContents(name);
+          var sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          function finish(save) {
+            if (done) return; done = true;
+            name.removeAttribute('contenteditable');
+            var fresh = name.textContent.replace(/\s+/g, ' ').trim();
+            if (save && fresh && fresh !== old) viewSend(tab.getAttribute('data-sage-view-tab'), 'rename', fresh);
+            else name.textContent = old;
+          }
+          name.addEventListener('keydown', function (e) {
+            e.stopPropagation();
+            if (e.key === 'Enter') { e.preventDefault(); finish(true); name.blur(); }
+            else if (e.key === 'Escape') { e.preventDefault(); finish(false); name.blur(); }
+          });
+          name.addEventListener('blur', function () { finish(true); }, { once: true });
+        }
+        function propertiesMenu(base, index, x, y) {
+          var view = base.querySelector('[data-sage-view="' + index + '"]'), shown = [], all = [];
+          try { shown = JSON.parse(view.getAttribute('data-sage-cols') || '[]'); all = JSON.parse(base.getAttribute('data-sage-props') || '[]'); } catch (e) {}
+          shown.forEach(function (id) { if (!all.some(function (p) { return p[0].toLowerCase() === id.toLowerCase(); })) all.unshift([id, id.replace(/^note\./, '')]); });
+          var entries = [{ label: 'Properties shown' }];
+          all.forEach(function (p) {
+            var on = shown.some(function (id) { return id.toLowerCase() === p[0].toLowerCase(); });
+            entries.push({ icon: p[0].indexOf('formula.') === 0 ? 'lucide-function-square' : p[0].indexOf('file.') === 0 ? 'lucide-file' : 'lucide-text', title: p[1], checked: on,
+              off: on && shown.length === 1, run: function () { viewSend(index, on ? 'hide' : 'show', '', p[0]); } });
+          });
+          openMenu(x, y, entries);
+        }
+        document.addEventListener('contextmenu', function (e) {
+          var tab = e.target.closest && e.target.closest('.sage-base-tab'), base = ownBase(tab);
+          if (tab && base) {
+            e.preventDefault(); e.stopPropagation();
+            var index = tab.getAttribute('data-sage-view-tab'), type = tab.getAttribute('data-sage-type') || 'table', count = base.querySelectorAll('.sage-base-tab').length;
+            openMenu(e.clientX, e.clientY, [
+              { icon: 'lucide-pencil', title: 'Rename', run: function () { renameView(tab); } },
+              { icon: 'lucide-list', title: 'Properties…', run: function () { propertiesMenu(base, index, e.clientX, e.clientY); } },
+              '-', { label: 'Layout' },
+              { icon: 'lucide-table', title: 'Table', checked: type === 'table', run: function () { if (type !== 'table') viewSend(index, 'layout', 'table'); } },
+              { icon: 'lucide-layout-grid', title: 'Cards', checked: type === 'cards', run: function () { if (type !== 'cards') viewSend(index, 'layout', 'cards'); } },
+              '-',
+              { icon: 'lucide-copy', title: 'Duplicate', run: function () { viewSend(index, 'duplicate'); } },
+              { icon: 'lucide-trash-2', title: 'Delete view', warn: true, off: count < 2, run: function () { viewSend(index, 'delete'); } }
+            ]);
+            return;
+          }
+          var th = e.target.closest && e.target.closest('.sage-base-table thead th[data-sage-col]');
+          if (th && ownBase(th)) { e.preventDefault(); e.stopPropagation(); columnMenu(th, e.clientX, e.clientY); }
+        }, true);
+        function columnMenu(th, x, y) {
+          var view = th.closest('[data-sage-view]'), index = view.getAttribute('data-sage-view'), column = th.getAttribute('data-sage-col'), sort = th.getAttribute('data-sage-sort');
+          var heads = Array.prototype.slice.call(th.parentElement.children), at = heads.indexOf(th);
+          openMenu(x, y, [
+            { icon: 'lucide-arrow-up-narrow-wide', title: 'Sort A → Z', checked: sort === 'asc', run: function () { viewSend(index, 'sort', 'asc', column); } },
+            { icon: 'lucide-arrow-down-wide-narrow', title: 'Sort Z → A', checked: sort === 'desc', run: function () { viewSend(index, 'sort', 'desc', column); } },
+            { icon: 'lucide-x', title: 'Remove sort', off: !sort, run: function () { viewSend(index, 'sort', '', column); } },
+            '-',
+            { icon: 'lucide-arrow-left', title: 'Move left', off: at <= 0, run: function () { viewSend(index, 'left', '', column); } },
+            { icon: 'lucide-arrow-right', title: 'Move right', off: at >= heads.length - 1, run: function () { viewSend(index, 'right', '', column); } },
+            '-',
+            { icon: 'lucide-list', title: 'Properties…', run: function () { propertiesMenu(ownBase(th), index, x, y); } },
+            { icon: 'lucide-eye-off', title: 'Hide property', off: heads.length < 2, run: function () { viewSend(index, 'hide', '', column); } }
+          ]);
+        }
+        document.addEventListener('click', function (e) {
+          var add = e.target.closest && e.target.closest('[data-sage-add-view]');
+          var th = !add && e.target.closest && e.target.closest('.sage-base-table thead th[data-sage-col]');
+          if (add && ownBase(add)) {
+            e.preventDefault(); e.stopPropagation();
+            var base = ownBase(add), last = base.querySelectorAll('.sage-base-tab').length - 1, r = add.getBoundingClientRect();
+            openMenu(r.left, r.bottom + 4, [{ label: 'New view' },
+              { icon: 'lucide-table', title: 'Table', run: function () { viewSend(last, 'add', 'table'); } },
+              { icon: 'lucide-layout-grid', title: 'Cards', run: function () { viewSend(last, 'add', 'cards'); } }]);
+          } else if (th && ownBase(th) && !(viewMenu)) {
+            e.preventDefault(); e.stopPropagation();
+            var b = th.getBoundingClientRect();
+            columnMenu(th, b.left, b.bottom + 2);
+          }
+        }, true);
+
+        function swapBase(html, view) {
           var base = document.querySelector('.sage-file-view > [data-sage-base]');
           if (!base) return;
-          var tab = base.querySelector('.sage-base-tab.is-active'), shown = tab ? tab.getAttribute('data-sage-view-tab') : '0';
+          var tab = base.querySelector('.sage-base-tab.is-active'), shown = view >= 0 ? String(view) : tab ? tab.getAttribute('data-sage-view-tab') : '0';
           var scrolls = Array.prototype.map.call(base.querySelectorAll('[data-sage-view]'), function (v) { return [v.scrollTop, v.scrollLeft]; });
           var folded = Array.prototype.map.call(base.querySelectorAll('.bases-group-heading.is-collapsed'), function (h) { return h.closest('[data-sage-view]').getAttribute('data-sage-view') + '|' + h.textContent; });
           var keep = null;
@@ -2953,7 +3084,7 @@ extension Study {
             if (done.length) { if (kind === 'undo') redo.push(done); else { undo.push(done); if (undo.length > 100) undo.shift(); if (kind === 'do') redo = []; } }
             return;
           }
-          if (message.type === 'base-html') { swapBase(message.html); return; }
+          if (message.type === 'base-html') { swapBase(message.html, message.view == null ? -1 : message.view); return; }
           if (before) before(message);
         };
         var flushBefore = window.sageFlush;
