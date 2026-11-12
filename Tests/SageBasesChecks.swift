@@ -153,6 +153,10 @@ extension Checks {
             check(html.contains("data-sage-path=\"Lib/Hub.md\"") && html.contains("data-sage-kind=\"date\"") && html.contains("data-sage-key=\"Created\"")
                   && html.contains("data-sage-kind=\"list\"") && html.contains("data-sage-options="),
                   "A base's table marks each row's note and each property cell's kind, so the page can edit it")
+            let base = "filters:\n  and:\n    - file.ext == \"md\"\nviews:\n  - type: table\n    name: A\n    order:\n      - file.name\n  # B next\n  - type: cards\n    name: B\n\n  - type: table\n    name: C\nformulas:\n  x: 1\n"
+            check(Study.reorderViews(base, order: [2, 0, 1]) == "filters:\n  and:\n    - file.ext == \"md\"\nviews:\n  - type: table\n    name: C\n  - type: table\n    name: A\n    order:\n      - file.name\n  # B next\n  - type: cards\n    name: B\n\nformulas:\n  x: 1\n"
+                  && Study.reorderViews(base, order: [0, 0, 1]) == nil && Study.reorderViews(base, order: [0, 1, 2]) == base,
+                  "A base's views are reordered by moving only the views: list's items, each with its own lines; a wrong order writes nothing")
             check(html.contains("data-sage-kind=\"name\" data-sage-was=\"[&quot;Hub&quot;]\""), "A note's name in a base's table can be edited (it renames the note, as its title does)")
             for (i, status) in ["Planned", "To film", "To film", "planned", "Planned"].enumerated() { try write("---\nStatus: \(status)\n---\n", "Show/E\(i).md") }
             try write("---\nStatus: Assessment\n---\n", "Other/X.md")

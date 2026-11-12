@@ -763,6 +763,10 @@ extension Study {
     .sage-base-tab:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
     .sage-base-tab.is-active { background: var(--background-modifier-hover); color: var(--text-normal); font-weight: var(--font-semibold, 600); }
     .sage-base-tab .svg-icon { width: 14px; height: 14px; }
+    .sage-file-view > [data-sage-base] .sage-base-tab { cursor: grab; }
+    .sage-base-tabs.is-sorting .sage-base-tab { cursor: grabbing; }
+    .sage-base-tab.is-dragging { position: relative; z-index: 5; background: var(--background-secondary); color: var(--text-normal); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--background-modifier-border-hover); scale: 1.04; transition: scale 0.15s ease, box-shadow 0.15s ease; }
+    .sage-base-tab.is-settling { transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1), scale 0.18s ease, box-shadow 0.18s ease; }
     .sage-base .bases-toolbar-result-count { margin-left: auto; flex: none; white-space: nowrap; font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); }
     .sage-base .bases-view { padding: 0; overflow-x: auto; overflow-y: visible; }
     .sage-base-table { border-collapse: separate !important; border-spacing: 0 !important; border: none !important; border-radius: 0 !important; width: 100%; min-width: 100%; margin: 0 !important;
@@ -2849,6 +2853,61 @@ extension Study {
 
         // What Sage says back: which changes were written (they can be undone), and the base drawn again, which keeps the
         // view, the folded groups, where it was scrolled and the cells picked.
+        // The base's view tabs dragged into a new order (2026-11-12, you asked), the others sliding aside as it passes, the
+        // tab settling into its place; then the file's views: list is rewritten to match ('base-views').
+        var tabDrag = null, tabDragged = false;
+        document.addEventListener('mousedown', function (e) {
+          var tab = e.button === 0 && e.target.closest && e.target.closest('.sage-file-view > [data-sage-base] .sage-base-tab');
+          if (!tab) return;
+          tabDrag = { tab: tab, row: tab.parentElement, x: e.clientX, home: tab.offsetLeft, on: false, before: Array.prototype.map.call(tab.parentElement.children, function (t) { return t.getAttribute('data-sage-view-tab'); }).join() };
+        }, true);
+        document.addEventListener('mousemove', function (e) {
+          var d = tabDrag;
+          if (!d) return;
+          if (!(e.buttons & 1)) { tabDrop(); return; }
+          if (!d.on) {
+            if (Math.abs(e.clientX - d.x) < 5) return;
+            d.on = true; d.tab.classList.remove('is-settling'); d.tab.classList.add('is-dragging'); d.row.classList.add('is-sorting');
+          }
+          e.preventDefault();
+          var tabs = Array.prototype.slice.call(d.row.children), mid = e.clientX, target = null, after = false, at = tabs.indexOf(d.tab);
+          function centre(t) { var r = t.getBoundingClientRect(); return r.left + r.width / 2; }
+          for (var i = at + 1; i < tabs.length; i++) if (mid > centre(tabs[i])) { target = tabs[i]; after = true; }
+          if (!target) for (var j = at - 1; j >= 0; j--) if (mid < centre(tabs[j])) { target = tabs[j]; after = false; }
+          if (target) {
+            var rects = new Map(tabs.map(function (t) { return [t, t.getBoundingClientRect().left]; }));
+            d.row.insertBefore(d.tab, after ? target.nextSibling : target);
+            tabs.forEach(function (t) {
+              if (t === d.tab) return;
+              var shift = rects.get(t) - t.getBoundingClientRect().left;
+              if (!shift) return;
+              t.style.transition = 'none'; t.style.transform = 'translateX(' + shift + 'px)';
+              requestAnimationFrame(function () { t.style.transition = 'transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1)'; t.style.transform = ''; });
+            });
+          }
+          d.tab.style.transform = 'translateX(' + (e.clientX - d.x - (d.tab.offsetLeft - d.home)) + 'px)';
+        }, true);
+        document.addEventListener('mouseup', function () { tabDrop(); }, true);
+        function tabDrop() {
+          var d = tabDrag; tabDrag = null;
+          if (!d || !d.on) return;
+          tabDragged = true; setTimeout(function () { tabDragged = false; }, 0);
+          d.row.classList.remove('is-sorting');
+          d.tab.classList.add('is-settling'); d.tab.classList.remove('is-dragging'); d.tab.style.transform = '';
+          setTimeout(function () { d.tab.classList.remove('is-settling'); }, 220);
+          var tabs = Array.prototype.slice.call(d.row.children), order = tabs.map(function (t) { return +t.getAttribute('data-sage-view-tab'); });
+          if (order.join() === d.before) return;
+          // Each tab and its view numbered by their new places, so a redraw finds the view you're on.
+          var base = d.row.closest('[data-sage-base]'), views = Array.prototype.slice.call(base.querySelectorAll('[data-sage-view]'));
+          tabs.forEach(function (t, i) {
+            views.forEach(function (v) { if (v.getAttribute('data-sage-view') === String(order[i]) && !v.hasAttribute('data-sage-renumbered')) { v.setAttribute('data-sage-view', i); v.setAttribute('data-sage-renumbered', ''); } });
+            t.setAttribute('data-sage-view-tab', i);
+          });
+          views.forEach(function (v) { v.removeAttribute('data-sage-renumbered'); });
+          post({ type: 'base-views', order: order });
+        }
+        window.addEventListener('click', function (e) { if (tabDragged && e.target.closest && e.target.closest('.sage-base-tab')) { e.preventDefault(); e.stopPropagation(); } }, true);
+
         function swapBase(html) {
           var base = document.querySelector('.sage-file-view > [data-sage-base]');
           if (!base) return;

@@ -1785,6 +1785,7 @@ enum Vietnamese {
         "Moved %@ items to %@": "Đã chuyển %@ mục tới %@",
         "Renamed “%@” to “%@”": "Đã đổi tên “%@” thành “%@”",
         "Only notes in your vault can be renamed here.": "Chỉ đổi tên được ghi chú trong vault của bạn ở đây.",
+        "Sage couldn't reorder this base's views (its views: list isn't laid out one item per view).": "Sage không sắp xếp lại được các chế độ xem của base này (danh sách views: không theo dạng mỗi mục một chế độ xem).",
         "That note changed elsewhere (in Obsidian?) or its value is more than a cell shows, so it wasn't saved. The table shows it as it is now.": "Ghi chú đó đã đổi ở nơi khác (trong Obsidian?) hoặc giá trị dài hơn một ô hiển thị được, nên chưa lưu. Bảng đang hiện nó như hiện tại.",
         "%d notes changed elsewhere (in Obsidian?) or hold more than a cell shows, so they weren't saved. The table shows them as they are now.": "%d ghi chú đã đổi ở nơi khác (trong Obsidian?) hoặc chứa nhiều hơn một ô hiển thị được, nên chưa lưu. Bảng đang hiện chúng như hiện tại.",
         "“%@” can't go inside itself.": "“%@” không thể nằm trong chính nó.",

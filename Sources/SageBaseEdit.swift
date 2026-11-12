@@ -80,4 +80,32 @@ extension Study {
         guard let data = try? Data(contentsOf: vault.appendingPathComponent(".obsidian/types.json")), let kept = json(data)?["types"] as? [String: Any] else { return [:] }
         return kept.compactMapValues { $0 as? String }
     }
+
+    /// The base with its views in a new order (2026-11-12, you asked: drag the view tabs to arrange them): `order` holds
+    /// each view's place in the file now, in the order wanted. Only the `views:` list's items move, each with its own
+    /// lines (comments included); nil when the list can't be read item by item, or `order` isn't every view once.
+    static func reorderViews(_ text: String, order: [Int]) -> String? {
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        guard let head = lines.firstIndex(where: { matches(#"^views:\s*(#.*)?$"#, $0) }) else { return nil }
+        func indent(_ line: String) -> Int { line.prefix { $0 == " " }.count }
+        guard let first = lines[(head + 1)...].firstIndex(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return nil }
+        let n = indent(lines[first])
+        guard lines[first].dropFirst(n).hasPrefix("-") else { return nil }
+        var end = first
+        while end < lines.count {
+            let line = lines[end], blank = line.trimmingCharacters(in: .whitespaces).isEmpty || indent(line) >= n && line.dropFirst(indent(line)).hasPrefix("#")
+            if !blank, indent(line) < n || indent(line) == n && !line.dropFirst(n).hasPrefix("-") { break }
+            end += 1
+        }
+        while end > first, lines[end - 1].trimmingCharacters(in: .whitespaces).isEmpty { end -= 1 }
+        var items: [[String]] = []
+        for line in lines[first..<end] {
+            if indent(line) == n, line.dropFirst(n).hasPrefix("-") { items.append([line]) } else { items[items.count - 1].append(line) }
+        }
+        let views = ((yaml(text) as? YamlMap)?["views"] as? [Any?]) ?? []
+        guard items.count == views.count, views.allSatisfy({ $0 is YamlMap }), order.sorted() == Array(0..<items.count) else { return nil }
+        if order == Array(0..<items.count) { return text }
+        let moved = Array(lines[..<first]) + order.flatMap { items[$0] } + Array(lines[end...])
+        return moved.joined(separator: text.contains("\r\n") ? "\r\n" : "\n")
+    }
 }

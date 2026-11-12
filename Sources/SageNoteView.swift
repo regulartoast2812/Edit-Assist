@@ -392,6 +392,20 @@ import WebKit
         case "property": property(body)
         // (2026-11-11) Cells of a base's table changed: typed, picked, pasted, cleared or undone.
         case "base-cell": baseCells(body)
+        // The base's view tabs dragged into a new order: the file's views: list rewritten to match (the page moved them already).
+        case "base-views":
+            if let order = (body["order"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }), let file, file.pathExtension.lowercased() == "base" {
+                Task {
+                    let keep = self.keep
+                    let done = await Task.detached { () -> Bool in
+                        guard let was = try? Study.readNote(file), let text = Study.reorderViews(was.text, order: order) else { return false }
+                        if text != was.text { try? Study.writeNote(file, text: text, was: was, keep: keep) }
+                        return (try? Study.readNote(file).text) == text
+                    }.value
+                    guard file == self.file else { return }
+                    if done { shownKey = key(file) } else { post(["type": "notice", "text": L("Sage couldn't reorder this base's views (its views: list isn't laid out one item per view).")]); redrawBase() }
+                }
+            }
         // The title edited at the top of the note: renamed as the tree renames (links follow, Undo), what you were typing
         // in the note saved first; a refused name puts the title back.
         // A note's name edited in a base's table: renamed the same way, the vault's files read again, the base redrawn.
