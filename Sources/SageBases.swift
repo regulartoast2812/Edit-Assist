@@ -1052,7 +1052,7 @@ extension Study {
         if everyone == nil { everyone = notes.map { BaseContext($0, finder, formulas, selfNote) }.filter { global($0) } }
         var propertyIDs: [String] = [], seenProperties: Set<String> = []
         for context in everyone! { for key in context.note.props.keys where seenProperties.insert(key.lowercased()).inserted { propertyIDs.append("note." + key) } }
-        let candidates = ["file.name", "file.folder", "file.ext", "file.size", "file.ctime", "file.mtime", "file.tags", "file.links"]
+        let candidates = ["file.name", "file.folder", "file.ext", "file.ctime", "file.mtime", "file.tags", "file.links"]
             + formulas.keys.sorted().map { "formula." + $0 } + propertyIDs.sorted { $0.lowercased() < $1.lowercased() }
         let choosable = candidates.map { [$0, name(of: $0) ?? columnTitle($0)] }
         var page = "<div class=\"sage-base\(embedded ? " bases-embed" : "")\" data-sage-base data-sage-props=\"\(attribute(Study.scriptJSON(choosable)))\"><div class=\"bases-header\"><div class=\"bases-toolbar\">"
