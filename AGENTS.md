@@ -240,6 +240,18 @@ Processes run off the main thread, their lines streamed to progress, killed when
 Characters are pixel art
 (`PixelSprite`, `AnimatedSprite`), never photos of real people, and not built on stereotypes of any nationality.
 
+**Remy** (the publisher, 2026-11-12, his own chat's files: `Sources/Remy.swift`, `RemyDesk.swift`, `RemyPlatforms.swift`,
+`Tests/RemyChecks.swift`) posts one video to Facebook (a Page), Instagram (the professional account linked to that Page),
+TikTok and YouTube in one go, through each platform's official API and a developer app you register (no browser
+automation, no third-party service). The app ID, secret and redirect, and each account's tokens, live only in the
+Keychain (service "Edit Assist Remy"); sign-in is the platform's own page in a sheet with a non-persistent web store,
+stopped at the redirect to take the code (Google with PKCE, a Desktop client on 127.0.0.1). One caption, which each
+platform can take in its own words; YouTube's title defaults to the caption's first line. Facebook takes an upright 3–90 s
+video as a Reel, anything else as a Page video; Instagram as a Reel; TikTok by FILE_UPLOAD chunks, posted again as
+private when the app isn't audited (said on the post); YouTube resumable, a note when it comes back private. Posts and
+their numbers are kept in `Studio.folder/remy/posts.json`; Analytics fetches them again when older than half an hour
+or on Update now. Video comes in only by drop or Add video…; the drafting from a .md file is to come.
+
 ## Invariants — each one was learned from a real failure
 
 - **Never act outside caption text.** Timeline clip labels repeat caption words. Caption candidates

@@ -2328,6 +2328,8 @@ struct Checks {
         try await sageMedia(check)
         // Sage's message box: @ tags, attached files kept with the chat, what he is told about them.
         try sageComposer(check)
+        // Remy, the publisher: captions, Reels and Shorts, TikTok's chunks, the sign-in's redirect, the platforms' errors.
+        remy(check)
         // Every guide line has a Vietnamese text (a missing one would show in English mid-guide).
         do {
             let missing = (EditFunction.allCases.flatMap { Guide.steps(for: $0) }.flatMap { [$0.title, $0.lead, $0.tip] + $0.points }
