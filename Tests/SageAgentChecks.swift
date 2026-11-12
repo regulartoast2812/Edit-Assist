@@ -33,6 +33,10 @@ extension Checks {
         check(places.count == order.count && places == places.sorted(),
               "The agent's prompt: the vault's instructions (Codex), the open note, memories, the request, where memories go, what it can do")
         let plain = Study.agentPrompt("Do it", active: nil, memories: [], memoryFolder: "Mem")
+        let callout = Study.chatBlocks("Lead\n\n> [!warning]\n> Careful\n> - one\n\n> plain")
+        check(callout.count == 3 && callout[1] == .callout(kind: "warning", title: "Warning", text: "Careful\n- one") && callout[2] == .quote("plain")
+              && Study.chatInline("a ==b== {{green:Done}}") == "a [b](sage-mark:) [\u{2009}Done\u{2009}](sage-pill:green)" && plain.contains("[!tip]"),
+              "Sage's replies can hold callout boxes, highlights and coloured pills, and his brain is told how to use them")
         check(!plain.contains("[Project instructions") && !plain.contains("[Context]") && !plain.contains("[Saved memories]") && plain.hasPrefix("[Who you are] You are Sage") && plain.contains("\n\nDo it"),
               "Claude's prompt carries no copy of CLAUDE.md (it reads it itself), and nothing about a note when none is open")
 

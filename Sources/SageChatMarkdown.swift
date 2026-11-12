@@ -14,6 +14,33 @@ extension Study {
         case code(language: String, text: String)
         case table(rows: [[String]])
         case rule
+        /// An Obsidian callout (`> [!tip] Title`), drawn as a coloured box (2026-11-12, you asked: replies were hard to read).
+        case callout(kind: String, title: String, text: String)
+    }
+
+    /// How Sage may dress a reply, told to both his brains (2026-11-12, you asked for colours, pills and boxes).
+    static let chatStyle = """
+    [How your replies are drawn] My chat draws Markdown, plus: callout boxes as in Obsidian (`> [!tip] Title` then `> ` lines; \
+    kinds: note, tip, info, success, question, warning, danger, example, quote), ==highlight== for the one thing to notice, and \
+    coloured pills `{{green:Done}}` (red, orange, yellow, green, blue, purple, pink, gray) for statuses, labels and short verdicts. \
+    Make replies easy to scan: a short lead line, then a few headed sections or a callout for the recommendation or a warning; \
+    keep paragraphs to two or three sentences; tables for comparisons. Use colour where it carries meaning, not on every line.
+    """
+
+    /// A callout kind's colour name, SF Symbol and title when none is given (Obsidian's kinds and aliases).
+    static func calloutStyle(_ kind: String) -> (color: String, symbol: String, title: String) {
+        switch kind.lowercased() {
+        case "tip", "hint", "important": return ("teal", "flame", "Tip")
+        case "info", "todo": return ("blue", "info.circle", "Info")
+        case "success", "check", "done": return ("green", "checkmark.circle", "Success")
+        case "question", "help", "faq": return ("orange", "questionmark.circle", "Question")
+        case "warning", "caution", "attention": return ("orange", "exclamationmark.triangle", "Warning")
+        case "danger", "error", "failure", "fail", "missing", "bug": return ("red", "xmark.octagon", "Danger")
+        case "example": return ("purple", "list.bullet", "Example")
+        case "quote", "cite": return ("gray", "quote.opening", "Quote")
+        case "abstract", "summary", "tldr": return ("teal", "doc.text", "Summary")
+        default: return ("blue", "pencil", "Note")
+        }
     }
 
     /// The address a [[wikilink]] gets in the chat: sage-note:Name (with its #heading).
@@ -24,7 +51,13 @@ extension Study {
         var blocks: [ChatBlock] = [], paragraph: [String] = [], quote: [String] = []
         func flush() {
             if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))); paragraph = [] }
-            if !quote.isEmpty { blocks.append(.quote(quote.joined(separator: "\n"))); quote = [] }
+            if !quote.isEmpty {
+                if let head = firstMatch(#"^\[!(\w+)\][+-]?\s*(.*)$"#, in: quote[0]) {
+                    let title = head[2].trimmingCharacters(in: .whitespaces)
+                    blocks.append(.callout(kind: head[1].lowercased(), title: title.isEmpty ? calloutStyle(head[1]).title : title, text: quote.dropFirst().joined(separator: "\n")))
+                } else { blocks.append(.quote(quote.joined(separator: "\n"))) }
+                quote = []
+            }
         }
         func indentLevel(_ line: String) -> Int {
             let spaces = line.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
@@ -65,7 +98,8 @@ extension Study {
             if bare.count >= 3, let first = bare.first, "-*_".contains(first), bare.allSatisfy({ $0 == first }) { flush(); blocks.append(.rule); continue }
             if trimmed.hasPrefix(">") {
                 if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))); paragraph = [] }
-                quote.append(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces))
+                let inner = String(trimmed.dropFirst())
+                quote.append(inner.hasPrefix(" ") ? String(inner.dropFirst()) : inner)
                 continue
             }
             if trimmed.hasPrefix("|"), index + 1 < lines.count, isSeparator(lines[index + 1]) {
@@ -118,6 +152,9 @@ extension Study {
             let address = target.addingPercentEncoding(withAllowedCharacters: allowed) ?? target
             return "[\(shown.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]"))](\(noteLinkScheme):\(address))"
         }
+        // ==highlight== and {{colour:pill}}, as links the view dresses (sage-mark:, sage-pill:colour).
+        result = substitute(#"==([^=\n]+?)=="#, in: result) { g in "[\(g[1])](sage-mark:)" }
+        result = substitute(#"\{\{(red|orange|yellow|green|blue|purple|pink|gray|grey):([^}\n]+?)\}\}"#, in: result) { g in "[\u{2009}\(g[2])\u{2009}](sage-pill:\(g[1]))" }
         result = substitute(#"(^|[\s(])(https?://[^\s<>()\[\]]+[^\s<>()\[\].,;:!?'"])"#, in: result) { g in "\(g[1])<\(g[2])>" }
         return result
     }

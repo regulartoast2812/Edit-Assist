@@ -305,6 +305,7 @@ extension Study {
         For creator notes, inspect the source/channel URL in the note; retrieve a real profile image or banner when publicly available, save it in the configured attachment folder with a readable name, and update the note's banner property. If a service blocks a method, try another available method and report the concrete error only after attempts fail.
         Change notes with your Edit and Write tools rather than shell commands where you can (Sage keeps a copy of each file the moment you start editing it, so I can undo), and don't delete files unless I ask.
         """
+        prompt += "\n\n" + chatStyle
         return prompt
     }
 

@@ -9,7 +9,7 @@ struct SageMarkdown: View {
     var open: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(Study.chatBlocks(text).enumerated()), id: \.offset) { _, block in view(block) }
         }
         .textSelection(.enabled)
@@ -20,12 +20,43 @@ struct SageMarkdown: View {
     }
 
     static func inline(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: Study.chatInline(text), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)))
+        var result = (try? AttributedString(markdown: Study.chatInline(text), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)))
             ?? AttributedString(text)
+        // Highlights, pills and inline code dressed (2026-11-12, you asked: colours and pills, easier to read).
+        for run in result.runs {
+            if let url = run.link, url.scheme == "sage-mark" || url.scheme == "sage-pill" {
+                result[run.range].link = nil
+                if url.scheme == "sage-mark" {
+                    result[run.range].backgroundColor = Color.yellow.opacity(0.28)
+                } else {
+                    let tone = color(String(url.absoluteString.dropFirst("sage-pill:".count)))
+                    result[run.range].backgroundColor = tone.opacity(0.24)
+                    result[run.range].foregroundColor = tone
+                    result[run.range].inlinePresentationIntent = .stronglyEmphasized
+                }
+            } else if run.inlinePresentationIntent?.contains(.code) == true {
+                result[run.range].backgroundColor = Color.primary.opacity(0.1)
+            }
+        }
+        return result
+    }
+
+    static func color(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "red": .red
+        case "orange": .orange
+        case "yellow": .yellow
+        case "green": .green
+        case "teal": .teal
+        case "blue": .blue
+        case "purple": .purple
+        case "pink": .pink
+        default: .gray
+        }
     }
 
     func line(_ text: String, size: CGFloat? = nil, weight: Font.Weight = .regular) -> some View {
-        Text(Self.inline(text)).font(.system(size: size ?? self.size, weight: weight)).fixedSize(horizontal: false, vertical: true)
+        Text(Self.inline(text)).font(.system(size: size ?? self.size, weight: weight)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder func view(_ block: Study.ChatBlock) -> some View {
@@ -67,6 +98,17 @@ struct SageMarkdown: View {
             }
         case .rule:
             Divider()
+        case let .callout(kind, title, text):
+            let style = Study.calloutStyle(kind), tone = Self.color(style.color)
+            VStack(alignment: .leading, spacing: 6) {
+                Label { Text(Self.inline(title)).font(.system(size: size, weight: .semibold)) } icon: { Image(systemName: style.symbol).font(.system(size: size - 1, weight: .semibold)) }
+                    .foregroundStyle(tone)
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { SageMarkdown(text: text, size: size, open: open) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(tone.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 6).fill(tone.opacity(0.8)).frame(width: 3) }
         }
     }
 }
