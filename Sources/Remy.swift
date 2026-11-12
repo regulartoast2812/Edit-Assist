@@ -4,37 +4,26 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-/// Remy, the publisher: a coral blob of a courier in a navy cap with a gold badge, a satchel across him with letters
-/// poking out (2026-11-12, you asked). Working: a letter pops up out of the satchel and flies off.
+/// Remy, the publisher: a round violet courier in a tweed newsboy cap, tipped, holding up a letter with a red seal, his
+/// satchel at his side with another letter in it (2026-11-12; the first, a tall coral blob in a navy cap, looked like "a
+/// sausage miner"). Working: he waves the letter and another pops up out of the satchel.
 struct PixelRemy: View {
     /// The helper's colour, the body's: their page and sidebar button take it.
-    static let theme = Color(red: 240 / 255, green: 110 / 255, blue: 95 / 255)
+    static let theme = Color(red: 165 / 255, green: 130 / 255, blue: 235 / 255)
     var pixel: CGFloat = 2
     var busyUntil: Date?
     var previewOnHover = false
-    static let rest = ["....CCCCCC......", "...CCCCCCCyC....", "..cccccccccc....", "...OOOOOOOO.....", "...OOKOOKOO.....",
-                       "...OOKOOKOO.....", "...OOOkkOOO.....", "...sOOOOOOO.WW..", "...OsOOOOOOWWrW.", "...OOsOOOBBBBBB.",
-                       "...OOOsOOBBbBBB.", "...OOOOsOBBBBBB.", "....OOOOsBBBBBB.", ".....D...D......"]
-    static let blink = ["....CCCCCC......", "...CCCCCCCyC....", "..cccccccccc....", "...OOOOOOOO.....", "...OOOOOOOO.....",
-                        "...OOKOOKOO.....", "...OOOkkOOO.....", "...sOOOOOOO.WW..", "...OsOOOOOOWWrW.", "...OOsOOOBBBBBB.",
-                        "...OOOsOOBBbBBB.", "...OOOOsOBBBBBB.", "....OOOOsBBBBBB.", ".....D...D......"]
-    static let working: [[String]] = [
-        rest,
-        ["....CCCCCC......", "...CCCCCCCyC....", "..cccccccccc....", "...OOOOOOOO.....", "...OOKOOKOO.....",
-         "...OOKOOKOO.....", "...OOOkkOOO.WW..", "...sOOOOOOOWWrW.", "...OsOOOOOOWWWW.", "...OOsOOOBBBBBB.",
-         "...OOOsOOBBbBBB.", "...OOOOsOBBBBBB.", "....OOOOsBBBBBB.", ".....D...D......"],
-        ["....CCCCCC......", "...CCCCCCCyC..WW", "..cccccccccc..Wr", "...OOOOOOOO.....", "...OOKOOKOO.....",
-         "...OOKOOKOO.....", "...OOOkkOOO.....", "...sOOOOOOO.W...", "...OsOOOOOOWWW..", "...OOsOOOBBBBBB.",
-         "...OOOsOOBBbBBB.", "...OOOOsOBBBBBB.", "....OOOOsBBBBBB.", ".....D...D......"],
-    ]
+    static let rest = ["...........WWWWW", "......TTT..wWWWw", "....TTtTTTTWwrwW", "...TTTTTtTTTWWWW", "..TTtTTTTTTTTH..", "..bbbbbbOOOOOH..", "..OOOOOOOOOOOO..", ".OOOKKOOOOKKOOO.", ".OOOKKOOOOKKOOO.", ".OOOOOOkkkOOOOO.", ".OsOOOOOOOOOOOO.", ".OOsOOOOOOOOOOO.", "WWrWsOOOOOOOOOO.", "BBBBBsOOOOOOOO..", "BbBBB.OOOOOOOO..", "BBBBB.DD...DD..."]
+    static let blink = ["...........WWWWW", "......TTT..wWWWw", "....TTtTTTTWwrwW", "...TTTTTtTTTWWWW", "..TTtTTTTTTTTH..", "..bbbbbbOOOOOH..", "..OOOOOOOOOOOO..", ".OOOOOOOOOOOOOO.", ".OOOKKOOOOKKOOO.", ".OOOOOOkkkOOOOO.", ".OsOOOOOOOOOOOO.", ".OOsOOOOOOOOOOO.", "WWrWsOOOOOOOOOO.", "BBBBBsOOOOOOOO..", "BbBBB.OOOOOOOO..", "BBBBB.DD...DD..."]
+    static let working: [[String]] = [rest, ["..........WWWWW.", "......TTT.wWWWw.", "....TTtTTTWwrwW.", "...TTTTTtTWWWW..", "..TTtTTTTTTTH...", "..bbbbbbOOOOH...", "..OOOOOOOOOOOO..", ".OOOKKOOOOKKOOO.", ".OOOKKOOOOKKOOO.", ".OOOOOOkkkOOOOO.", ".OsOOOOOOOOOOOO.", ".OOsOOOOOOOOOOO.", "WWrWsOOOOOOOOOO.", "BBBBBsOOOOOOOO..", "BbBBB.OOOOOOOO..", "BBBBB.DD...DD..."], rest, ["...........WWWWW", "......TTT..wWWWw", "....TTtTTTTWwrwW", "...TTTTTtTTTWWWW", "..TTtTTTTTTTTH..", "..bbbbbbOOOOOH..", "..OOOOOOOOOOOO..", ".OOOKKOOOOKKOOO.", ".OOOKKOOOOKKOOO.", ".OOOOOOkkkOOOOO.", "WWrWOOOOOOOOOOO.", ".OOsOOOOOOOOOOO.", "BBBBsOOOOOOOOOO.", "BBBBBsOOOOOOOO..", "BbBBB.OOOOOOOO..", "BBBBB.DD...DD..."]]
     var body: some View {
         AnimatedSprite(rest: Self.rest, blink: Self.blink, working: Self.working,
-                       colors: ["O": Self.theme, "C": Color(red: 50 / 255, green: 70 / 255, blue: 125 / 255), "c": Color(red: 30 / 255, green: 40 / 255, blue: 75 / 255),
-                                "y": Color(red: 1, green: 214 / 255, blue: 80 / 255), "K": Color(red: 25 / 255, green: 25 / 255, blue: 28 / 255),
-                                "k": Color(red: 120 / 255, green: 40 / 255, blue: 35 / 255), "s": Color(red: 110 / 255, green: 70 / 255, blue: 40 / 255),
-                                "B": Color(red: 160 / 255, green: 105 / 255, blue: 55 / 255), "b": Color(red: 1, green: 214 / 255, blue: 80 / 255),
-                                "W": Color(red: 245 / 255, green: 240 / 255, blue: 225 / 255), "r": Color(red: 225 / 255, green: 60 / 255, blue: 60 / 255),
-                                "D": Color(red: 150 / 255, green: 60 / 255, blue: 55 / 255)],
+                       colors: ["O": Self.theme, "T": Color(red: 120 / 255, green: 90 / 255, blue: 60 / 255), "t": Color(red: 150 / 255, green: 118 / 255, blue: 82 / 255),
+                                "b": Color(red: 80 / 255, green: 58 / 255, blue: 38 / 255), "K": Color(red: 25 / 255, green: 25 / 255, blue: 28 / 255),
+                                "k": Color(red: 70 / 255, green: 40 / 255, blue: 90 / 255), "s": Color(red: 110 / 255, green: 70 / 255, blue: 40 / 255),
+                                "B": Color(red: 170 / 255, green: 110 / 255, blue: 55 / 255), "W": Color(red: 245 / 255, green: 240 / 255, blue: 225 / 255),
+                                "w": Color(red: 200 / 255, green: 190 / 255, blue: 170 / 255), "r": Color(red: 225 / 255, green: 60 / 255, blue: 60 / 255),
+                                "H": Self.theme, "D": Color(red: 90 / 255, green: 70 / 255, blue: 140 / 255)],
                        pixel: pixel, busyUntil: busyUntil, previewOnHover: previewOnHover)
             .accessibilityLabel("Remy")
     }
