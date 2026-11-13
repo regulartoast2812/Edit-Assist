@@ -180,24 +180,28 @@ extension Checks {
                   && head.contains("&quot;To film&quot;:\(chip.dropFirst(9))"),
                   "A status column's menu holds this base's values only, one per name (case and [[ ]] aside), each in the colour its chips have: \(head)")
         }
-            // Word completion from the vault's words (2026-11-13): Tab takes the grey rest of the word being typed.
+        // Word completion (2026-11-13): general language everywhere, the vault's notes inside [[.
         do {
-            let words = SageWords.model(["Recording the voiceover. Record the voiceover again, then render.",
-                                         "Tiếng Việt: tiếng nói, tiếng nói. The REPORT reports.", "renders renders"])
-            check(SageWords.complete("Let's re", in: words)?.shown == "nders", "The commonest word of the vault finishes the one typed (got \(SageWords.complete("Let's re", in: words)?.shown ?? "nil"))")
-            check(SageWords.complete("the vo", in: words)?.shown == "iceover" && SageWords.complete("Tôi thích tiế", in: words)?.shown == "ng",
-                  "A word is finished as the vault writes it, Vietnamese too")
-            check(SageWords.complete("the VO", in: words)?.shown == "ICEOVER", "Typed in capitals, finished in capitals")
-            check(SageWords.complete("r", in: words)?.shown == nil && SageWords.complete("renders ", in: words)?.shown == nil,
-                  "Nothing for one letter or after a space")
-            check(SageWords.complete("voiceover", in: words)?.shown == nil && SageWords.complete("xy", in: words)?.shown == nil, "Nothing when the word is whole or unknown")
+            var vault = SageWords.model(["See [[Literature review]] and [[Literature review]], [[Lab notes]]. Recording renders renders."])
+            for name in ["Literature review", "Literature map", "Lab notes", "Method"] { vault.noteName[name.lowercased()] = name }
+            vault.notes = vault.noteName.keys.sorted()
             let english = SageWords.dictionary((try? String(contentsOfFile: "Resources/Words/en-complete.tsv", encoding: .utf8)) ?? "")
-            let river = SageWords.complete("My channel where missis", in: words, dictionary: english)
-            check(river?.word == "Mississippi" && river?.shown == "sippi" && river?.replace == 6, "An English word beyond the vault, with its capital (got \(String(describing: river)))")
-            let off = SageWords.complete("My channel where missisi", in: words, dictionary: english)
+            let vi = SageSpell.load(URL(fileURLWithPath: "Resources/Words"))
+            func done(_ before: String, closed: Bool = false) -> SageWords.Completion? { SageWords.complete(before, closed: closed, english: english, vi: vi, vault: vault) }
+            check(done("I think it's beca")?.word == "because" && done("I think it's beca")?.shown == "use", "English with no vault at all (got \(String(describing: done("I think it's beca"))))")
+            check(done("My channel where missis")?.word == "Mississippi" && done("My channel where missis")?.shown == "sippi", "A name with its capital")
+            let off = done("My channel where missisi")
             check(off?.word == "Mississippi" && off?.shown == "  → Mississippi" && off?.replace == 7, "A start a letter off finds the word, shown whole (got \(String(describing: off)))")
-            check(SageWords.complete("the vo", in: words, dictionary: english)?.word == "voiceover", "The vault's words still come first")
-            check(SageWords.complete("Beau", in: words, dictionary: english)?.word == "Beautiful", "A sentence's first word keeps its capital (got \(SageWords.complete("Beau", in: words, dictionary: english)?.word ?? "nil"))")
+            check(done("Beau")?.word == "Beautiful" && done("the VOI")?.word == "VOICE", "A sentence's first word keeps its capital; capitals stay capitals")
+            check(done("Recor")?.word != "Recording" || english.count["recording"] != nil, "The vault's words aren't offered outside [[ ]]")
+            let research = done("Chúng tôi nghiên c")
+            check(research?.word == "cứu" && research?.shown == "ứu", "Vietnamese: the syllable after the one before (got \(String(describing: research)))")
+            let method = done("Bài báo trình bày phương ph")
+            check(method?.word.hasPrefix("pháp") == true, "Vietnamese typed without marks is finished with them (got \(String(describing: method)))")
+            check(done("See [[Lit")?.word == "Literature review]]" && done("See [[Lit")?.shown == "erature review]]", "Inside [[: the most linked note, closed (got \(String(describing: done("See [[Lit"))))")
+            check(done("See [[lab", closed: true)?.word == "Lab notes" && done("See [[rev")?.word == "Literature review]]", "Already closed: no ]]; a word inside the name finds it too")
+            check(done("See [[Literature review]] and so") == nil || done("See [[Literature review]] and so")?.word.contains("]]") == false, "After the link closes, plain words again")
+            check(done("r") == nil && done("renders ") == nil && done("xyzzyq") == nil, "Nothing after a space or for no match")
             check(SageWords.words("don't stop—now 42 x2") == ["don't", "stop", "now", "x2"], "Words keep an inner apostrophe and need a letter")
         }
         // (2026-11-13) Autocorrect: the text typed word by word, as the boxes ask it, each fix applied.

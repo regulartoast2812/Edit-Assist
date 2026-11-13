@@ -17,6 +17,8 @@ final class SageSpell: @unchecked Sendable {
         var triples: [String: Int] = [:]         // "syllable syllable syllable" → times
         var en: [String: Int] = [:]              // English word → times
         var viTotal = 1
+        var folds: [String] = []                 // the groups' keys, sorted (word completion looks up a start)
+        var next: [String: (word: String, times: Int)] = [:]   // syllable → the syllable written after it most
     }
     /// What to change in the text given: `old` at UTF-16 offset `start` becomes `new`.
     struct Fix: Equatable { var start: Int; var old: String; var new: String }
@@ -47,6 +49,12 @@ final class SageSpell: @unchecked Sendable {
             self.tables = made; self.kept.formUnion(kept)
             self.lock.unlock()
         }
+    }
+
+    /// The tables as loaded (empty until they are).
+    func snapshot() -> Tables {
+        lock.lock(); defer { lock.unlock() }
+        return tables
     }
 
     func correct(_ before: String) -> Fix? {
@@ -88,7 +96,14 @@ final class SageSpell: @unchecked Sendable {
         }
         var t = Tables()
         for (w, n) in rows("vi-syllables.tsv") { t.vi[w] = n; t.groups[fold(w), default: []].append(w); t.viTotal += n }
-        for (p, n) in rows("vi-pairs.tsv") { t.pairs[p] = n }
+        for (p, n) in rows("vi-pairs.tsv") {
+            t.pairs[p] = n
+            if let space = p.firstIndex(of: " ") {
+                let a = String(p[..<space])
+                if n > (t.next[a]?.times ?? 0) { t.next[a] = (String(p[p.index(after: space)...]), n) }
+            }
+        }
+        t.folds = t.groups.keys.sorted()
         for (p, n) in rows("vi-triples.tsv") { t.triples[p] = n }
         for (w, n) in rows("en-words.tsv") { t.en[w] = n }
         return t

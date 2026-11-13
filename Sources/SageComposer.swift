@@ -440,7 +440,8 @@ struct SagePromptView: NSViewRepresentable {
             if range.location < text.length, let next = Unicode.Scalar(text.character(at: range.location)),
                CharacterSet.alphanumerics.contains(next) { return }
             let from = max(0, range.location - 200)
-            taking = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)))
+            let closed = range.location + 2 <= text.length && text.substring(with: NSRange(location: range.location, length: 2)) == "]]"
+            taking = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)), closed: closed)
             rest = taking?.shown
         }
         /// (2026-11-13, you asked) Autocorrect: when a word ends (a space or a stop typed), the words before are put right

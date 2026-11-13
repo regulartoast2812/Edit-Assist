@@ -1671,7 +1671,7 @@ extension Study {
           var r = range();
           if (composing || r.from !== r.to || /[\p{L}\p{N}]/u.test(text.charAt(r.from))) return;
           var before = text.slice(Math.max(0, r.from - 200), r.from), was = text;
-          if (!/[\p{L}\p{N}]{2}$/u.test(before)) return;
+          if (!/\p{L}$/u.test(before) && !/\[\[[^\]\n]+$/.test(before)) return;
           completing.id++;
           completing.back = function (rest, take) {
             completing.back = null;
@@ -1691,7 +1691,7 @@ extension Study {
             document.body.appendChild(ghostEl);
             ghost = rest; ghostAt = r.from; ghostTake = take;
           };
-          post({ type: 'complete', id: completing.id, before: before });
+          post({ type: 'complete', id: completing.id, before: before, closed: text.slice(r.from, r.from + 2) === ']]' });
         }
         window.addEventListener('scroll', function () { if (ghost) unghost(); }, true);
         function onSelection() {

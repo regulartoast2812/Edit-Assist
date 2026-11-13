@@ -1,9 +1,12 @@
 import Foundation
 
-/// (2026-11-13, you asked) Word completion as you type, from the vault's own words: the word being typed is finished in
-/// grey and Tab takes it. The words are read from the vault's notes off the main thread and counted, with which word
-/// follows which, so the likeliest finish after the word before wins (Vietnamese as well as English). Foundation only,
-/// so the Windows port keeps it as it is; the boxes that show the grey text are the platform's.
+/// (2026-11-13, you asked) Word completion as you type: the word being typed is finished in grey and Tab takes it.
+/// (2026-11-13, you asked: useful from the start, not only once the vault is a dictionary; the vault's own in [[ ]])
+/// - Everywhere: general language only. English from common words (Resources/Words/en-complete.tsv), Vietnamese from
+///   its syllables and which follows which (SageSpell's tables), so "nghiên c" → "cứu"; a word whose start is a letter
+///   off is offered whole ("missisi → Mississippi").
+/// - Inside [[: the vault's notes, most linked first, "]]" closing it.
+/// The vault's words and pairs are still read for autocorrect. Foundation only, so the Windows port keeps it as it is.
 final class SageWords: @unchecked Sendable {
     static let shared = SageWords()
 
@@ -12,6 +15,9 @@ final class SageWords: @unchecked Sendable {
         var spelling: [String: String] = [:]         // how the word is written (lowercase when it's ever written so)
         var count: [String: Int] = [:]
         var after: [String: [String: Int]] = [:]     // word before → word → times
+        var notes: [String] = []                     // the vault's note names, lowercased, sorted
+        var noteName: [String: String] = [:]         // lowercased → as named
+        var linked: [String: Int] = [:]              // lowercased name → times [[linked]]
 
         static let shortest = 4                      // words shorter than this aren't worth finishing
     }
@@ -21,6 +27,7 @@ final class SageWords: @unchecked Sendable {
         var keys: [String] = []
         var spelling: [String: String] = [:]
         var count: [String: Int] = [:]
+        var total = 1
     }
     /// A finish: `word` written in place of the `replace` UTF-16 units typed; `shown` is the grey text after the caret
     /// (the rest of the word, or "→ word" when what was typed is a letter off).
@@ -52,7 +59,7 @@ final class SageWords: @unchecked Sendable {
             let parts = line.split(separator: "\t")
             guard parts.count == 2, let n = Int(parts[1]) else { continue }
             let word = String(parts[0]), key = word.lowercased()
-            made.spelling[key] = word; made.count[key] = n
+            made.spelling[key] = word; made.count[key] = n; made.total += n
         }
         made.keys = made.count.keys.sorted()
         return made
@@ -66,7 +73,9 @@ final class SageWords: @unchecked Sendable {
         building = true
         lock.unlock()
         DispatchQueue.global(qos: .utility).async {
-            let made = Self.model(Self.notes(in: vault))
+            var made = Self.model(Self.notes(in: vault))
+            for name in Self.names(in: vault) { made.noteName[name.lowercased()] = name }
+            made.notes = made.noteName.keys.sorted()
             self.lock.lock()
             self.model = made; self.vault = vault; self.built = Date(); self.building = false
             self.lock.unlock()
@@ -79,10 +88,22 @@ final class SageWords: @unchecked Sendable {
         return model
     }
 
-    /// The finish of the word the text ends in, or nil.
-    func complete(_ before: String) -> Completion? {
-        lock.lock(); defer { lock.unlock() }
-        return Self.complete(before, in: model, dictionary: dictionary)
+    /// The finish of the word the text ends in, or nil; `closed`: "]]" follows the caret.
+    func complete(_ before: String, closed: Bool = false) -> Completion? {
+        lock.lock(); let model = self.model, dictionary = self.dictionary; lock.unlock()
+        return Self.complete(before, closed: closed, english: dictionary, vi: SageSpell.shared.snapshot(), vault: model)
+    }
+
+    /// The names [[links]] use for the vault's files: a note without .md, another file with its extension (at most 20000).
+    static func names(in vault: URL) -> [String] {
+        guard let walk = FileManager.default.enumerator(at: vault, includingPropertiesForKeys: nil,
+                                                        options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var out: [String] = []
+        for case let url as URL in walk where !url.hasDirectoryPath {
+            if out.count >= 20000 { break }
+            out.append(url.pathExtension.lowercased() == "md" ? url.deletingPathExtension().lastPathComponent : url.lastPathComponent)
+        }
+        return out
     }
 
     /// The vault's notes, as text (hidden folders skipped; at most 4000 notes, 1 MB each).
@@ -115,7 +136,13 @@ final class SageWords: @unchecked Sendable {
 
     static func model(_ texts: [String]) -> Model {
         var model = Model()
+        let link = try! NSRegularExpression(pattern: "\\[\\[([^\\]|#\\n]+)")
         for text in texts {
+            for m in link.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let r = Range(m.range(at: 1), in: text) {
+                    model.linked[(String(text[r]) as NSString).lastPathComponent.lowercased(), default: 0] += 1
+                }
+            }
             var previous: String?
             for word in words(text) {
                 let key = word.lowercased()
@@ -129,44 +156,123 @@ final class SageWords: @unchecked Sendable {
         return model
     }
 
-    /// The finish of the word `before` ends in. Ranked: written after the word before it in the vault, then seen in the
-    /// vault, then how common it is in English; a vault word needs to be seen twice, an English one three letters typed.
-    /// Nothing starts so (four letters typed or more): the likeliest word whose start is a letter off ("missisi" →
-    /// Mississippi), shown whole. Nothing for under two letters typed, or a finish under two letters.
-    static func complete(_ before: String, in model: Model, dictionary: Dictionary = Dictionary()) -> Completion? {
+    /// The finish of the text's last word (see the type's note), or nil.
+    static func complete(_ before: String, closed: Bool = false, english: Dictionary, vi: SageSpell.Tables, vault: Model) -> Completion? {
         let text = before.precomposedStringWithCanonicalMapping
-        guard let last = text.last, last.isLetter || last.isNumber else { return nil }
-        let all = words(String(text.suffix(200)))
-        guard let typed = all.last, text.hasSuffix(typed), typed.count >= 2 else { return nil }
-        let prefix = typed.lowercased(), previous = all.count > 1 ? all[all.count - 2].lowercased() : nil
-        let follows = previous.flatMap { model.after[$0] } ?? [:]
-        var best: (key: String, score: Double)?
-        func consider(_ key: String, fuzzy: Bool) {
-            guard key.count >= max(typed.count + (fuzzy ? 1 : 2), Model.shortest), key != prefix else { return }
-            let paired = follows[key] ?? 0, seen = model.count[key] ?? 0, common = dictionary.count[key] ?? 0
-            guard paired > 0 || seen >= 2 || (common > 0 && typed.count >= 3) else { return }
-            if fuzzy && seen < 2 && common < 50 { return }
-            let score = Double(paired) * 100 + Double(min(seen, 1000)) * 5 + log10(Double(common) + 1)
-            if best == nil || score > best!.score { best = (key, score) }
+        let line = text.split(separator: "\n", omittingEmptySubsequences: false).last.map(String.init) ?? ""
+        if let open = line.range(of: "[[", options: .backwards), !line[open.upperBound...].contains("]") {
+            return link(String(line[open.upperBound...]), closed: closed, vault: vault)
         }
-        func search(_ start: String, fuzzy: Bool) {
-            for keys in [model.keys, dictionary.keys] {
-                var low = 0, high = keys.count
-                while low < high { let mid = (low + high) / 2; if keys[mid] < start { low = mid + 1 } else { high = mid } }
-                var i = low
-                while i < keys.count, i < low + 500, keys[i].hasPrefix(start) { consider(keys[i], fuzzy: fuzzy); i += 1 }
+        guard let last = text.last, last.isLetter else { return nil }
+        let all = words(String(text.suffix(200)))
+        guard let typed = all.last, text.hasSuffix(typed), typed.allSatisfy(\.isLetter) else { return nil }
+        let lower = typed.lowercased()
+        // The sentence so far: the nearest word that tells the language, and the word just before (one space apart).
+        let sentence = String(text.dropLast(typed.count))
+        let start = sentence.lastIndex(where: { ".!?\n".contains($0) }).map { sentence.index(after: $0) } ?? sentence.startIndex
+        let before = words(String(sentence[start...])).map { $0.lowercased() }
+        func vietnamese(_ w: String) -> Bool? {
+            if SageSpell.fold(w) != w { return vi.vi[w] != nil ? true : nil }
+            if vi.en[w] != nil { return false }
+            return vi.groups[w] != nil ? true : nil
+        }
+        let told = before.reversed().lazy.compactMap(vietnamese).first
+        let joined = sentence.hasSuffix(" ") && !sentence.hasSuffix("  ")
+        let previous = joined ? before.last : nil
+        let earlier = joined && before.count >= 2 && sentence.dropLast().hasSuffix(" " + (before.last ?? "")) ? before[before.count - 2] : nil
+
+        var made: Completion?
+        let viBest = told == false && SageSpell.fold(lower) == lower ? nil : syllable(lower, after: previous, earlier: earlier, vi: vi)
+        let enBest = told == true ? nil : word(lower, english: english, known: vi.en)
+        if let v = viBest, let e = enBest { made = (told == true || v.score >= e.score) ? v.made : e.made }
+        else { made = viBest?.made ?? enBest?.made ?? (told == true ? word(lower, english: english, known: vi.en)?.made : nil) }
+        guard var made else { return nil }
+        if typed.count >= 2 && typed == typed.uppercased() && typed != lower { made.word = made.word.uppercased() }
+        else if typed.first?.isUppercase == true { made.word = made.word.prefix(1).uppercased() + made.word.dropFirst() }
+        made.replace = typed.utf16.count
+        made.shown = made.word.lowercased().hasPrefix(lower) ? String(made.word.dropFirst(typed.count)) : "  → " + made.word
+        return made
+    }
+
+    /// Inside [[: the vault's note whose name starts so (else has a word starting so), most linked, then shortest.
+    static func link(_ typed: String, closed: Bool, vault: Model) -> Completion? {
+        let key = typed.lowercased()
+        guard !key.trimmingCharacters(in: .whitespaces).isEmpty, !key.contains("|"), !key.contains("#") else { return nil }
+        var best: (name: String, score: Int)?
+        func consider(_ name: String, _ bonus: Int) {
+            let score = bonus + (vault.linked[name] ?? 0) * 100 - name.count
+            if best == nil || score > best!.score { best = (name, score) }
+        }
+        var low = 0, high = vault.notes.count
+        while low < high { let mid = (low + high) / 2; if vault.notes[mid] < key { low = mid + 1 } else { high = mid } }
+        var i = low
+        while i < vault.notes.count, i < low + 2000, vault.notes[i].hasPrefix(key) { consider(vault.notes[i], 1_000_000); i += 1 }
+        if best == nil { for name in vault.notes where name.contains(" " + key) { consider(name, 0) } }
+        guard let found = best, let name = vault.noteName[found.name] else { return nil }
+        let end = closed ? "" : "]]"
+        let starts = found.name.hasPrefix(key)
+        return Completion(word: name + end, replace: typed.utf16.count,
+                          shown: starts ? String(name.dropFirst(typed.count)) + end : "  → " + name + end)
+    }
+
+    /// Vietnamese: the syllable starting as typed (marks typed must match) likeliest after the one before, carried on by
+    /// the syllable nearly always written after it ("phương ph" → "pháp"; "nghiên c" → "cứu"). One letter typed is enough
+    /// after a syllable it often follows.
+    static func syllable(_ typed: String, after previous: String?, earlier: String? = nil, vi: SageSpell.Tables) -> (made: Completion, score: Double)? {
+        let f = SageSpell.fold(typed), plain = f == typed, bare = SageSpell.toneless(typed), mark = SageSpell.tone(typed)
+        guard !vi.folds.isEmpty, !f.isEmpty else { return nil }
+        // A word typed with its marks is that syllable; without, any of its readings ("co": có, cô, co…).
+        func readings(_ w: String?) -> [String] { w.map { p in SageSpell.fold(p) != p ? (vi.vi[p] != nil ? [p] : []) : (vi.groups[p] ?? []) } ?? [] }
+        let befores = readings(previous), befores2 = readings(earlier)
+        let beforeTimes = Double(max(befores.reduce(0) { $0 + (vi.vi[$1] ?? 0) }, 1))
+        var twoTimes: [String: Int] = [:]      // "earlier previous" → times, for the three-syllable counts
+        for a in befores2 { for b in befores { if let n = vi.pairs[a + " " + b] { twoTimes[a + " " + b] = n } } }
+        let twoTotal = twoTimes.values.reduce(0, +)
+        let total = log(Double(vi.viTotal))
+        var best: (word: String, score: Double)?
+        var low = 0, high = vi.folds.count
+        while low < high { let mid = (low + high) / 2; if vi.folds[mid] < f { low = mid + 1 } else { high = mid } }
+        var i = low
+        while i < vi.folds.count, i < low + 400, vi.folds[i].hasPrefix(f) {
+            // A syllable as long as what's typed is it, accents aside (autocorrect gives those): when it's likeliest, no finish.
+            for s in vi.groups[vi.folds[i]] ?? [] where s.count >= typed.count {
+                if !plain && !s.hasPrefix(typed) && !(SageSpell.toneless(s).hasPrefix(bare) && (mark == nil || mark == SageSpell.tone(s))) { continue }
+                // After the two before it when those three are counted, else after the one before (its readings together).
+                var paired = Double(befores.reduce(0) { $0 + (vi.pairs[$1 + " " + s] ?? 0) }) / beforeTimes
+                let three = twoTimes.keys.reduce(0) { $0 + (vi.triples[$1 + " " + s] ?? 0) }
+                if three > 0 { paired = max(paired, Double(three) / Double(twoTotal)) }
+                if typed.count < 2 && paired < 0.03 && s.count > typed.count { continue }
+                let score = paired > 0 ? log(paired) : log(0.02) + log(Double(vi.vi[s] ?? 1)) - total
+                if best == nil || score > best!.score { best = (s, score) }
+            }
+            i += 1
+        }
+        guard let found = best, found.word.count > typed.count else { return nil }
+        var word = found.word
+        if let n = vi.next[word], n.times >= 30, Double(n.times) >= 0.4 * Double(vi.vi[word] ?? .max) { word += " " + n.word }
+        return (Completion(word: word, replace: 0, shown: ""), found.score)
+    }
+
+    /// English: the commonest word starting as typed (three letters typed at least, four in all), none when the word
+    /// typed is commoner itself ("the"); with none and four typed, the commonest whose start is a letter off.
+    static func word(_ typed: String, english: Dictionary, known: [String: Int] = [:]) -> (made: Completion, score: Double)? {
+        guard typed.count >= 3, typed.allSatisfy({ $0.isASCII }), !english.keys.isEmpty else { return nil }
+        var best: (key: String, n: Int)?
+        func search(_ start: String, least: Int) {
+            var low = 0, high = english.keys.count
+            while low < high { let mid = (low + high) / 2; if english.keys[mid] < start { low = mid + 1 } else { high = mid } }
+            var i = low
+            while i < english.keys.count, i < low + 500, english.keys[i].hasPrefix(start) {
+                let key = english.keys[i], n = english.count[key] ?? 0; i += 1
+                if key == typed || key.count >= max(typed.count + 1, Model.shortest), n >= least,
+                   best == nil || n > best!.n { best = (key, n) }
             }
         }
-        search(prefix, fuzzy: false)
-        if best == nil, typed.count >= 4, prefix.allSatisfy({ $0.isASCII }) {
-            for start in Set(SageSpell.edits(prefix, letters: "abcdefghijklmnopqrstuvwxyz")) where start.count >= 3 { search(start, fuzzy: true) }
+        search(typed, least: 1)
+        if best == nil, typed.count >= 4 {
+            for start in Set(SageSpell.edits(typed, letters: "abcdefghijklmnopqrstuvwxyz")) where start.count >= 3 { search(start, least: 50) }
         }
-        guard let key = best?.key else { return nil }
-        var word = model.spelling[key].flatMap { $0 == key ? dictionary.spelling[key] : $0 } ?? dictionary.spelling[key] ?? key
-        if typed.count >= 2 && typed == typed.uppercased() && typed != typed.lowercased() { word = word.uppercased() }   // typed in capitals
-        else if typed.first?.isUppercase == true { word = word.prefix(1).uppercased() + word.dropFirst() }               // a sentence's first word
-        let starts = word.lowercased().hasPrefix(prefix)
-        let shown = starts ? String(word.dropFirst(typed.count)) : "  → " + word
-        return Completion(word: word, replace: typed.utf16.count, shown: shown)
+        guard let best, best.key != typed, (known[typed] ?? 0) < best.n else { return nil }
+        return (Completion(word: english.spelling[best.key] ?? best.key, replace: 0, shown: ""), log(Double(best.n)) - log(Double(english.total)))
     }
 }
