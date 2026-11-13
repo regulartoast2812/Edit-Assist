@@ -193,5 +193,31 @@ extension Checks {
             check(SageWords.complete("voiceover", in: words) == nil && SageWords.complete("xy", in: words) == nil, "Nothing when the word is whole or unknown")
             check(SageWords.words("don't stop—now 42 x2") == ["don't", "stop", "now", "x2"], "Words keep an inner apostrophe and need a letter")
         }
+        // (2026-11-13) Autocorrect: the text typed word by word, as the boxes ask it, each fix applied.
+        do {
+            let tables = SageSpell.load(URL(fileURLWithPath: "Resources/Words"))
+            func typed(_ text: String, kept: Set<String> = []) -> String {
+                var out = "", recent: SageSpell.Recent?
+                for ch in text {
+                    out.append(ch)
+                    if let fix = SageSpell.correct(out, tables: tables, vault: SageWords.Model(), kept: kept, recent: &recent) {
+                        let u = Array(out.utf16), end = fix.start + fix.old.utf16.count
+                        out = String(decoding: u[..<fix.start], as: UTF16.self) + fix.new + String(decoding: u[end...], as: UTF16.self)
+                    }
+                }
+                return out
+            }
+            check(!tables.vi.isEmpty && !tables.en.isEmpty, "The word lists load from Resources/Words")
+            check(typed("khong co gi. ") == "không có gì. ", "Vietnamese without accents gets them (got \(typed("khong co gi. ")))")
+            check(typed("Bai bao nay trinh bay mot phuong phap moi. ") == "Bài báo này trình bày một phương pháp mới. ", "A sentence read as a whole (got \(typed("Bai bao nay trinh bay mot phuong phap moi. ")))")
+            check(typed("vieetj nam ") == "việt nam ", "Telex with the input method off (got \(typed("vieetj nam ")))")
+            check(typed("This is definately a goood idea. ") == "This is definitely a good idea. ", "English typos (got \(typed("This is definately a goood idea. ")))")
+            for same in ["I saw Long and Mai at the bar. ", "Do you have a tan or a ton of time? ", "She studied the results. ",
+                         "run `khong co gi` now ", "see [[khong co gi]] ", "#khong ", "https://khong.vn/co ", "KHONG CO "] {
+                check(typed(same) == same, "Left as typed: \(same) (got \(typed(same)))")
+            }
+            check(typed("khong co gi. ", kept: ["khong"]).hasPrefix("khong "), "A word put back stays as typed")
+            check(SageSpell.changed("khong co gi", "không có gì") == ["khong", "co", "gi"] && SageSpell.changed("the teh", "the the") == ["teh"], "The words a fix changed")
+        }
 }
 }

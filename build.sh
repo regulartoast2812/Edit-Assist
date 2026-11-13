@@ -50,6 +50,9 @@ cp Resources/Info.plist "$STAGE/Contents/Info.plist"
 mkdir -p "$STAGE/Contents/Resources"
 cp Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 # Kino's research (docs/kino: the map page and the notes), read on his page.
+# Autocorrect's word lists (Resources/Words/NOTICE.md; made by Tools/make-words.py).
+mkdir -p "$STAGE/Contents/Resources/Words"
+cp Resources/Words/*.tsv Resources/Words/NOTICE.md "$STAGE/Contents/Resources/Words/"
 mkdir -p "$STAGE/Contents/Resources/Kino"
 cp docs/kino/*.md docs/kino/*.html "$STAGE/Contents/Resources/Kino/"
 # The whole-body pose model (Resources/Models/NOTICE.md), compiled for Core ML.

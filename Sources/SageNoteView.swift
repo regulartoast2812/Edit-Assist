@@ -444,6 +444,14 @@ import WebKit
         case "complete":
             if let vault { SageWords.shared.learn(vault: vault) }
             post(["type": "complete", "id": body["id"] as? Int ?? 0, "text": (body["before"] as? String).flatMap { SageWords.shared.complete($0) } ?? ""])
+        // (2026-11-13, you asked) Autocorrect as a word is ended in the note (SageSpell); Backspace straight after keeps the words.
+        case "correct":
+            if let vault { SageWords.shared.learn(vault: vault) }
+            SageSpell.prepareShared()
+            let fix = (body["before"] as? String).flatMap { SageSpell.shared.correct($0) }
+            post(["type": "correct", "id": body["id"] as? Int ?? 0, "fix": fix.map { ["start": $0.start, "old": $0.old, "new": $0.new] as [String: Any] } ?? NSNull()])
+        case "keep-words":
+            if let old = body["old"] as? String, let new = body["new"] as? String { SageSpell.shared.keep(SageSpell.changed(old, new)) }
         case "base-rename":
             if let name = body["name"] as? String, let note = body["path"] as? String, let vault {
                 Task {

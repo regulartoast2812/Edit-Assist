@@ -1601,6 +1601,9 @@ extension Study {
       // (2026-11-13, you asked) The word being typed finished in grey from the vault's words (the app's SageWords); Tab
       // takes it, Escape or moving away drops it. Asked of the app after each letter typed; the latest asking only.
       var completing = { id: 0, back: null };
+      // (2026-11-13, you asked) Autocorrect (the app's SageSpell): when a word is ended the words before are put right
+      // (typos; Vietnamese typed without marks given them), underlined a moment; Backspace straight after puts them back.
+      var correcting = { id: 0, back: null };
       /// The editor: `hooks.input` after each change, `hooks.key` first look at a key (true: handled), `hooks.blur` on leaving.
       function liveEditor(start, hooks) {
         var text = start, history = [], future = [], lastKind = '', lastAt = 0, composing = false;
@@ -1609,6 +1612,7 @@ extension Study {
         root.innerHTML = '<div class="cm-editor"><div class="cm-scroller"><div class="cm-contentContainer"><div class="cm-content" contenteditable="true" role="textbox" aria-multiline="true"></div></div></div></div>';
         var content = root.querySelector('.cm-content');
         content.spellcheck = settings.spellcheck !== false;
+        content.setAttribute('autocorrect', 'off');
         function starts() { var s = [0]; for (var i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) s.push(i + 1); return s; }
         function draw() {
           var state = { code: false }, html = '';
@@ -1706,7 +1710,40 @@ extension Study {
           var at = caret == null ? from + insert.length : caret;
           select(at, at);
           if (kind === 'type') askGhost(); else unghost();
+          if (kind !== 'correct') lastFix = null;
+          if (kind === 'type' && insert.length === 1 && ' .,;:!?)]}"\u201d'.indexOf(insert) >= 0) askFix(at);
           if (hooks.input) hooks.input();
+        }
+        var lastFix = null;
+        function askFix(at) {
+          var before = text.slice(Math.max(0, at - 300), at), base = at - before.length, was = text;
+          correcting.id++;
+          correcting.back = function (fix) {
+            correcting.back = null;
+            var r = range();
+            if (!fix || text !== was || !root.isConnected || r.from !== at || r.to !== at) return;
+            var from = base + fix.start, to = from + fix.old.length;
+            if (text.slice(from, to) !== fix.old) return;
+            var caret = at + fix.new.length - fix.old.length;
+            change(from, to, fix.new, 'correct', caret);
+            lastFix = { from: from, to: from + fix.new.length, old: fix.old, caret: caret, text: text };
+            underline(from, from + fix.new.length);
+          };
+          post({ type: 'correct', id: correcting.id, before: before });
+        }
+        function underline(from, to) {
+          var p = point(from), q = point(to), r = document.createRange();
+          try { r.setStart(p.node, p.offset); r.setEnd(q.node, q.offset); } catch (e) { return; }
+          var marks = Array.prototype.map.call(r.getClientRects(), function (box) {
+            var m = document.createElement('div');
+            m.style.cssText = 'position:fixed;pointer-events:none;z-index:30;height:2px;border-radius:1px;background:var(--interactive-accent);opacity:.7';
+            m.style.left = box.left + 'px'; m.style.top = (box.bottom - 1) + 'px'; m.style.width = box.width + 'px';
+            document.body.appendChild(m);
+            return m;
+          });
+          function drop() { marks.forEach(function (m) { m.remove(); }); window.removeEventListener('scroll', drop, true); }
+          window.addEventListener('scroll', drop, true);
+          setTimeout(drop, 2000);
         }
         function travel(from, to) {
           if (!from.length) return;
@@ -1822,6 +1859,16 @@ extension Study {
           }
           if (ghost && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); unghost(); return; }
           if (ghost && e.key !== 'Shift') unghost();
+          if (lastFix && e.key === 'Backspace' && !e.isComposing && !e.metaKey && !e.altKey && text === lastFix.text) {
+            var b = range(), fixed = lastFix;
+            if (b.from === fixed.caret && b.to === fixed.caret) {
+              e.preventDefault(); e.stopPropagation();
+              var put = text.slice(fixed.from, fixed.to);
+              change(fixed.from, fixed.to, fixed.old, 'revert', fixed.caret + fixed.old.length - put.length);
+              post({ type: 'keep-words', old: fixed.old, new: put });
+              return;
+            }
+          }
           if (hooks.key && hooks.key(e)) return;
           if (e.defaultPrevented) return;
           var letter = (e.key || '').toLowerCase();
@@ -2310,6 +2357,7 @@ extension Study {
       }
       window.sageReceive = function (message) {
         if (message.type === 'complete') { if (completing.back && message.id === completing.id) completing.back(message.text || ''); return; }
+        if (message.type === 'correct') { if (correcting.back && message.id === correcting.id) correcting.back(message.fix || null); return; }
         if (message.type === 'body') {
           if ('front' in message) front = message.front;
           propBusy = false;

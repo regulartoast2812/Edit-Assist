@@ -325,6 +325,7 @@ struct SagePromptView: NSViewRepresentable {
         editor.allowsUndo = true
         editor.isAutomaticQuoteSubstitutionEnabled = false
         editor.isAutomaticDashSubstitutionEnabled = false
+        editor.isAutomaticSpellingCorrectionEnabled = false     // Sage corrects (SageSpell), for Vietnamese as well
         editor.drawsBackground = false
         editor.insertionPointColor = NSColor(PixelSage.theme)
         editor.textContainerInset = Self.inset
@@ -344,6 +345,7 @@ struct SagePromptView: NSViewRepresentable {
         scroll.documentView = editor
         model.editor = editor
         if let root { SageWords.shared.learn(vault: root) }
+        SageSpell.prepareShared()
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -411,6 +413,8 @@ struct SagePromptView: NSViewRepresentable {
         func textDidEndEditing(_ notification: Notification) { picker.hide() }
         func textDidChange(_ notification: Notification) {
             guard !busy, let view = notification.object as? NSTextView else { return }
+            lastFix = nil
+            if ended { ended = false; correct(view) }
             typedOut(view)
             parent.model.text = KinoPromptView.Coordinator.written(view.textStorage ?? NSAttributedString())
             measure(view)
@@ -438,7 +442,50 @@ struct SagePromptView: NSViewRepresentable {
             let from = max(0, range.location - 200)
             rest = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)))
         }
+        /// (2026-11-13, you asked) Autocorrect: when a word ends (a space or a stop typed), the words before are put right
+        /// (`SageSpell`: typos, and Vietnamese typed without its marks given them); underlined a moment. Backspace straight
+        /// after puts back what was typed, and those words are left alone from then on.
+        private var ended = false, lastFix: (range: NSRange, old: String, caret: Int)?
+        func textView(_ view: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            ended = !busy && !view.hasMarkedText() && text.map { $0.count == 1 && SageSpell.enders.contains($0.first!) } == true
+            return true
+        }
+        func correct(_ view: NSTextView) {
+            let caret = view.selectedRange()
+            guard caret.length == 0, caret.location > 0, let storage = view.textStorage else { return }
+            let from = max(0, caret.location - 300)
+            let before = (view.string as NSString).substring(with: NSRange(location: from, length: caret.location - from))
+            guard let fix = SageSpell.shared.correct(before) else { return }
+            let range = NSRange(location: from + fix.start, length: (fix.old as NSString).length)
+            guard view.shouldChangeText(in: range, replacementString: fix.new) else { return }
+            busy = true
+            storage.replaceCharacters(in: range, with: NSAttributedString(string: fix.new, attributes: Self.plain))
+            view.didChangeText()
+            busy = false
+            let made = NSRange(location: range.location, length: (fix.new as NSString).length)
+            let moved = caret.location + made.length - range.length
+            view.setSelectedRange(NSRange(location: moved, length: 0))
+            lastFix = (made, fix.old, moved)
+            let layout = view.layoutManager
+            layout?.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, forCharacterRange: made)
+            layout?.addTemporaryAttribute(.underlineColor, value: Self.tint, forCharacterRange: made)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak layout] in
+                let all = NSRange(location: 0, length: storage.length)
+                layout?.removeTemporaryAttribute(.underlineStyle, forCharacterRange: all)
+                layout?.removeTemporaryAttribute(.underlineColor, forCharacterRange: all)
+            }
+        }
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.deleteBackward(_:)), let fix = lastFix, view.selectedRange() == NSRange(location: fix.caret, length: 0),
+               let storage = view.textStorage, NSMaxRange(fix.range) <= storage.length,
+               view.shouldChangeText(in: fix.range, replacementString: fix.old) {
+                let new = (view.string as NSString).substring(with: fix.range)
+                storage.replaceCharacters(in: fix.range, with: NSAttributedString(string: fix.old, attributes: Self.plain))
+                view.didChangeText()          // clears lastFix
+                view.setSelectedRange(NSRange(location: fix.caret + (fix.old as NSString).length - fix.range.length, length: 0))
+                SageSpell.shared.keep(SageSpell.changed(fix.old, new))
+                return true
+            }
             if picker.shown {
                 switch selector {
                 case #selector(NSResponder.moveDown(_:)): picker.move(1); return true
@@ -574,6 +621,14 @@ struct SagePromptView: NSViewRepresentable {
 
 /// The message's text view: Shift+Return starts a line; copies its pills as their [[links]]; pastes plain text, or files
 /// and pictures as attachments; files dropped on it are attached, not written in.
+extension SageSpell {
+    /// The app's tables (Contents/Resources/Words) and the words you kept (sage/kept-words.txt).
+    static func prepareShared() {
+        shared.prepare(words: Bundle.main.resourceURL?.appendingPathComponent("Words", isDirectory: true),
+                       kept: SageDesk.place.appendingPathComponent("kept-words.txt"))
+    }
+}
+
 final class SagePromptTextView: NSTextView {
     var files: (([URL]) -> Void)?
     var focusChanged: ((Bool) -> Void)?

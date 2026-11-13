@@ -37,6 +37,12 @@ final class SageWords: @unchecked Sendable {
         }
     }
 
+    /// The words as last read (autocorrect keeps the vault's own words and pairs).
+    func snapshot() -> Model {
+        lock.lock(); defer { lock.unlock() }
+        return model
+    }
+
     /// The rest of the word the text ends in, or nil.
     func complete(_ before: String) -> String? {
         lock.lock(); defer { lock.unlock() }
@@ -77,11 +83,9 @@ final class SageWords: @unchecked Sendable {
             var previous: String?
             for word in words(text) {
                 let key = word.lowercased()
-                if word.count >= Model.shortest {
-                    model.count[key, default: 0] += 1
-                    if model.spelling[key] == nil || word == key { model.spelling[key] = word }
-                    if let previous { model.after[previous, default: [:]][key, default: 0] += 1 }
-                }
+                model.count[key, default: 0] += 1
+                if model.spelling[key] == nil || word == key { model.spelling[key] = word }
+                if let previous { model.after[previous, default: [:]][key, default: 0] += 1 }
                 previous = key
             }
         }
@@ -104,7 +108,7 @@ final class SageWords: @unchecked Sendable {
         var i = low
         while i < model.keys.count, i < low + 500, model.keys[i].hasPrefix(prefix) {
             let key = model.keys[i]; i += 1
-            guard key.count >= typed.count + 2 else { continue }
+            guard key.count >= max(typed.count + 2, Model.shortest) else { continue }
             let paired = follows[key] ?? 0, seen = model.count[key] ?? 0
             guard paired > 0 || seen >= 2 else { continue }
             let score = paired * 1_000_000 + seen
