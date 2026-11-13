@@ -5,7 +5,7 @@ cd "${0:A:h}"
 mkdir -p .build/module-cache
 SOURCES=(Sources/Models.swift Sources/ScriptParser.swift Sources/AIClient.swift Sources/CLIClient.swift Sources/Desktop.swift
          Sources/LiveFeed.swift Sources/Overlay.swift Sources/PanelReader.swift Sources/PeopleReader.swift Sources/Recorder.swift Sources/Store.swift Sources/Updater.swift Sources/ScriptEditor.swift Sources/Localization.swift Sources/Guide.swift Sources/AmirWatcher.swift Sources/BoWatcher.swift Sources/ElevenLabs.swift Sources/HelperBrain.swift Sources/Studio.swift Sources/KinoDesk.swift Sources/Grafana.swift Sources/GrafanaBoard.swift Sources/PennyLedger.swift Sources/RemyPlatforms.swift Sources/RemyDesk.swift Sources/SageStudy.swift Sources/SageResearch.swift Sources/SageNotes.swift Sources/SageDesk.swift Sources/SagePick.swift Sources/SagePlayer.swift Sources/SageDeskPick.swift Sources/SageActions.swift
-         Sources/SageVault.swift Sources/SageFiles.swift Sources/SageObsidian.swift Sources/SageBases.swift Sources/SageVaultDesk.swift Sources/SageDeskFiles.swift
+         Sources/SageVault.swift Sources/SageFiles.swift Sources/SageObsidian.swift Sources/SageBases.swift Sources/SageComplete.swift Sources/SageVaultDesk.swift Sources/SageDeskFiles.swift
          Sources/SageAgent.swift Sources/SageAgentDesk.swift Sources/SageChatMarkdown.swift Sources/SageMedia.swift Sources/SageMediaText.swift Sources/SageComposerText.swift Sources/SageProperties.swift Sources/SageBaseEdit.swift)
 # Incremental (Tools/incremental.zsh): only files changed since the last run are recompiled; the checks and the replay
 # are compiled side by side.

@@ -724,6 +724,7 @@ extension Study {
     .sage-live .cm-line.cm-active { background: var(--sage-active-line, rgba(127, 127, 127, .07)); box-shadow: -8px 0 0 var(--sage-active-line, rgba(127, 127, 127, .07)), 8px 0 0 var(--sage-active-line, rgba(127, 127, 127, .07)); border-radius: 2px; }
     .sage-live, .sage-live .cm-editor, .sage-live .cm-scroller, .sage-live .cm-contentContainer { height: auto; margin: 0; padding: 0 !important; overflow: visible; background: none; border: none; }
     .sage-live { display: block; width: 100%; min-width: 0; }
+    .sage-ghost { position: fixed; z-index: 30; pointer-events: none; white-space: pre; color: var(--text-faint); opacity: 0.8; }
     .sage-live .cm-editor, .sage-live .cm-scroller, .sage-live .cm-contentContainer, .sage-live .cm-content { display: block !important; width: 100% !important; min-width: 0; flex: none !important; position: static; }
     .sage-live .cm-content { outline: none; white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 !important; min-height: 1.5em; max-width: none !important;
       font-family: var(--font-text); font-size: var(--font-text-size); line-height: var(--line-height-normal); tab-size: 4; caret-color: var(--caret-color, var(--text-normal)); color: var(--text-normal); }
@@ -1597,6 +1598,9 @@ extension Study {
         return line('', inline(text));
       }
 
+      // (2026-11-13, you asked) The word being typed finished in grey from the vault's words (the app's SageWords); Tab
+      // takes it, Escape or moving away drops it. Asked of the app after each letter typed; the latest asking only.
+      var completing = { id: 0, back: null };
       /// The editor: `hooks.input` after each change, `hooks.key` first look at a key (true: handled), `hooks.blur` on leaving.
       function liveEditor(start, hooks) {
         var text = start, history = [], future = [], lastKind = '', lastAt = 0, composing = false;
@@ -1656,7 +1660,41 @@ extension Study {
           }
           for (var k = 0; k < content.children.length; k++) content.children[k].classList.toggle('cm-active', k >= lo && k <= hi);
         }
-        function onSelection() { if (!root.isConnected) { document.removeEventListener('selectionchange', onSelection); return; } active(); }
+        var ghost = null, ghostEl = null, ghostAt = -1;
+        function unghost() { ghost = null; completing.back = null; if (ghostEl) { ghostEl.remove(); ghostEl = null; } }
+        function askGhost() {
+          unghost();
+          var r = range();
+          if (composing || r.from !== r.to || /[\p{L}\p{N}]/u.test(text.charAt(r.from))) return;
+          var before = text.slice(Math.max(0, r.from - 200), r.from), was = text;
+          if (!/[\p{L}\p{N}]{2}$/u.test(before)) return;
+          completing.id++;
+          completing.back = function (rest) {
+            completing.back = null;
+            var sel = getSelection();
+            if (!rest || text !== was || !root.isConnected || !sel.rangeCount || range().from !== r.from) return;
+            var caret = sel.getRangeAt(0).cloneRange(), box = caret.getClientRects()[0];
+            if (!box) { var p = point(r.from), around = document.createRange(); around.setStart(p.node, Math.max(0, p.offset - 1)); around.setEnd(p.node, p.offset); var all = around.getClientRects(); box = all[all.length - 1]; if (box) box = { left: box.right, top: box.top, height: box.height }; }
+            if (!box) return;
+            var host = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement, look = getComputedStyle(host);
+            ghostEl = document.createElement('span');
+            ghostEl.className = 'sage-ghost';
+            ghostEl.textContent = rest;
+            ghostEl.style.font = look.font;
+            ghostEl.style.left = box.left + 'px';
+            ghostEl.style.top = box.top + 'px';
+            ghostEl.style.lineHeight = box.height + 'px';
+            document.body.appendChild(ghostEl);
+            ghost = rest; ghostAt = r.from;
+          };
+          post({ type: 'complete', id: completing.id, before: before });
+        }
+        window.addEventListener('scroll', function () { if (ghost) unghost(); }, true);
+        function onSelection() {
+          if (!root.isConnected) { document.removeEventListener('selectionchange', onSelection); return; }
+          active();
+          if (ghost) { var g = range(); if (g.from !== g.to || g.from !== ghostAt) unghost(); }
+        }
         document.addEventListener('selectionchange', onSelection);
         function change(from, to, insert, kind, caret) {
           var now = Date.now();
@@ -1667,6 +1705,7 @@ extension Study {
           draw();
           var at = caret == null ? from + insert.length : caret;
           select(at, at);
+          if (kind === 'type') askGhost(); else unghost();
           if (hooks.input) hooks.input();
         }
         function travel(from, to) {
@@ -1770,9 +1809,19 @@ extension Study {
           text = text.slice(0, s[n]) + lineEl.textContent + text.slice(end);
           draw();
           select(s[n] + caretInLine);
+          askGhost();
           if (hooks.input) hooks.input();
         });
         content.addEventListener('keydown', function (e) {
+          if (ghost && !e.isComposing && e.key === 'Tab' && !e.shiftKey) {
+            e.preventDefault(); e.stopPropagation();
+            var take = ghost, r = range();
+            unghost();
+            change(r.from, r.to, take, 'complete');
+            return;
+          }
+          if (ghost && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); unghost(); return; }
+          if (ghost && e.key !== 'Shift') unghost();
           if (hooks.key && hooks.key(e)) return;
           if (e.defaultPrevented) return;
           var letter = (e.key || '').toLowerCase();
@@ -1804,7 +1853,7 @@ extension Study {
             change(at, at + 1, text.charAt(at) === ' ' ? 'x' : ' ', 'tick', at + 1);
           }
         });
-        content.addEventListener('blur', function () { if (hooks.blur) hooks.blur(); });
+        content.addEventListener('blur', function () { unghost(); if (hooks.blur) hooks.blur(); });
         draw();
         var editor = {
           el: root,
@@ -2260,6 +2309,7 @@ extension Study {
         propRefocus();
       }
       window.sageReceive = function (message) {
+        if (message.type === 'complete') { if (completing.back && message.id === completing.id) completing.back(message.text || ''); return; }
         if (message.type === 'body') {
           if ('front' in message) front = message.front;
           propBusy = false;

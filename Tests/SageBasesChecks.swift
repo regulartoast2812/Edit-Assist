@@ -180,5 +180,18 @@ extension Checks {
                   && head.contains("&quot;To film&quot;:\(chip.dropFirst(9))"),
                   "A status column's menu holds this base's values only, one per name (case and [[ ]] aside), each in the colour its chips have: \(head)")
         }
-    }
+            // Word completion from the vault's words (2026-11-13): Tab takes the grey rest of the word being typed.
+        do {
+            let words = SageWords.model(["Recording the voiceover. Record the voiceover again, then render.",
+                                         "Tiếng Việt: tiếng nói, tiếng nói. The REPORT reports.", "renders renders"])
+            check(SageWords.complete("Let's re", in: words) == "nders", "The commonest word of the vault finishes the one typed (got \(SageWords.complete("Let's re", in: words) ?? "nil"))")
+            check(SageWords.complete("the vo", in: words) == "iceover" && SageWords.complete("Tôi thích tiế", in: words) == "ng",
+                  "A word is finished as the vault writes it, Vietnamese too")
+            check(SageWords.complete("the VO", in: words) == "ICEOVER", "Typed in capitals, finished in capitals")
+            check(SageWords.complete("r", in: words) == nil && SageWords.complete("renders ", in: words) == nil,
+                  "Nothing for one letter or after a space")
+            check(SageWords.complete("voiceover", in: words) == nil && SageWords.complete("xy", in: words) == nil, "Nothing when the word is whole or unknown")
+            check(SageWords.words("don't stop—now 42 x2") == ["don't", "stop", "now", "x2"], "Words keep an inner apostrophe and need a letter")
+        }
+}
 }

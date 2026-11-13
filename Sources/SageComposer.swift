@@ -343,6 +343,7 @@ struct SagePromptView: NSViewRepresentable {
         editor.textStorage?.setAttributedString(coordinator.rendered(model.text))
         scroll.documentView = editor
         model.editor = editor
+        if let root { SageWords.shared.learn(vault: root) }
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -414,10 +415,28 @@ struct SagePromptView: NSViewRepresentable {
             parent.model.text = KinoPromptView.Coordinator.written(view.textStorage ?? NSAttributedString())
             measure(view)
             suggest(view)
+            ghost(view)
         }
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !busy, let view = notification.object as? NSTextView else { return }
             suggest(view)
+            if let prompt = view as? SagePromptTextView, prompt.ghost != nil, view.selectedRange() != NSRange(location: ghostAt, length: 0) { prompt.ghost = nil }
+        }
+
+        /// (2026-11-13, you asked) The rest of the word being typed, in grey after the caret (`SageWords`, the vault's
+        /// words); Tab takes it. Not while an input method is composing, the @ list is open, or the caret is inside a word.
+        private var ghostAt = 0, justTook = false
+        func ghost(_ view: NSTextView) {
+            guard let prompt = view as? SagePromptTextView else { return }
+            let range = view.selectedRange(), text = view.string as NSString
+            var rest: String?
+            defer { prompt.ghost = rest; ghostAt = range.location }
+            if justTook { justTook = false; return }
+            guard range.length == 0, !view.hasMarkedText(), !picker.shown, range.location > 0 else { return }
+            if range.location < text.length, let next = Unicode.Scalar(text.character(at: range.location)),
+               CharacterSet.alphanumerics.contains(next) { return }
+            let from = max(0, range.location - 200)
+            rest = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)))
         }
         func textView(_ view: NSTextView, doCommandBy selector: Selector) -> Bool {
             if picker.shown {
@@ -433,6 +452,15 @@ struct SagePromptView: NSViewRepresentable {
                     return true
                 default: return false
                 }
+            }
+            if let prompt = view as? SagePromptTextView, let rest = prompt.ghost {
+                if selector == #selector(NSResponder.insertTab(_:)) {
+                    prompt.ghost = nil
+                    justTook = true
+                    view.insertText(rest, replacementRange: view.selectedRange())
+                    return true
+                }
+                if selector == #selector(NSResponder.cancelOperation(_:)) { prompt.ghost = nil; return true }
             }
             // Return sends; Shift+Return (SagePromptTextView) and Option+Return start a new line.
             if selector == #selector(NSResponder.insertNewline(_:)), !view.hasMarkedText() {
@@ -550,6 +578,20 @@ final class SagePromptTextView: NSTextView {
     var files: (([URL]) -> Void)?
     var focusChanged: ((Bool) -> Void)?
     var resized: ((NSTextView) -> Void)?
+    /// The word's suggested rest, drawn in grey after the caret (Tab takes it; see Coordinator.ghost).
+    var ghost: String? { didSet { if ghost != oldValue { needsDisplay = true } } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let ghost, let layout = layoutManager, let container = textContainer else { return }
+        let at = selectedRange().location
+        guard at > 0, at <= (string as NSString).length else { return }
+        let glyph = layout.glyphIndexForCharacter(at: at - 1)
+        let box = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        let origin = textContainerOrigin
+        (ghost as NSString).draw(at: NSPoint(x: box.maxX + origin.x, y: box.minY + origin.y),
+                                 withAttributes: [.font: SagePromptView.Coordinator.font, .foregroundColor: NSColor.tertiaryLabelColor])
+    }
 
     override func keyDown(with event: NSEvent) {
         if [36, 76].contains(event.keyCode), event.modifierFlags.contains(.shift), !hasMarkedText() {

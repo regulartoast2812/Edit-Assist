@@ -440,6 +440,10 @@ import WebKit
         // The title edited at the top of the note: renamed as the tree renames (links follow, Undo), what you were typing
         // in the note saved first; a refused name puts the title back.
         // A note's name edited in a base's table: renamed the same way, the vault's files read again, the base redrawn.
+        // (2026-11-13, you asked) The rest of the word being typed in the note, from the vault's words; Tab takes it there.
+        case "complete":
+            if let vault { SageWords.shared.learn(vault: vault) }
+            post(["type": "complete", "id": body["id"] as? Int ?? 0, "text": (body["before"] as? String).flatMap { SageWords.shared.complete($0) } ?? ""])
         case "base-rename":
             if let name = body["name"] as? String, let note = body["path"] as? String, let vault {
                 Task {
