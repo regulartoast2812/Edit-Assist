@@ -1664,7 +1664,7 @@ extension Study {
           }
           for (var k = 0; k < content.children.length; k++) content.children[k].classList.toggle('cm-active', k >= lo && k <= hi);
         }
-        var ghost = null, ghostEl = null, ghostAt = -1;
+        var ghost = null, ghostEl = null, ghostAt = -1, ghostTake = null;
         function unghost() { ghost = null; completing.back = null; if (ghostEl) { ghostEl.remove(); ghostEl = null; } }
         function askGhost() {
           unghost();
@@ -1673,7 +1673,7 @@ extension Study {
           var before = text.slice(Math.max(0, r.from - 200), r.from), was = text;
           if (!/[\p{L}\p{N}]{2}$/u.test(before)) return;
           completing.id++;
-          completing.back = function (rest) {
+          completing.back = function (rest, take) {
             completing.back = null;
             var sel = getSelection();
             if (!rest || text !== was || !root.isConnected || !sel.rangeCount || range().from !== r.from) return;
@@ -1689,7 +1689,7 @@ extension Study {
             ghostEl.style.top = box.top + 'px';
             ghostEl.style.lineHeight = box.height + 'px';
             document.body.appendChild(ghostEl);
-            ghost = rest; ghostAt = r.from;
+            ghost = rest; ghostAt = r.from; ghostTake = take;
           };
           post({ type: 'complete', id: completing.id, before: before });
         }
@@ -1852,9 +1852,10 @@ extension Study {
         content.addEventListener('keydown', function (e) {
           if (ghost && !e.isComposing && e.key === 'Tab' && !e.shiftKey) {
             e.preventDefault(); e.stopPropagation();
-            var take = ghost, r = range();
+            var take = ghostTake, r = range();
             unghost();
-            change(r.from, r.to, take, 'complete');
+            // The whole word written as it should be (Mississippi's capital, a letter typed wrong).
+            if (take && take.word) change(Math.max(0, r.from - take.replace), r.to, take.word, 'complete');
             return;
           }
           if (ghost && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); unghost(); return; }
@@ -2356,7 +2357,7 @@ extension Study {
         propRefocus();
       }
       window.sageReceive = function (message) {
-        if (message.type === 'complete') { if (completing.back && message.id === completing.id) completing.back(message.text || ''); return; }
+        if (message.type === 'complete') { if (completing.back && message.id === completing.id) completing.back(message.text || '', { word: message.word || '', replace: message.replace || 0 }); return; }
         if (message.type === 'correct') { if (correcting.back && message.id === correcting.id) correcting.back(message.fix || null); return; }
         if (message.type === 'body') {
           if ('front' in message) front = message.front;

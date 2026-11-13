@@ -184,13 +184,20 @@ extension Checks {
         do {
             let words = SageWords.model(["Recording the voiceover. Record the voiceover again, then render.",
                                          "Tiếng Việt: tiếng nói, tiếng nói. The REPORT reports.", "renders renders"])
-            check(SageWords.complete("Let's re", in: words) == "nders", "The commonest word of the vault finishes the one typed (got \(SageWords.complete("Let's re", in: words) ?? "nil"))")
-            check(SageWords.complete("the vo", in: words) == "iceover" && SageWords.complete("Tôi thích tiế", in: words) == "ng",
+            check(SageWords.complete("Let's re", in: words)?.shown == "nders", "The commonest word of the vault finishes the one typed (got \(SageWords.complete("Let's re", in: words)?.shown ?? "nil"))")
+            check(SageWords.complete("the vo", in: words)?.shown == "iceover" && SageWords.complete("Tôi thích tiế", in: words)?.shown == "ng",
                   "A word is finished as the vault writes it, Vietnamese too")
-            check(SageWords.complete("the VO", in: words) == "ICEOVER", "Typed in capitals, finished in capitals")
-            check(SageWords.complete("r", in: words) == nil && SageWords.complete("renders ", in: words) == nil,
+            check(SageWords.complete("the VO", in: words)?.shown == "ICEOVER", "Typed in capitals, finished in capitals")
+            check(SageWords.complete("r", in: words)?.shown == nil && SageWords.complete("renders ", in: words)?.shown == nil,
                   "Nothing for one letter or after a space")
-            check(SageWords.complete("voiceover", in: words) == nil && SageWords.complete("xy", in: words) == nil, "Nothing when the word is whole or unknown")
+            check(SageWords.complete("voiceover", in: words)?.shown == nil && SageWords.complete("xy", in: words)?.shown == nil, "Nothing when the word is whole or unknown")
+            let english = SageWords.dictionary((try? String(contentsOfFile: "Resources/Words/en-complete.tsv", encoding: .utf8)) ?? "")
+            let river = SageWords.complete("My channel where missis", in: words, dictionary: english)
+            check(river?.word == "Mississippi" && river?.shown == "sippi" && river?.replace == 6, "An English word beyond the vault, with its capital (got \(String(describing: river)))")
+            let off = SageWords.complete("My channel where missisi", in: words, dictionary: english)
+            check(off?.word == "Mississippi" && off?.shown == "  → Mississippi" && off?.replace == 7, "A start a letter off finds the word, shown whole (got \(String(describing: off)))")
+            check(SageWords.complete("the vo", in: words, dictionary: english)?.word == "voiceover", "The vault's words still come first")
+            check(SageWords.complete("Beau", in: words, dictionary: english)?.word == "Beautiful", "A sentence's first word keeps its capital (got \(SageWords.complete("Beau", in: words, dictionary: english)?.word ?? "nil"))")
             check(SageWords.words("don't stop—now 42 x2") == ["don't", "stop", "now", "x2"], "Words keep an inner apostrophe and need a letter")
         }
         // (2026-11-13) Autocorrect: the text typed word by word, as the boxes ask it, each fix applied.

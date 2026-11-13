@@ -443,7 +443,9 @@ import WebKit
         // (2026-11-13, you asked) The rest of the word being typed in the note, from the vault's words; Tab takes it there.
         case "complete":
             if let vault { SageWords.shared.learn(vault: vault) }
-            post(["type": "complete", "id": body["id"] as? Int ?? 0, "text": (body["before"] as? String).flatMap { SageWords.shared.complete($0) } ?? ""])
+            SageSpell.prepareShared()
+            let made = (body["before"] as? String).flatMap { SageWords.shared.complete($0) }
+            post(["type": "complete", "id": body["id"] as? Int ?? 0, "text": made?.shown ?? "", "word": made?.word ?? "", "replace": made?.replace ?? 0])
         // (2026-11-13, you asked) Autocorrect as a word is ended in the note (SageSpell); Backspace straight after keeps the words.
         case "correct":
             if let vault { SageWords.shared.learn(vault: vault) }

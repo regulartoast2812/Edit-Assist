@@ -15,12 +15,48 @@ final class SageWords: @unchecked Sendable {
 
         static let shortest = 4                      // words shorter than this aren't worth finishing
     }
+    /// (2026-11-13, you asked: Mississippi wasn't offered) Common English words beyond the vault's, as written
+    /// (Resources/Words/en-complete.tsv: subtitles' commonest, names with their capital).
+    struct Dictionary {
+        var keys: [String] = []
+        var spelling: [String: String] = [:]
+        var count: [String: Int] = [:]
+    }
+    /// A finish: `word` written in place of the `replace` UTF-16 units typed; `shown` is the grey text after the caret
+    /// (the rest of the word, or "→ word" when what was typed is a letter off).
+    struct Completion: Equatable { var word: String; var replace: Int; var shown: String }
 
     private let lock = NSLock()
     private var model = Model()
     private var vault: URL?
     private var built = Date.distantPast
     private var building = false
+    private var dictionary = Dictionary()
+    private var dictionaryAsked = false
+
+    /// Reads the English list once, in the background.
+    func prepare(dictionary file: URL?) {
+        lock.lock()
+        if dictionaryAsked { lock.unlock(); return }
+        dictionaryAsked = true
+        lock.unlock()
+        DispatchQueue.global(qos: .utility).async {
+            let made = file.flatMap { try? String(contentsOf: $0, encoding: .utf8) }.map(Self.dictionary) ?? Dictionary()
+            self.lock.lock(); self.dictionary = made; self.lock.unlock()
+        }
+    }
+
+    static func dictionary(_ text: String) -> Dictionary {
+        var made = Dictionary()
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: "\t")
+            guard parts.count == 2, let n = Int(parts[1]) else { continue }
+            let word = String(parts[0]), key = word.lowercased()
+            made.spelling[key] = word; made.count[key] = n
+        }
+        made.keys = made.count.keys.sorted()
+        return made
+    }
 
     /// Reads the vault's words (again when it's another vault, or ten minutes on), in the background.
     func learn(vault: URL) {
@@ -43,10 +79,10 @@ final class SageWords: @unchecked Sendable {
         return model
     }
 
-    /// The rest of the word the text ends in, or nil.
-    func complete(_ before: String) -> String? {
+    /// The finish of the word the text ends in, or nil.
+    func complete(_ before: String) -> Completion? {
         lock.lock(); defer { lock.unlock() }
-        return Self.complete(before, in: model)
+        return Self.complete(before, in: model, dictionary: dictionary)
     }
 
     /// The vault's notes, as text (hidden folders skipped; at most 4000 notes, 1 MB each).
@@ -93,30 +129,44 @@ final class SageWords: @unchecked Sendable {
         return model
     }
 
-    /// The rest of the word `before` ends in: the word the vault writes most after the one before it, else the commonest
-    /// (seen twice at least). Nothing for under two letters typed, or a finish under two letters.
-    static func complete(_ before: String, in model: Model) -> String? {
+    /// The finish of the word `before` ends in. Ranked: written after the word before it in the vault, then seen in the
+    /// vault, then how common it is in English; a vault word needs to be seen twice, an English one three letters typed.
+    /// Nothing starts so (four letters typed or more): the likeliest word whose start is a letter off ("missisi" →
+    /// Mississippi), shown whole. Nothing for under two letters typed, or a finish under two letters.
+    static func complete(_ before: String, in model: Model, dictionary: Dictionary = Dictionary()) -> Completion? {
         let text = before.precomposedStringWithCanonicalMapping
         guard let last = text.last, last.isLetter || last.isNumber else { return nil }
         let all = words(String(text.suffix(200)))
         guard let typed = all.last, text.hasSuffix(typed), typed.count >= 2 else { return nil }
         let prefix = typed.lowercased(), previous = all.count > 1 ? all[all.count - 2].lowercased() : nil
         let follows = previous.flatMap { model.after[$0] } ?? [:]
-        var low = 0, high = model.keys.count
-        while low < high { let mid = (low + high) / 2; if model.keys[mid] < prefix { low = mid + 1 } else { high = mid } }
-        var best: (word: String, score: Int)?
-        var i = low
-        while i < model.keys.count, i < low + 500, model.keys[i].hasPrefix(prefix) {
-            let key = model.keys[i]; i += 1
-            guard key.count >= max(typed.count + 2, Model.shortest) else { continue }
-            let paired = follows[key] ?? 0, seen = model.count[key] ?? 0
-            guard paired > 0 || seen >= 2 else { continue }
-            let score = paired * 1_000_000 + seen
+        var best: (key: String, score: Double)?
+        func consider(_ key: String, fuzzy: Bool) {
+            guard key.count >= max(typed.count + (fuzzy ? 1 : 2), Model.shortest), key != prefix else { return }
+            let paired = follows[key] ?? 0, seen = model.count[key] ?? 0, common = dictionary.count[key] ?? 0
+            guard paired > 0 || seen >= 2 || (common > 0 && typed.count >= 3) else { return }
+            if fuzzy && seen < 2 && common < 50 { return }
+            let score = Double(paired) * 100 + Double(min(seen, 1000)) * 5 + log10(Double(common) + 1)
             if best == nil || score > best!.score { best = (key, score) }
         }
-        guard let word = best.map({ model.spelling[$0.word] ?? $0.word }) else { return nil }
-        let rest = String(word.dropFirst(typed.count))
-        // Typed in capitals (two or more): finished in capitals.
-        return typed.count >= 2 && typed == typed.uppercased() && typed != typed.lowercased() ? rest.uppercased() : rest
+        func search(_ start: String, fuzzy: Bool) {
+            for keys in [model.keys, dictionary.keys] {
+                var low = 0, high = keys.count
+                while low < high { let mid = (low + high) / 2; if keys[mid] < start { low = mid + 1 } else { high = mid } }
+                var i = low
+                while i < keys.count, i < low + 500, keys[i].hasPrefix(start) { consider(keys[i], fuzzy: fuzzy); i += 1 }
+            }
+        }
+        search(prefix, fuzzy: false)
+        if best == nil, typed.count >= 4, prefix.allSatisfy({ $0.isASCII }) {
+            for start in Set(SageSpell.edits(prefix, letters: "abcdefghijklmnopqrstuvwxyz")) where start.count >= 3 { search(start, fuzzy: true) }
+        }
+        guard let key = best?.key else { return nil }
+        var word = model.spelling[key].flatMap { $0 == key ? dictionary.spelling[key] : $0 } ?? dictionary.spelling[key] ?? key
+        if typed.count >= 2 && typed == typed.uppercased() && typed != typed.lowercased() { word = word.uppercased() }   // typed in capitals
+        else if typed.first?.isUppercase == true { word = word.prefix(1).uppercased() + word.dropFirst() }               // a sentence's first word
+        let starts = word.lowercased().hasPrefix(prefix)
+        let shown = starts ? String(word.dropFirst(typed.count)) : "  → " + word
+        return Completion(word: word, replace: typed.utf16.count, shown: shown)
     }
 }

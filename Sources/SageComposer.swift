@@ -429,7 +429,7 @@ struct SagePromptView: NSViewRepresentable {
 
         /// (2026-11-13, you asked) The rest of the word being typed, in grey after the caret (`SageWords`, the vault's
         /// words); Tab takes it. Not while an input method is composing, the @ list is open, or the caret is inside a word.
-        private var ghostAt = 0, justTook = false
+        private var ghostAt = 0, justTook = false, taking: SageWords.Completion?
         func ghost(_ view: NSTextView) {
             guard let prompt = view as? SagePromptTextView else { return }
             let range = view.selectedRange(), text = view.string as NSString
@@ -440,7 +440,8 @@ struct SagePromptView: NSViewRepresentable {
             if range.location < text.length, let next = Unicode.Scalar(text.character(at: range.location)),
                CharacterSet.alphanumerics.contains(next) { return }
             let from = max(0, range.location - 200)
-            rest = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)))
+            taking = SageWords.shared.complete(text.substring(with: NSRange(location: from, length: range.location - from)))
+            rest = taking?.shown
         }
         /// (2026-11-13, you asked) Autocorrect: when a word ends (a space or a stop typed), the words before are put right
         /// (`SageSpell`: typos, and Vietnamese typed without its marks given them); underlined a moment. Backspace straight
@@ -500,11 +501,13 @@ struct SagePromptView: NSViewRepresentable {
                 default: return false
                 }
             }
-            if let prompt = view as? SagePromptTextView, let rest = prompt.ghost {
-                if selector == #selector(NSResponder.insertTab(_:)) {
+            if let prompt = view as? SagePromptTextView, prompt.ghost != nil {
+                if selector == #selector(NSResponder.insertTab(_:)), let take = taking {
                     prompt.ghost = nil
                     justTook = true
-                    view.insertText(rest, replacementRange: view.selectedRange())
+                    let at = view.selectedRange()
+                    // The whole word written as it should be (Mississippi's capital, a letter typed wrong).
+                    view.insertText(take.word, replacementRange: NSRange(location: max(0, at.location - take.replace), length: min(at.location, take.replace) + at.length))
                     return true
                 }
                 if selector == #selector(NSResponder.cancelOperation(_:)) { prompt.ghost = nil; return true }
@@ -624,8 +627,9 @@ struct SagePromptView: NSViewRepresentable {
 extension SageSpell {
     /// The app's tables (Contents/Resources/Words) and the words you kept (sage/kept-words.txt).
     static func prepareShared() {
-        shared.prepare(words: Bundle.main.resourceURL?.appendingPathComponent("Words", isDirectory: true),
-                       kept: SageDesk.place.appendingPathComponent("kept-words.txt"))
+        let words = Bundle.main.resourceURL?.appendingPathComponent("Words", isDirectory: true)
+        shared.prepare(words: words, kept: SageDesk.place.appendingPathComponent("kept-words.txt"))
+        SageWords.shared.prepare(dictionary: words?.appendingPathComponent("en-complete.tsv"))
     }
 }
 
