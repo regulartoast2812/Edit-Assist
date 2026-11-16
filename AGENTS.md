@@ -1,5 +1,7 @@
 # Working on Edit Assist
 
+> **Direction (2026-11-16):** one cross-platform app in Electron replaces porting between Edit Assist and Creative Assist. It is built in `app/` on Creative Assist's `app` branch. Read [docs/ONE-APP.md](docs/ONE-APP.md) first. This app gets fixes only.
+
 Edit Assist drives Premiere Pro by reading the screen (OCR + pixels) and sending mouse and keyboard
 input. A wrong decision is not a crash: it is a click, double-click or drag in the user's project.
 Treat every change to decision logic as a change to what happens in their timeline.
