@@ -236,10 +236,35 @@ import WebKit
             let name = "page-\(Self.count).html"
             if let old = page { SageScheme.shared.pages[old] = nil }
             page = name
-            SageScheme.shared.pages[name] = Data(html.utf8)
+            SageScheme.shared.pages[name] = Data(Self.placed(html, file: file).utf8)
             problem = nil
             load(URL(string: Study.pagesBase + name)!, file: file)
         }
+    }
+
+    /// (2026-11-16, from Creative Assist) Where you were in each file you've had up (how far down; in a base, its view,
+    /// folded groups and where each view is scrolled to), as its page says it, shared by the tabs, so going from a base
+    /// to a note and back finds the base as you left it. Kept while Sage is open.
+    private static var places: [String: String] = [:]
+
+    private static func keepPlace(_ said: Any?, for file: URL) {
+        // Only a small object of what the page says, written back as JSON (so it can't close the script it goes in).
+        guard let text = said as? String, text.utf8.count < 20000,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+        let key = file.standardizedFileURL.path
+        if places.count > 400, places[key] == nil, let first = places.keys.first { places[first] = nil }
+        places[key] = String(decoding: data, as: UTF8.self)
+    }
+
+    /// The page told where you were in its file and how wide you last dragged a note's page (2026-11-16, from Creative Assist).
+    private static func placed(_ html: String, file: URL) -> String {
+        var head = ""
+        if let place = places[file.standardizedFileURL.path] { head += "<script>window.sagePlace = \(place);</script>" }
+        let width = UserDefaults.standard.double(forKey: "sagePageWidth")
+        if width >= 320 { head += "<script>window.sagePageWidth = \(Int(width.rounded()));</script>" }
+        guard !head.isEmpty, let at = html.range(of: "</head>") else { return html }
+        return html.replacingCharacters(in: at.lowerBound ..< at.lowerBound, with: head)
     }
 
     private func load(_ url: URL, file: URL) {
@@ -384,6 +409,7 @@ import WebKit
            from.scheme == expected.scheme, !["follow", "key", "preview", "preview-end"].contains(type) {
             Self.log.debug("dropped \(type, privacy: .public) from \(from.lastPathComponent, privacy: .public)")
             if type == "edit", let old = pageFiles[from] { editQuietly(body, in: old) }
+            if type == "place", let old = pageFiles[from] { Self.keepPlace(body["place"], for: old) }
             return
         }
         switch type {
@@ -483,6 +509,11 @@ import WebKit
         case "render": render(body)
         case "task": tick((body["line"] as? NSNumber)?.intValue ?? -1)
         case "redraw": sendBody()
+        case "place": if let file { Self.keepPlace(body["place"], for: file) }
+        // (2026-11-16, from Creative Assist) A note's page as wide as you dragged its edge, for every note (0: the theme's).
+        case "page-width":
+            let width = (body["width"] as? NSNumber)?.doubleValue ?? 0
+            UserDefaults.standard.set(width >= 320 && width <= 6000 ? width : 0, forKey: "sagePageWidth")
         case "mode": setEditing(!editing(look))
         // A card in a base, or a canvas's Open: the same as pressing a link to it.
         case "follow":

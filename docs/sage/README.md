@@ -23,6 +23,7 @@ touches projects, Premiere, Grafana or any Crossian account.
 | `Sources/SageVaultDesk.swift`, `SageDeskFiles.swift` | The notes stage's state (vault, tabs, tree settings in `sage/notes.json`, FSEvents) and the tree's changes to the vault with Undo. | Creative Assist's `SageDesk.cs` (vault and tabs parts) and `SageDeskFiles.cs`. |
 | `Sources/SageMediaText.swift`, `SageMedia.swift` | Fetch media and Transcribe, ported from the Vault Agent plugin (`view.ts`): the note logic and what the tools print (Foundation only, checked in `Tests/SageMediaChecks.swift`), and the runner for yt-dlp, ffmpeg and WhisperX (Foundation `Process`). | Windows: the same tools as `.exe` (yt-dlp.exe, WhisperX's `Scripts\python.exe`), `Process` → `System.Diagnostics.Process`. |
 | `Sources/SageExplorer.swift`, `SageColors.swift`, `SageNoteView.swift` | The tree, quick switcher, path bar and preview; the WKWebView note view (one per tab, served by a `WKURLSchemeHandler` under `sage://sage/`), the tab row and the bar. | Creative Assist's `SageExplorer.cs`, `SageColors.cs` and `Sage.cs` (`NoteView`, tabs). |
+| `Sources/SageNotes.swift` (`banner`, page CSS and script), `SageNoteView.swift` (`places`, `page-width`) | The note as a page on a desk: card, banner, page width dragged by its edges, where you were put back. | Creative Assist's `SageNotes.cs` (`Banner`, `SageCss`, `PageScript`) and `Sage.cs` (`NoteView.Places`, `page-width`), 2026-11-14. |
 
 ## How he works
 

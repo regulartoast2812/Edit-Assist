@@ -50,6 +50,10 @@ extension Checks {
         check(!bare.contains("class=\"metadata-container\"") && !bare.contains("class=\"inline-title\"")
               && Study.notePage("Body", look: Study.Look(), dark: true, title: "Pho").contains("<div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"false\" tabindex=\"-1\">Pho</div>"),
               "The note view follows the vault's reading settings: properties hidden, no inline title")
+        // (2026-11-16, from Creative Assist) The banner property drawn across the top of the page.
+        check(Study.banner("banner: \"[[Sea.jpg]]\"").contains("href=\"sage-note:Sea.jpg\"") && Study.banner("cover: https://x.org/a.png").contains("<img src=\"https://x.org/a.png\"")
+              && Study.banner("status: read").isEmpty && Study.notePage("---\nbanner: pics/a.png\n---\nBody", look: Study.Look(), dark: true).contains("sage-banner"),
+              "A note's banner (or cover) property is drawn as its banner: a vault picture or a web address")
         let plugged = Study.notePage("Body", look: reading, dark: true, vault: Study.vaultBase)
         check(plugged.contains("href=\"\(Study.vaultBase).obsidian/plugins/vault-agent/styles.css\""), "Your enabled plugins' styles load from the vault, as in Obsidian")
 

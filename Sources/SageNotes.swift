@@ -218,12 +218,31 @@ extension Study {
             top += properties(header, types: look.types).replacingOccurrences(of: "<div class=\"metadata-container\"",
                                                                               with: "<div data-sage-from=\"1\" data-sage-to=\"\(start - 2)\" class=\"metadata-container\"")
         }
-        var html = "<div class=\"markdown-preview-pusher\" style=\"width: 1px; height: 0.1px; margin-bottom: 0px;\"></div>"
+        var html = "<div class=\"markdown-preview-pusher\" style=\"width: 1px; height: 0.1px; margin-bottom: 0px;\"></div>" + banner(header)
         if !top.isEmpty { html += "<div class=\"mod-header mod-ui\">\(top)</div>" }
         if shown && look.properties == "source" {
             html += "<div class=\"el-pre\" data-sage-from=\"0\" data-sage-to=\"\(start - 1)\"><pre class=\"frontmatter language-yaml\"><code class=\"language-yaml is-loaded\">---\n\(escape(header))\n---</code></pre></div>"
         }
         return html + markdown(split(text).body, sections: true, offset: start)
+    }
+
+    /// (2026-11-16, from Creative Assist) The note's banner across the top of its page, as in Notion, from its `banner`
+    /// property (or `cover`): a picture in the vault as [[name.jpg]] or a path, or a web address. A picture in the vault is
+    /// put in by `withVault` as any embed is; one that isn't found isn't shown (sageCSS).
+    static func banner(_ header: String) -> String {
+        guard !header.isEmpty else { return "" }
+        let values = Study.header(of: "---\n" + header + "\n---\n")
+        guard let raw = (values["banner"] ?? values["cover"])?.first else { return "" }
+        let value = raw.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return "" }
+        if value.hasPrefix("http://") || value.hasPrefix("https://") {
+            return "<div class=\"sage-banner mod-ui\"><img src=\"\(attribute(value))\" alt=\"\"></div>"
+        }
+        var link = value
+        if let m = value.range(of: #"^!?\[\[[^\]|#]+"#, options: .regularExpression) {
+            link = value[m].replacingOccurrences(of: "!", with: "", options: .anchored).replacingOccurrences(of: "[[", with: "").trimmingCharacters(in: .whitespaces)
+        }
+        return "<div class=\"sage-banner mod-ui\"><span class=\"internal-embed\"><a class=\"internal-link\" href=\"sage-note:\(attribute(link))\">\(escape(link))</a></span></div>"
     }
 
     private static func trimmedST(_ text: String) -> String { text.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }
@@ -700,6 +719,70 @@ extension Study {
 
     /// What Sage adds to either look: its card for a YouTube video (Obsidian plays it in place), and editing in place.
     static let sageCSS = #"""
+    /* (2026-11-14 on Windows, ported 2026-11-16) In the dark, the page in the app's own colours, not the theme's near-black: the note's
+       ground is the app's field colour (Canvas, #262624), a shade under the panel it sits on, framed by the app's line
+       (Sage.cs, _viewerFrame), so it blends with the app and you still see where the note begins. */
+    body.theme-dark { --background-primary: #262624 !important; --background-primary-alt: #2B2B29 !important;
+      --background-secondary: #30302E !important; --background-secondary-alt: #2B2B29 !important; }
+    body.theme-dark, body.theme-dark .markdown-preview-view, body.theme-dark .workspace-leaf-content, body.theme-dark .view-content { background-color: #262624 !important; }
+    /* (2026-11-14 on Windows, ported 2026-11-16) A note is a page on a slightly darker desk: its column (the sizer) has the field colour
+       and a line round it, the room either side a tad darker, so you see where the note begins and ends. */
+    body .markdown-reading-view > .markdown-preview-view { --sage-page-pad: 40px; background-color: #F1F0EC !important; padding-top: 28px !important; padding-bottom: 48px !important; }
+    body.theme-dark .markdown-reading-view > .markdown-preview-view { background-color: #1C1C1A !important; }
+    body .markdown-reading-view .markdown-preview-sizer { background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+      border-radius: 12px; padding: 30px var(--sage-page-pad) 48px !important; box-sizing: border-box; min-height: auto !important; }
+    body.theme-dark .markdown-reading-view .markdown-preview-sizer { background: #262624; border-color: #48483F; }
+    body .markdown-reading-view .is-readable-line-width .markdown-preview-sizer, body .markdown-reading-view .is-readable-line-width.markdown-preview-view .markdown-preview-sizer {
+      max-width: calc(var(--file-line-width) + 2 * var(--sage-page-pad) + 2px) !important; margin-left: auto !important; margin-right: auto !important; }
+    @media (max-width: 720px) { body .markdown-reading-view > .markdown-preview-view { --sage-page-pad: 22px; } }
+    /* (2026-11-14 on Windows, ported 2026-11-16) The page's left and right edges drag to make it wider or narrower (PageScript). */
+    body .markdown-reading-view > .markdown-preview-view { position: relative; }
+    .sage-page-edge { position: absolute; width: 14px; cursor: ew-resize; z-index: 4; }
+    .sage-page-edge::after { content: ''; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; border-radius: 1px; background: transparent; transition: background .15s; }
+    .sage-page-edge::before { content: ''; position: sticky; display: block; top: calc(50vh - 22px); margin: 40px 0 0 4px; width: 6px; height: 44px; border-radius: 3px;
+      background: var(--interactive-accent, #D97757); opacity: 0; transition: opacity .15s; }
+    .sage-page-edge:hover::after, .sage-page-edge.is-dragging::after { background: var(--interactive-accent, #D97757); }
+    .sage-page-edge:hover::before, .sage-page-edge.is-dragging::before { opacity: .9; }
+    body.is-sizing-page, body.is-sizing-page * { cursor: ew-resize !important; user-select: none !important; }
+    /* (2026-11-15 on Windows, ported 2026-11-16) A divider you can see: the theme's line was all but the page's colour once the page took
+       the app's (#262624), so a --- showed as a gap. Drawn in the page's own line colour, with less room round it, and a
+       heading straight after a divider sits closer to it, so a section reads as line, heading, text. */
+    body { --sage-rule: var(--background-modifier-border, #3E3E38); }
+    body.theme-dark { --sage-rule: #48483F; }
+    body .markdown-rendered hr, body .markdown-preview-view hr { border: 0 !important; border-top: 1px solid var(--sage-rule) !important; height: 0 !important;
+      background: none !important; margin: 26px 0 !important; opacity: 1 !important; }
+    body .markdown-preview-sizer > .el-hr + [class^="el-h"] > :is(h1, h2, h3, h4, h5, h6) { margin-top: 0 !important; }
+    body .markdown-preview-sizer > .el-hr:first-child + [class^="el-h"] > :is(h1, h2, h3, h4, h5, h6),
+    body .markdown-preview-sizer > .mod-header + .el-hr { margin-top: 0; }
+    .sage-live .cm-line.hr:not(.cm-active) .sage-hr { border-top-color: var(--sage-rule) !important; margin: 1.1em 0 !important; }
+    /* A heading sits with what's under it: less room below it than above. A level-4 heading (the theme draws it barely
+       bigger than the text, and grey) a touch bigger and in the text's colour, so it reads as a heading. */
+    body .markdown-preview-sizer :is(h1, h2, h3, h4, h5, h6) { margin-bottom: .45em !important; }
+    body .markdown-preview-sizer h4 { font-size: 1.12em !important; color: var(--text-normal) !important; }
+    .sage-live .HyperMD-header-4, .sage-live .cm-header-4 { font-size: 1.12em; color: var(--text-normal); }
+    body.theme-dark .sage-base-card { background: #2D2D2B !important; box-shadow: 0 0 0 1px #3E3E38 !important; }
+    body.theme-dark .sage-base-card:hover { background: #333331 !important; box-shadow: 0 0 0 1px #4A4A43 !important; }
+    /* (2026-11-14 on Windows on Windows, ported 2026-11-16): the note's banner across the top of its page, the page's width, as in Notion: the
+       picture fills it, its corners the page's, and it melts into the page at its foot and softly at its sides. */
+    .sage-banner { position: relative; height: clamp(150px, 30vh, 260px); overflow: hidden; user-select: none;
+      margin: -30px calc(-1 * var(--sage-page-pad, 0px)) 14px !important; border-radius: 11px 11px 0 0 !important;
+      -webkit-mask-image: linear-gradient(to bottom, #000 45%, rgba(0,0,0,.55) 75%, transparent), linear-gradient(to right, rgba(0,0,0,.35), #000 9%, #000 91%, rgba(0,0,0,.35));
+      -webkit-mask-composite: source-in; mask-image: linear-gradient(to bottom, #000 45%, rgba(0,0,0,.55) 75%, transparent), linear-gradient(to right, rgba(0,0,0,.35), #000 9%, #000 91%, rgba(0,0,0,.35));
+      mask-composite: intersect; border: 0 !important; background: none !important; padding: 0 !important; box-shadow: none !important; }
+    .sage-banner:not(:has(img)) { display: none; }
+    /* Over any theme's picture frame (Cupertino's contain, outline and backdrop; a snippet's rounded corners): the banner
+       is the picture cropped to fill the strip, edge to edge. */
+    body .markdown-preview-sizer .sage-banner .internal-embed, body .markdown-preview-sizer .sage-banner .image-embed {
+      display: block !important; width: 100% !important; height: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important;
+      border: 0 !important; border-radius: 0 !important; background: none !important; outline: none !important; box-shadow: none !important; }
+    body .markdown-preview-sizer .sage-banner img {
+      display: block !important; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important;
+      object-fit: cover !important; object-position: center 40% !important; margin: 0 !important; padding: 0 !important;
+      border: 0 !important; border-radius: 0 !important; background: none !important; outline: none !important; box-shadow: none !important; corner-shape: round; }
+    /* A tall picture (a reel's thumbnail) isn't cut to a strip: it shows whole, over a blurred, dimmed copy of itself. */
+    .sage-banner.is-tall::before { content: ''; position: absolute; inset: -30px; background: var(--sage-banner-src) center / cover no-repeat; filter: blur(28px) brightness(.5) saturate(1.2); }
+    body .markdown-preview-sizer .sage-banner.is-boxed img { object-view-box: inset(12.5% 0) !important; object-position: center !important; }
+    body .markdown-preview-sizer .sage-banner.is-tall img { position: relative; object-fit: contain !important; object-position: center !important; }
     .video-embed { position: relative; display: block; max-width: 560px; aspect-ratio: 16 / 9; border-radius: var(--radius-m, 8px); overflow: hidden; margin: 1em 0; background: #000; }
     .video-embed img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; opacity: .9; }
     .video-embed .play { position: absolute; inset: 0; margin: auto; width: 64px; height: 44px; border-radius: 12px; background: rgba(255,0,0,.88); color: #fff;
@@ -3195,6 +3278,136 @@ extension Study {
           }
           return flushBefore ? flushBefore() : '';
         };
+      })();
+
+      // (2026-11-14 on Windows, ported 2026-11-16): the page's edges drag outwards to make the page wider (or in, narrower), both
+      // sides at once as it stays centred; let go and Sage keeps the width for every note (window.sagePageWidth).
+      // A double-click on an edge puts back the theme's width.
+      (function () {
+        var scroller = document.querySelector('.markdown-reading-view > .markdown-preview-view');
+        var page = scroller && scroller.querySelector('.markdown-preview-sizer');
+        if (!page) return;
+        function widthTo(w) {
+          if (w) page.style.setProperty('max-width', w + 'px', 'important'); else page.style.removeProperty('max-width');
+        }
+        if (window.sagePageWidth) widthTo(window.sagePageWidth);
+        var edges = ['left', 'right'].map(function (side) {
+          var edge = document.createElement('div');
+          edge.className = 'sage-page-edge mod-' + side;
+          edge.title = 'Drag to make the page wider or narrower · double-click for the usual width';
+          scroller.appendChild(edge);
+          edge.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            edge.setPointerCapture(e.pointerId);
+            var x0 = e.clientX, w0 = page.offsetWidth, most = scroller.clientWidth - 16;
+            edge.classList.add('is-dragging'); document.body.classList.add('is-sizing-page');
+            function move(m) {
+              var dx = (m.clientX - x0) * (side === 'right' ? 1 : -1);
+              widthTo(Math.round(Math.max(420, Math.min(Math.max(most, 420), w0 + 2 * dx))));
+              place();
+            }
+            function up() {
+              edge.removeEventListener('pointermove', move); edge.removeEventListener('pointerup', up); edge.removeEventListener('pointercancel', up);
+              edge.classList.remove('is-dragging'); document.body.classList.remove('is-sizing-page');
+              post({ type: 'page-width', width: page.offsetWidth });
+            }
+            edge.addEventListener('pointermove', move); edge.addEventListener('pointerup', up); edge.addEventListener('pointercancel', up);
+          });
+          edge.addEventListener('dblclick', function () { widthTo(0); place(); post({ type: 'page-width', width: 0 }); });
+          return edge;
+        });
+        // The edges lie along the page's sides, the whole of its height.
+        function place() {
+          edges.forEach(function (edge, i) {
+            edge.style.top = page.offsetTop + 'px';
+            edge.style.height = page.offsetHeight + 'px';
+            edge.style.left = (page.offsetLeft + (i ? page.offsetWidth : 0) - 7) + 'px';
+          });
+        }
+        place();
+        if (window.ResizeObserver) { var watch = new ResizeObserver(place); watch.observe(page); watch.observe(scroller); }
+      })();
+
+      // (2026-11-14 on Windows, ported 2026-11-16): the banner's picture cut to fill it, or a tall one shown whole (SageCss).
+      (function () {
+        var scroller = document.querySelector('.markdown-reading-view > .markdown-preview-view');
+        if (!scroller) return;
+        // Tall or wide: a picture much taller than the strip is shown whole over its blurred self (SageCss).
+        function shape() {
+          var banner = scroller.querySelector('.sage-banner'), img = banner && banner.querySelector('img');
+          if (!img) return;
+          var fit = function () {
+            if (!img.naturalWidth || !banner.clientHeight) return;
+            var tall = img.naturalWidth / img.naturalHeight < 1.05; // only a portrait picture (a reel's); a 4:3 thumbnail fills it
+            banner.classList.toggle('is-tall', tall);
+            // A YouTube thumbnail (480 x 360) is a 16:9 picture with black bars above and below: cut them off first.
+            banner.classList.toggle('is-boxed', !tall && Math.abs(img.naturalWidth / img.naturalHeight - 4 / 3) < 0.02);
+            if (tall) banner.style.setProperty('--sage-banner-src', 'url("' + img.currentSrc.replace(/"/g, '%22') + '")');
+          };
+          if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
+        }
+        function both() { shape(); }
+        both();
+        if (window.ResizeObserver) new ResizeObserver(both).observe(scroller);
+        new MutationObserver(function (changes) {
+          if (changes.some(function (c) { return Array.prototype.some.call(c.addedNodes, function (n) { return n.nodeType === 1 && (n.matches('.sage-banner') || n.querySelector('.sage-banner')); }); })) both();
+        }).observe(scroller, { childList: true, subtree: true });
+      })();
+
+      // (2026-11-14 on Windows, ported 2026-11-16): where you were in this file, said to Sage as it changes (how far down, and in a
+      // base its view, its folded groups and where each view is scrolled to) and put back when you come back to it
+      // (window.sagePlace, from Sage), so a base opened from one of its notes is as you left it.
+      (function () {
+        var scroller = document.querySelector('.markdown-reading-view > .markdown-preview-view');
+        if (!scroller) return;
+        function baseOf() { return document.querySelector('.sage-file-view > [data-sage-base]'); }
+        function place() {
+          var p = { top: Math.round(scroller.scrollTop) }, base = baseOf();
+          if (base) {
+            var tab = base.querySelector('.sage-base-tab.is-active');
+            p.view = tab ? tab.getAttribute('data-sage-view-tab') : '0';
+            p.views = Array.prototype.map.call(base.querySelectorAll('[data-sage-view]'), function (v) { return [Math.round(v.scrollTop), Math.round(v.scrollLeft)]; });
+            p.folded = Array.prototype.map.call(base.querySelectorAll('.bases-group-heading.is-collapsed'), function (h) { return h.closest('[data-sage-view]').getAttribute('data-sage-view') + '|' + h.textContent; });
+          }
+          return p;
+        }
+        var saved = window.sagePlace, last = '', timer = 0;
+        function say() { if (timer) { clearTimeout(timer); timer = 0; } var p = JSON.stringify(place()); if (p === last) return; last = p; post({ type: 'place', place: p }); }
+        function soon() { if (timer) clearTimeout(timer); timer = setTimeout(say, 200); }
+        if (saved && typeof saved === 'object') {
+          var base = baseOf();
+          if (base && saved.view != null) {
+            var t = base.querySelector('[data-sage-view-tab="' + saved.view + '"]');
+            if (t) {
+              base.querySelectorAll('[data-sage-view-tab]').forEach(function (x) { x.classList.toggle('is-active', x === t); });
+              base.querySelectorAll('[data-sage-view]').forEach(function (v) { v.hidden = v.getAttribute('data-sage-view') !== String(saved.view); });
+              var count = +t.getAttribute('data-sage-count'), said = base.querySelector('.bases-toolbar-result-count');
+              if (said) said.textContent = count + (count === 1 ? ' result' : ' results');
+            }
+            (saved.folded || []).length && base.querySelectorAll('.bases-group-heading').forEach(function (h) {
+              if (saved.folded.indexOf(h.closest('[data-sage-view]').getAttribute('data-sage-view') + '|' + h.textContent) < 0) return;
+              h.classList.add('is-collapsed');
+              var chevron = h.querySelector('.collapse-icon'); if (chevron) chevron.classList.add('is-collapsed');
+              var body = h.closest('tbody'); if (body) body.classList.add('sage-collapsed'); else if (h.nextElementSibling) h.nextElementSibling.hidden = true;
+            });
+            var views = function () { base.querySelectorAll('[data-sage-view]').forEach(function (v, i) { var at = (saved.views || [])[i]; if (at) { v.scrollTop = at[0]; v.scrollLeft = at[1]; } }); };
+            views();
+            window.addEventListener('load', views);
+            if (typeof baseHeads === 'function') baseHeads();
+          }
+          // Down to where you were, and again once its pictures have their heights, unless you've scrolled since.
+          var top = +saved.top || 0, put = top;
+          scroller.scrollTop = top; put = scroller.scrollTop;
+          window.addEventListener('load', function () { if (Math.abs(scroller.scrollTop - put) < 2 && top > put) { scroller.scrollTop = top; put = scroller.scrollTop; } });
+          last = JSON.stringify(place());
+        }
+        scroller.addEventListener('scroll', soon, { passive: true });
+        document.addEventListener('scroll', function (e) { if (e.target !== scroller) soon(); }, { capture: true, passive: true });
+        // Before a click acts (a row opening its note goes at once), and after it (a view or a group it changed).
+        document.addEventListener('click', function () { say(); setTimeout(say, 0); }, true);
+        document.addEventListener('auxclick', function () { say(); }, true);
+        window.addEventListener('pagehide', say);
       })();
     })();
     """#
