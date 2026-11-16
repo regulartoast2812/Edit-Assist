@@ -760,6 +760,55 @@ extension Study {
     body .markdown-preview-sizer :is(h1, h2, h3, h4, h5, h6) { margin-bottom: .45em !important; }
     body .markdown-preview-sizer h4 { font-size: 1.12em !important; color: var(--text-normal) !important; }
     .sage-live .HyperMD-header-4, .sage-live .cm-header-4 { font-size: 1.12em; color: var(--text-normal); }
+    /* (2026-11-14 on Windows, ported 2026-11-16) Writing that keeps its look: the styled editor, callouts, and the toolbar and "/" menu. */
+    .sage-live .sage-on { background: none; }
+    .sage-live .cm-line .sage-inl.sage-show > .cm-formatting, .sage-live .cm-line .sage-inl.sage-show > .sage-hide,
+    .sage-live .cm-line.sage-on > .cm-formatting-header, .sage-live .cm-line.sage-on > .cm-formatting-quote { display: inline !important; }
+    .sage-sugg { width: 340px; }
+    .sage-sugg .sage-sugg-hint { font-family: inherit; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sage-live .sage-u { text-decoration: underline; }
+    .sage-live .sage-math { font-family: var(--font-monospace); font-size: .92em; color: var(--text-accent); }
+    .sage-live .sage-callout-line { background: rgba(var(--callout-color), .1); border-left: 3px solid rgb(var(--callout-color)); padding: 0 16px 0 14px !important; }
+    .sage-live .sage-callout-title { color: rgb(var(--callout-color)); font-weight: var(--callout-title-weight, 600); padding-top: 10px !important; border-top-right-radius: 6px; }
+    .sage-live .sage-callout-end { padding-bottom: 10px !important; border-bottom-right-radius: 6px; margin-bottom: 4px; }
+    .sage-live .sage-callout-name:empty::before { content: attr(data-name); }
+    .sage-fmt { position: fixed; z-index: 80; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 10px; background: var(--background-secondary, #30302E);
+      border: 1px solid var(--background-modifier-border, #3E3E38); box-shadow: 0 10px 28px rgba(0,0,0,.45); font-size: 13px; color: var(--text-normal); user-select: none; }
+    .sage-fmt.is-new { animation: sage-fmt-in .14s cubic-bezier(.2,.8,.2,1); }
+    @keyframes sage-fmt-in { from { opacity: 0; transform: translateY(4px) scale(.98); } to { opacity: 1; transform: none; } }
+    .sage-fmt button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; min-width: 28px; padding: 0 6px; border: 0; border-radius: 6px;
+      background: none; box-shadow: none; color: var(--text-muted); cursor: pointer; font-size: 13px; }
+    .sage-fmt button:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+    .sage-fmt button.is-active { color: var(--interactive-accent); background: color-mix(in srgb, var(--interactive-accent) 14%, transparent); }
+    .sage-fmt button .svg-icon { width: 16px; height: 16px; }
+    .sage-fmt .sage-fmt-turn, .sage-fmt .sage-fmt-ask { color: var(--text-normal); padding: 0 6px 0 8px; }
+    .sage-fmt .sage-fmt-turn .svg-icon, .sage-fmt .sage-fmt-ask .svg-icon:last-child { width: 13px; height: 13px; opacity: .6; }
+    .sage-fmt .sage-fmt-ask .svg-icon:first-child { color: var(--interactive-accent); }
+    .sage-fmt-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--background-modifier-border); }
+    .sage-fmt-field { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 6px; }
+    .sage-fmt-field .svg-icon { width: 15px; height: 15px; color: var(--text-muted); flex: none; }
+    .sage-fmt-field input { flex: 1; min-width: 0; height: 28px; border: 0 !important; background: none !important; box-shadow: none !important; padding: 0 !important; font-size: 13px; color: var(--text-normal); outline: none; }
+    .sage-fmt-field kbd { font-size: 11px; color: var(--text-faint); background: none; border: 0; font-family: inherit; }
+    .sage-fmt-drop, .sage-slash { position: fixed; z-index: 81; min-width: 220px; padding: 6px; border-radius: 10px; background: var(--background-secondary, #30302E);
+      border: 1px solid var(--background-modifier-border, #3E3E38); box-shadow: 0 12px 32px rgba(0,0,0,.45); font-size: 13px; color: var(--text-normal); user-select: none;
+      animation: sage-fmt-in .14s cubic-bezier(.2,.8,.2,1); }
+    .sage-fmt-label, .sage-slash-label { padding: 6px 8px 4px; font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
+    .sage-fmt-item, .sage-slash-item { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
+    .sage-fmt-item:hover, .sage-slash-item.is-selected { background: var(--background-modifier-hover); }
+    .sage-fmt-item .svg-icon { width: 16px; height: 16px; color: var(--text-muted); flex: none; }
+    .sage-fmt-item span { flex: 1; }
+    .sage-fmt-item.is-active > .svg-icon:last-child { color: var(--interactive-accent); }
+    .sage-slash { width: 300px; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+    .sage-slash.is-above { animation-name: sage-fmt-in; }
+    .sage-slash-list { max-height: 330px; overflow-y: auto; padding: 6px; }
+    .sage-slash-icon { width: 26px; height: 26px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 6px;
+      border: 1px solid var(--background-modifier-border); background: var(--background-primary); }
+    .sage-slash-icon .svg-icon { width: 15px; height: 15px; color: var(--text-muted); }
+    .sage-slash-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sage-slash-hint { color: var(--text-faint, var(--text-muted)); font-size: 11.5px; font-family: var(--font-monospace); }
+    .sage-slash-none { padding: 10px 10px; color: var(--text-muted); }
+    .sage-slash-foot { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-top: 1px solid var(--background-modifier-border); color: var(--text-muted); font-size: 12px; }
+    .sage-slash-foot kbd { font-size: 11px; color: var(--text-faint); background: none; border: 0; font-family: inherit; }
     body.theme-dark .sage-base-card { background: #2D2D2B !important; box-shadow: 0 0 0 1px #3E3E38 !important; }
     body.theme-dark .sage-base-card:hover { background: #333331 !important; box-shadow: 0 0 0 1px #4A4A43 !important; }
     /* (2026-11-14 on Windows on Windows, ported 2026-11-16): the note's banner across the top of its page, the page's width, as in Notion: the
@@ -1630,6 +1679,8 @@ extension Study {
           return span(F + 'cm-formatting-link cm-link', m[1] + '[') + '<span class="cm-link" data-sage-link="' + attr(m[3]) + '"><span class="cm-underline">' + inline(m[2]) + '</span></span>'
             + span(F + 'cm-formatting-link cm-link', ']') + span(F + 'cm-formatting-link-string cm-string cm-url', '(' + m[3] + ')');
         } },
+        { re: /<u>([^\n]*?)<\/u>/, html: function (m) { var mark = function (t) { return span(F + 'cm-formatting-u', t); }; return mark('<u>') + '<span class="sage-u">' + inline(m[1]) + '</span>' + mark('</u>'); } },
+        { re: /\$(?=[^\s$])([^$\n]*?[^\s$])\$(?!\d)/, html: function (m) { var mark = span(F + 'cm-formatting-math cm-math', '$'); return mark + span('cm-math sage-math', m[1]) + mark; } },
         { re: /(\*\*|__)(?=\S)([^\n]*?\S)\1/, html: function (m) { var mark = span(F + 'cm-formatting-strong cm-strong', m[1]); return mark + '<span class="cm-strong">' + inline(m[2]) + '</span>' + mark; } },
         { re: /(^|[^\w*])([*_])(?=\S)([^\n*_]*?\S)\2(?![\w*])/, html: function (m) { var mark = span(F + 'cm-formatting-em cm-em', m[2]); return esc(m[1]) + mark + '<span class="cm-em">' + inline(m[3]) + '</span>' + mark; } },
         { re: /~~(?=\S)([^\n]*?\S)~~/, html: function (m) { var mark = span(F + 'cm-formatting-strikethrough cm-strikethrough', '~~'); return mark + '<span class="cm-strikethrough">' + inline(m[1]) + '</span>' + mark; } },
@@ -1646,10 +1697,16 @@ extension Study {
             if (m && m[0].length && (!best || m.index < best.m.index)) best = { m: m, rule: inlineRules[i] };
           }
           if (!best) { out += esc(s); break; }
-          out += esc(s.slice(0, best.m.index)) + best.rule.html(best.m);
+          out += esc(s.slice(0, best.m.index)) + '<span class="sage-inl">' + best.rule.html(best.m) + '</span>';
           s = s.slice(best.m.index + best.m[0].length);
         }
         return out;
+      }
+      function calloutColor(type) {
+        var map = { note: 'default', abstract: 'summary', summary: 'summary', tldr: 'summary', info: 'info', todo: 'todo', tip: 'tip', hint: 'tip', important: 'tip',
+          success: 'success', check: 'success', done: 'success', question: 'question', help: 'question', faq: 'question', warning: 'warning', caution: 'warning',
+          attention: 'warning', failure: 'fail', fail: 'fail', missing: 'fail', danger: 'error', error: 'error', bug: 'bug', example: 'example', quote: 'quote', cite: 'quote' };
+        return '--callout-' + (map[type.toLowerCase()] || 'default');
       }
       function line(cls, html, extra) { return '<div class="cm-line' + (cls ? ' ' + cls : '') + '"' + (extra || '') + '>' + (html || '<br>') + '</div>'; }
       function lineHtml(text, state) {
@@ -1663,7 +1720,17 @@ extension Study {
           var n = m[1].length;
           return line('HyperMD-header HyperMD-header-' + n, span(F + 'cm-formatting-header cm-formatting-header-' + n + ' cm-header cm-header-' + n, m[1] + m[2]) + '<span class="cm-header cm-header-' + n + '">' + inline(m[3]) + '</span>');
         }
-        if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(text)) return line('hr', span(F + 'cm-hr sage-hr', text));
+        if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(text)) { state.callout = null; return line('hr', span(F + 'cm-hr sage-hr', text)); }
+        // (2026-11-14, you asked) A callout as a callout: its first line its title in its colour, the rest its body.
+        if ((m = /^(>\s*)\[!([^\]\s]+)\]([+-]?)(\s*)(.*)$/.exec(text))) {
+          state.callout = calloutColor(m[2]);
+          return line('sage-callout-line sage-callout-title', span(F + 'cm-formatting-quote cm-quote', m[1] + '[!' + m[2] + ']' + m[3] + m[4])
+            + '<span class="sage-callout-name" data-name="' + attr(m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase()) + '">' + inline(m[5]) + '</span>',
+            ' style="--callout-color: var(' + state.callout + ')"');
+        }
+        if (state.callout && (m = /^(>\s?)(.*)$/.exec(text)))
+          return line('sage-callout-line', span(F + 'cm-formatting-quote cm-quote', m[1]) + inline(m[2]), ' style="--callout-color: var(' + state.callout + ')"');
+        state.callout = null;
         if ((m = /^((?:>\s?)+)(.*)$/.exec(text))) {
           var depth = (m[1].match(/>/g) || []).length;
           return line('HyperMD-quote HyperMD-quote-' + depth, span(F + 'cm-formatting-quote cm-formatting-quote-' + depth + ' cm-quote cm-quote-' + depth, m[1]) + '<span class="cm-quote cm-quote-' + depth + '">' + inline(m[2]) + '</span>');
@@ -1697,10 +1764,38 @@ extension Study {
         content.spellcheck = settings.spellcheck !== false;
         content.setAttribute('autocorrect', 'off');
         function starts() { var s = [0]; for (var i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) s.push(i + 1); return s; }
+        // (2026-11-14, you asked) Styled: the marks stay hidden on the line you're on too, so the block keeps its look while
+        // you write (as in Notion); the toolbar's eye (or ⌘/) shows them, as Obsidian does, for every note.
+        function styledNow() { return !!hooks.styled && !document.body.classList.contains('sage-show-marks'); }
+        root.classList.toggle('sage-styled-editor', !!hooks.styled);
+        var hid = [];
+        function hiddenNode(node) {
+          var p = node.parentElement;
+          if (!p || !p.closest('.cm-formatting:not(.cm-formatting-list):not(.cm-formatting-task):not(.sage-hr):not(.cm-formatting-code-block), .sage-hide')) return false;
+          var piece = p.closest('.sage-inl');
+          if (piece && piece.classList.contains('sage-show')) return false;
+          var lineEl = p.closest('.cm-line');
+          if (lineEl && lineEl.classList.contains('sage-on') && p.closest('.cm-formatting-header, .cm-formatting-quote')) return false;
+          return true;
+        }
+        // Which characters are marks you don't see (a styled caret steps over them, Backspace deletes what you see).
+        function mapHidden() {
+          hid = [];
+          var s = starts();
+          for (var n = 0; n < content.children.length; n++) {
+            var at = s[n], walker = document.createTreeWalker(content.children[n], NodeFilter.SHOW_TEXT), node;
+            while ((node = walker.nextNode())) { if (hiddenNode(node)) for (var i = 0; i < node.length; i++) hid[at + i] = true; at += node.length; }
+          }
+        }
         function draw() {
           var state = { code: false }, html = '';
           text.split('\n').forEach(function (l) { html += lineHtml(l, state); });
           content.innerHTML = html;
+          for (var k = 0; k < content.children.length; k++) {
+            var el = content.children[k], next = content.children[k + 1];
+            if (el.classList.contains('sage-callout-line') && (!next || !next.classList.contains('sage-callout-line') || next.classList.contains('sage-callout-title'))) el.classList.add('sage-callout-end');
+          }
+          mapHidden();
         }
         // A place in the text ↔ a place in the page (the marks are in the page on every line, shown or not).
         function point(index) {
@@ -1709,11 +1804,17 @@ extension Study {
           var lineEl = content.children[n], offset = Math.max(0, index - s[n]);
           if (!lineEl) return { node: content, offset: content.childNodes.length };
           var walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT), node, last = null;
+          var styledCaret = styledNow(), pastHidden = false;
           while ((node = walker.nextNode())) {
+            // Styled: a place in hidden marks is put just after them, where the text you see goes on.
+            if (styledCaret && hiddenNode(node)) { if (offset <= node.length) offset = 0; else offset -= node.length; pastHidden = true; continue; }
             if (offset <= node.length) return { node: node, offset: offset };
             offset -= node.length;
             last = node;
           }
+          // Past marks with nothing after them (an empty heading's "## ", a bold at the line's end): the line's end, so
+          // what's typed goes after the marks.
+          if (pastHidden) return { node: lineEl, offset: lineEl.childNodes.length };
           return last ? { node: last, offset: last.length } : { node: lineEl, offset: 0 };
         }
         function index(node, offset) {
@@ -1745,7 +1846,26 @@ extension Study {
             var r = range(), s = starts();
             for (var i = 0; i < s.length; i++) { if (s[i] <= r.from) lo = i; if (s[i] <= r.to) hi = i; }
           }
-          for (var k = 0; k < content.children.length; k++) content.children[k].classList.toggle('cm-active', k >= lo && k <= hi);
+          var styledLines = styledNow();
+          for (var k = 0; k < content.children.length; k++) {
+            content.children[k].classList.toggle('cm-active', k >= lo && k <= hi && !styledLines);
+            content.children[k].classList.toggle('sage-on', k >= lo && k <= hi && styledLines);
+          }
+          if (styledLines) {
+            var shown = content.querySelectorAll('.sage-inl.sage-show');
+            for (var q = 0; q < shown.length; q++) shown[q].classList.remove('sage-show');
+            if (lo >= 0) {
+              var at = range();
+              for (var k2 = lo; k2 <= hi; k2++) {
+                var pieces = content.children[k2] ? content.children[k2].querySelectorAll('.sage-inl') : [];
+                for (var i2 = 0; i2 < pieces.length; i2++) {
+                  var a = index(pieces[i2], 0), b = a + pieces[i2].textContent.length;
+                  if (at.to >= a && at.from <= b) pieces[i2].classList.add('sage-show');
+                }
+              }
+            }
+            mapHidden();
+          }
         }
         var ghost = null, ghostEl = null, ghostAt = -1, ghostTake = null;
         function unghost() { ghost = null; completing.back = null; if (ghostEl) { ghostEl.remove(); ghostEl = null; } }
@@ -1755,9 +1875,11 @@ extension Study {
           if (composing || r.from !== r.to || /[\p{L}\p{N}]/u.test(text.charAt(r.from))) return;
           var before = text.slice(Math.max(0, r.from - 200), r.from), was = text;
           if (!/\p{L}$/u.test(before) && !/\[\[[^\]\n]+$/.test(before)) return;
+          if (hooks.styled && /\[\[[^\]\n]*$/.test(before)) return;
           completing.id++;
           completing.back = function (rest, take) {
             completing.back = null;
+            if (hooks.quiet && hooks.quiet()) return;
             var sel = getSelection();
             if (!rest || text !== was || !root.isConnected || !sel.rangeCount || range().from !== r.from) return;
             var caret = sel.getRangeAt(0).cloneRange(), box = caret.getClientRects()[0];
@@ -1789,12 +1911,27 @@ extension Study {
           future = [];
           lastKind = kind; lastAt = now;
           text = text.slice(0, from) + insert + text.slice(to);
+          // Styled: what you deleted leaves no empty marks behind ("****" where a bold word was).
+          if (insert === '' && hooks.styled) {
+            var pairs = ['<u></u>', '****', '~~~~', '====', '``', '**', '__'];
+            for (var q = 0; q < pairs.length; q++) {
+              var half = pairs[q] === '<u></u>' ? 3 : pairs[q].length / 2;
+              if (from >= half && text.slice(from - half, from - half + pairs[q].length) === pairs[q]) {
+                text = text.slice(0, from - half) + text.slice(from - half + pairs[q].length);
+                if (caret != null && caret > from - half) caret = Math.max(from - half, caret - pairs[q].length);
+                from -= half;
+                break;
+              }
+            }
+          }
           draw();
           var at = caret == null ? from + insert.length : caret;
           select(at, at);
           if (kind === 'type') askGhost(); else unghost();
           if (kind !== 'correct') lastFix = null;
           if (kind === 'type' && insert.length === 1 && ' .,;:!?)]}"\u201d'.indexOf(insert) >= 0) askFix(at);
+          // (2026-11-14 on Windows, ported 2026-11-16) A "/" typed at a line's start or after a space opens the block menu.
+          if (kind === 'type' && insert === '/' && hooks.slash && (from === 0 || /\s/.test(text.charAt(from - 1)))) hooks.slash(from);
           if (hooks.input) hooks.input();
         }
         var lastFix = null;
@@ -1889,11 +2026,23 @@ extension Study {
             case 'deleteByCut': case 'deleteByDrag': case 'deleteContent': if (r.from !== r.to) change(r.from, r.to, '', 'cut'); break;
             case 'deleteContentBackward':
               if (r.from !== r.to) change(r.from, r.to, '', 'delete');
+              else if (styledNow()) {
+                var lineStart = text.lastIndexOf('\n', r.from - 1) + 1, lead = text.slice(lineStart, r.from);
+                if (lead.length && /^(\s*)(#{1,6}\s+|>\s*\[![^\]]*\][+-]?\s*|(?:>\s?)+|[-*+]\s+\[.\]\s+|[-*+]\s+|\d+[.)]\s+)$/.test(lead)) { change(lineStart, r.from, '', 'delete'); break; }
+                at = r.from;
+                while (at > 0 && hid[at - 1]) at--;
+                if (at > 0) { var a0 = at - 1; if (a0 > 0 && /[\uDC00-\uDFFF]/.test(text.charAt(a0)) && /[\uD800-\uDBFF]/.test(text.charAt(a0 - 1))) a0--; change(a0, at, '', 'delete'); }
+              }
               else if (t && t.from < t.to) change(t.from, t.to, '', 'delete');
               else if (r.from > 0) { at = r.from - 1; if (at > 0 && /[\uDC00-\uDFFF]/.test(text.charAt(at)) && /[\uD800-\uDBFF]/.test(text.charAt(at - 1))) at--; change(at, r.from, '', 'delete'); }
               break;
             case 'deleteContentForward':
               if (r.from !== r.to) change(r.from, r.to, '', 'delete');
+              else if (styledNow()) {
+                at = r.to;
+                while (at < text.length && hid[at]) at++;
+                if (at < text.length) change(at, at + (/[\uD800-\uDBFF]/.test(text.charAt(at)) ? 2 : 1), '', 'delete');
+              }
               else if (t && t.from < t.to) change(t.from, t.to, '', 'delete');
               else if (r.to < text.length) { at = r.to + 1; if (/[\uD800-\uDBFF]/.test(text.charAt(r.to))) at++; change(r.to, at, '', 'delete'); }
               break;
@@ -1969,7 +2118,7 @@ extension Study {
           var lineEl = e.target.closest('.cm-line');
           if (!lineEl || lineEl.classList.contains('cm-active') || e.button !== 0) return;
           var link = e.target.closest('[data-sage-link]');
-          if (link) {
+          if (link && (!styledNow() || e.metaKey)) {
             e.preventDefault();
             var to = link.getAttribute('data-sage-link');
             post({ type: 'follow', href: /^https?:/.test(to) ? to : 'sage-note:' + to, newTab: e.metaKey });
@@ -1984,12 +2133,18 @@ extension Study {
             change(at, at + 1, text.charAt(at) === ' ' ? 'x' : ' ', 'tick', at + 1);
           }
         });
-        content.addEventListener('blur', function () { unghost(); if (hooks.blur) hooks.blur(); });
+        content.addEventListener('blur', function (e) { unghost(); if (hooks.blur) hooks.blur(e); });
         draw();
         var editor = {
           el: root,
+          content: content,
           focus: function (at) { content.focus({ preventScroll: true }); select(at == null ? text.length : Math.min(at, text.length)); },
           blur: function () { content.blur(); },
+          // (2026-11-14) For the formatting toolbar and the "/" menu: where the selection is, set it, change the text.
+          range: function () { return range(); },
+          select: function (a, b) { select(a, b); },
+          replace: function (from, to, insert, caret) { change(from, to, insert, 'format', caret); },
+          redraw: function () { var r = range(); draw(); select(r.from, r.to); },
         };
         Object.defineProperty(editor, 'value', { get: function () { return text; } });
         Object.defineProperty(editor, 'readOnly', { set: function (v) { content.contentEditable = v ? 'false' : 'true'; } });
@@ -2033,6 +2188,8 @@ extension Study {
         block.replaceWith(box);
         var editor = liveEditor(original, {
           input: function () {
+            slashSync();
+            suggSync(editor);
             clearTimeout(timer);
             timer = setTimeout(function () {
               if (!open || open.area !== editor) return;
@@ -2041,7 +2198,14 @@ extension Study {
             }, 1200);
           },
           key: key,
-          blur: function () { if (open && open.area === editor) finish(false); },
+          styled: true,
+          slash: function (at) { slashOpen(editor, at); },
+          quiet: function () { return !!slash || !!sugg; },
+          // Into the toolbar's own field (a link, a question for Sage): still editing.
+          blur: function (e) {
+            if (e && e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.sage-fmt, .sage-slash')) return;
+            if (open && open.area === editor) finish(false);
+          },
         });
         box.appendChild(editor.el);
         open = { box: box, block: block, from: from, to: to, original: original, area: editor, saved: false };
@@ -2080,6 +2244,9 @@ extension Study {
 
       function key(event) {
         var letter = (event.key || '').toLowerCase();
+        if (suggKey(event)) return true;
+        if (slashKey(event)) return true;
+        if (fmtKey(event, letter)) return true;
         if (event.key === 'Escape' || (event.key === 'Enter' && event.metaKey)) { event.preventDefault(); if (open) open.area.blur(); return true; }
         if (event.metaKey && letter === 'e') { event.preventDefault(); if (open) open.area.blur(); post({ type: 'mode' }); return true; }
         if (event.metaKey && letter === 's') { event.preventDefault(); var edit = change(false); if (edit) { open.saved = true; post(edit); } return true; }
@@ -2102,6 +2269,463 @@ extension Study {
           : event.metaKey && !event.shiftKey && !event.altKey && bracket ? (bracket < 0 ? 'back' : 'forward') : null;
         if (tab) { event.preventDefault(); post({ type: 'key', key: tab }); }
       });
+      // MARK: Formatting while you write (2026-11-14 on Windows, ported 2026-11-16; Notion's way). Text selected in a block you're editing
+      // shows a toolbar over it: Turn into (text, headings, lists, to-do, quote, callout, code), bold, italic, underline,
+      // strikethrough, code, highlight, math, link, clear formatting, Ask Sage (improve, proofread, shorter, longer,
+      // simpler, explain, or ask anything) and the eye that shows the Markdown marks. A "/" at a line's start (or after a
+      // space) opens the block menu: blocks, callouts, things to put in, and Sage writing there. Everything is written
+      // as the Markdown Obsidian reads (<u> for underline, $ for math, == for highlight).
+      var fmt = null, fmtSaved = null, fmtSelecting = false, fmtPending = 0, slash = null;
+      function hx(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+      function marksShown() { return document.body.classList.contains('sage-show-marks'); }
+      try { if (localStorage.getItem('sage-show-marks') === '1') document.body.classList.add('sage-show-marks'); } catch (x) { }
+      function toggleMarks() {
+        var on = !marksShown();
+        document.body.classList.toggle('sage-show-marks', on);
+        try { localStorage.setItem('sage-show-marks', on ? '1' : '0'); } catch (x) { }
+        if (open) open.area.redraw();
+        fmtShow();
+      }
+      var MARKS = { b: ['**', '**'], i: ['*', '*'], u: ['<u>', '</u>'], s: ['~~', '~~'], code: ['`', '`'], hl: ['==', '=='], math: ['$', '$'] };
+      // The selection without the spaces at its ends (a double-clicked word takes its space).
+      function trimmed(t, r) {
+        var from = r.from, to = r.to;
+        while (from < to && /\s/.test(t.charAt(from))) from++;
+        while (to > from && /\s/.test(t.charAt(to - 1))) to--;
+        return { from: from, to: to };
+      }
+      function wrapped(kind, t, r) {
+        var m = MARKS[kind];
+        if (t.slice(r.from - m[0].length, r.from) !== m[0] || t.slice(r.to, r.to + m[1].length) !== m[1]) return false;
+        // A single * just inside a bold's ** isn't italic (unless it's ***).
+        if (kind === 'i' && t.slice(r.from - 2, r.from) === '**' && t.slice(r.from - 3, r.from) !== '***') return false;
+        return true;
+      }
+      function toggleMark(kind) {
+        if (!open) return;
+        var ed = open.area, t = ed.value, r = trimmed(t, ed.range()), m = MARKS[kind];
+        if (r.from === r.to) { var c = ed.range().from; ed.replace(c, c, m[0] + m[1], c + m[0].length); return; }
+        if (wrapped(kind, t, r)) {
+          ed.replace(r.from - m[0].length, r.to + m[1].length, t.slice(r.from, r.to));
+          ed.select(r.from - m[0].length, r.to - m[0].length);
+        } else {
+          var picked = t.slice(r.from, r.to);
+          if (picked.length > m[0].length + m[1].length && picked.indexOf(m[0]) === 0 && picked.slice(-m[1].length) === m[1]) {
+            var bare = picked.slice(m[0].length, picked.length - m[1].length);
+            ed.replace(r.from, r.to, bare);
+            ed.select(r.from, r.from + bare.length);
+          } else {
+            ed.replace(r.from, r.to, m[0] + picked + m[1]);
+            ed.select(r.from + m[0].length, r.to + m[0].length);
+          }
+        }
+        fmtShow();
+      }
+      // Clear formatting: the marks around and inside the selection go; links keep their words.
+      function clearMarks() {
+        if (!open) return;
+        var ed = open.area, t = ed.value, r = trimmed(t, ed.range());
+        if (r.from === r.to) return;
+        var grew = true;
+        while (grew) {
+          grew = false;
+          ['***', '**', '~~', '==', '<u>', '`', '$', '*'].forEach(function (mk) {
+            var close = mk === '<u>' ? '</u>' : mk;
+            if (!grew && t.slice(r.from - mk.length, r.from) === mk && t.slice(r.to, r.to + close.length) === close) { r.from -= mk.length; r.to += close.length; grew = true; }
+          });
+        }
+        var plain = t.slice(r.from, r.to)
+          .replace(/!?\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/!?\[\[([^\]]+)\]\]/g, '$1').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/<\/?u>/g, '').replace(/(\*\*\*|\*\*|~~|==|`)/g, '').replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*/g, '$1$2').replace(/\$(?=\S)([^$]*?\S)\$/g, '$1');
+        ed.replace(r.from, r.to, plain);
+        ed.select(r.from, r.from + plain.length);
+        fmtShow();
+      }
+      var KINDS = [['text', 'Text', 'lucide-type', ''], ['h1', 'Heading 1', 'lucide-heading-1', '# '], ['h2', 'Heading 2', 'lucide-heading-2', '## '],
+        ['h3', 'Heading 3', 'lucide-heading-3', '### '], ['ul', 'Bulleted list', 'lucide-list', '- '], ['ol', 'Numbered list', 'lucide-list-ordered', '1. '],
+        ['todo', 'To-do list', 'lucide-check-square', '- [ ] '], ['quote', 'Quote', 'lucide-quote', '> '], ['callout', 'Callout', 'lucide-info', ''], ['code', 'Code block', 'lucide-code', '']];
+      var LEAD = /^(\s*)(#{1,6}\s+|>\s*\[![^\]]*\][+-]?\s*|(?:>\s?)+|[-*+]\s+\[.\]\s+|[-*+]\s+|\d+[.)]\s+)?/;
+      function kindOf(l) {
+        return /^#\s/.test(l) ? 'h1' : /^##\s/.test(l) ? 'h2' : /^###\s/.test(l) ? 'h3' : /^#{4,6}\s/.test(l) ? 'h3' : /^\s*[-*+]\s+\[.\]\s/.test(l) ? 'todo'
+          : /^\s*[-*+]\s/.test(l) ? 'ul' : /^\s*\d+[.)]\s/.test(l) ? 'ol' : /^>\s*\[!/.test(l) ? 'callout' : /^>/.test(l) ? 'quote' : /^\s*(```|~~~)/.test(l) ? 'code' : 'text';
+      }
+      // The kind of block the selection's line is in (a ">" line under a callout's title is the callout's).
+      function kindAt(t, r) {
+        var b = linesOf(t, r), k = kindOf(t.slice(b.from));
+        if (k !== 'quote') return k;
+        var first = b.from;
+        while (first > 0) { var prev = t.lastIndexOf('\n', first - 2) + 1; if (!/^>/.test(t.slice(prev))) break; first = prev; }
+        return /^>\s*\[!/.test(t.slice(first)) ? 'callout' : 'quote';
+      }
+      function linesOf(t, r) { var a = t.lastIndexOf('\n', r.from - 1) + 1, b = t.indexOf('\n', r.to); return { from: a, to: b < 0 ? t.length : b }; }
+      // The lines the selection is on turned into another kind of block (their own marks taken off first).
+      function turnInto(kind, type) {
+        if (!open) return;
+        var ed = open.area, t = ed.value, b = linesOf(t, ed.range()), ls = t.slice(b.from, b.to).split('\n');
+        if (ls.length > 1 && /^\s*(```|~~~)/.test(ls[0]) && /^\s*(```|~~~)\s*$/.test(ls[ls.length - 1])) ls = ls.slice(1, -1);
+        var bare = ls.map(function (l) { var m = LEAD.exec(l); return { indent: m[2] && /^[-*+\d]/.test(m[2]) ? m[1] : '', rest: l.slice(m[0].length) }; });
+        var lead = {}; KINDS.forEach(function (k) { lead[k[0]] = k[3]; });
+        var out = kind === 'code' ? ['```'].concat(bare.map(function (x) { return x.rest; }), ['```'])
+          : kind === 'callout' ? ['> [!' + (type || 'note') + ']'].concat(bare.map(function (x) { return '> ' + x.rest; }))
+          : bare.map(function (x, i) { return (/^(ul|ol|todo)$/.test(kind) ? x.indent : '') + (kind === 'ol' ? (i + 1) + '. ' : lead[kind]) + x.rest; });
+        var joined = out.join('\n');
+        ed.replace(b.from, b.to, joined, kind === 'code' ? b.from + joined.length - 4 : b.from + joined.length);
+        fmtShow();
+      }
+
+      // The toolbar.
+      function fmtButton(f, icon, tip) { return '<button class="sage-fmt-btn" data-f="' + f + '" aria-label="' + hx(tip) + '" title="' + hx(tip) + '">' + svg(icon) + '</button>'; }
+      function fmtBuild() {
+        fmt = document.createElement('div');
+        fmt.className = 'sage-fmt';
+        fmt.addEventListener('mousedown', function (e) { if (!e.target.closest('input')) e.preventDefault(); });
+        fmt.addEventListener('click', function (e) {
+          var b = e.target.closest('[data-f]');
+          if (!b || !open) return;
+          var f = b.getAttribute('data-f');
+          if (f === 'turn') fmtMenu(b, 'turn');
+          else if (f === 'ask') fmtMenu(b, 'ask');
+          else if (f === 'link') linkInput();
+          else if (f === 'clear') clearMarks();
+          else if (f === 'marks') toggleMarks();
+          else if (MARKS[f]) toggleMark(f);
+        });
+        document.body.appendChild(fmt);
+      }
+      function fmtTools() {
+        fmt.innerHTML = '<button class="sage-fmt-turn" data-f="turn" title="Turn into"><span></span>' + svg('lucide-chevron-down') + '</button><i class="sage-fmt-sep"></i>'
+          + fmtButton('b', 'lucide-bold', 'Bold (⌘B)') + fmtButton('i', 'lucide-italic', 'Italic (⌘I)') + fmtButton('u', 'lucide-underline', 'Underline (⌘U)')
+          + fmtButton('s', 'lucide-strikethrough', 'Strikethrough (⇧⌘X)') + fmtButton('code', 'lucide-code', 'Code (⇧⌘C)')
+          + fmtButton('hl', 'lucide-highlighter', 'Highlight (⇧⌘H)') + fmtButton('math', 'lucide-sigma', 'Math (⇧⌘M)')
+          + '<i class="sage-fmt-sep"></i>' + fmtButton('link', 'lucide-link', 'Link (⌘K)') + fmtButton('clear', 'lucide-remove-formatting', 'Clear formatting')
+          + '<i class="sage-fmt-sep"></i><button class="sage-fmt-ask" data-f="ask" title="Ask Sage about this">' + svg('lucide-sparkles') + '<span>Ask Sage</span>' + svg('lucide-chevron-down') + '</button>'
+          + '<i class="sage-fmt-sep"></i>' + fmtButton('marks', marksShown() ? 'lucide-eye-off' : 'lucide-eye', (marksShown() ? 'Hide' : 'Show') + ' the Markdown marks (⌘/)');
+      }
+      function fmtHide() { if (fmt) { fmt.remove(); fmt = null; } fmtMenuClose(); fmtSaved = null; }
+      function fmtPlace(box) {
+        var w = fmt.offsetWidth, h = fmt.offsetHeight, top = box.top - h - 8;
+        if (top < 6) top = box.bottom + 8;
+        fmt.style.left = Math.max(6, Math.min(window.innerWidth - w - 6, box.left + box.width / 2 - w / 2)) + 'px';
+        fmt.style.top = Math.max(6, top) + 'px';
+      }
+      // Shown over a selection in the block you're editing (after the mouse lets go), gone when there's none.
+      function fmtShow() {
+        if (fmt && fmt.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+        var sel = getSelection();
+        if (!open || fmtSelecting || !sel.rangeCount || sel.isCollapsed || !open.area.content.contains(sel.anchorNode) || slash) { fmtHide(); return; }
+        var box = sel.getRangeAt(0).getBoundingClientRect();
+        if (!box.width && !box.height) { fmtHide(); return; }
+        var fresh = !fmt;
+        if (fresh) fmtBuild();
+        fmtTools();
+        var ed = open.area, t = ed.value, r = trimmed(t, ed.range()), k = kindAt(t, r);
+        var label = KINDS.filter(function (x) { return x[0] === k; })[0];
+        fmt.querySelector('.sage-fmt-turn span').textContent = label ? label[1] : 'Text';
+        Object.keys(MARKS).forEach(function (f) { var b = fmt.querySelector('[data-f="' + f + '"]'); if (b) b.classList.toggle('is-active', wrapped(f, t, r)); });
+        fmtPlace(box);
+        if (fresh) fmt.classList.add('is-new');
+      }
+      function fmtSoon() { cancelAnimationFrame(fmtPending); fmtPending = requestAnimationFrame(fmtShow); }
+      document.addEventListener('selectionchange', function () { if (open && !fmtSelecting) fmtSoon(); });
+      document.addEventListener('mousedown', function (e) {
+        if (fmt && fmt.contains(e.target)) return;
+        if (fmtDrop && fmtDrop.contains(e.target)) return;
+        if (slash && slash.el.contains(e.target)) return;
+        if (sugg && sugg.el.contains(e.target)) return;
+        suggClose();
+        var wasField = !!(fmt && fmt.contains(document.activeElement));
+        fmtHide();
+        if (wasField && open && !open.area.content.contains(e.target)) finish(false);
+        if (slash) slashClose();
+        fmtSelecting = !!(open && open.area.content.contains(e.target));
+      }, true);
+      document.addEventListener('mouseup', function () { if (fmtSelecting) { fmtSelecting = false; setTimeout(fmtShow, 0); } }, true);
+      document.addEventListener('scroll', function (e) { if (fmt && !(fmt.contains(e.target))) fmtSoon(); if (slash && !slash.el.contains(e.target)) slashClose(); }, true);
+
+      // Turn into and Ask Sage: a list under the toolbar.
+      var fmtDrop = null;
+      function fmtMenuClose() { if (fmtDrop) { fmtDrop.remove(); fmtDrop = null; } }
+      function fmtMenu(anchor, which) {
+        if (fmtDrop && fmtDrop.dataset.which === which) { fmtMenuClose(); return; }
+        fmtMenuClose();
+        var items = which === 'turn'
+          ? KINDS.map(function (k) { return { icon: k[2], title: k[1], run: function () { turnInto(k[0]); } }; })
+          : [['improve', 'Improve writing', 'lucide-wand-2'], ['proofread', 'Proofread', 'lucide-check-square'], ['shorter', 'Make shorter', 'lucide-scissors'],
+             ['longer', 'Make longer', 'lucide-text'], ['simpler', 'Simplify the language', 'lucide-pilcrow'], ['explain', 'Explain this', 'lucide-help-circle']]
+            .map(function (a) { return { icon: a[2], title: a[1], run: function () { askSage(a[0], ''); } }; })
+            .concat([{ icon: 'lucide-sparkles', title: 'Ask Sage anything…', run: function () { askInput('ask'); } }]);
+        var cur = which === 'turn' && open ? kindAt(open.area.value, open.area.range()) : null;
+        fmtDrop = document.createElement('div');
+        fmtDrop.className = 'sage-fmt-drop';
+        fmtDrop.dataset.which = which;
+        fmtDrop.innerHTML = (which === 'ask' ? '<div class="sage-fmt-label">Sage, with this passage</div>' : '<div class="sage-fmt-label">Turn into</div>')
+          + items.map(function (it, n) {
+            var on = which === 'turn' && KINDS[n] && KINDS[n][0] === cur;
+            return '<div class="sage-fmt-item' + (on ? ' is-active' : '') + '" data-n="' + n + '">' + svg(it.icon) + '<span>' + hx(it.title) + '</span>' + (on ? svg('lucide-check') : '') + '</div>';
+          }).join('');
+        fmtDrop.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        fmtDrop.addEventListener('click', function (e) {
+          var item = e.target.closest('[data-n]');
+          if (!item) return;
+          var it = items[+item.getAttribute('data-n')];
+          fmtMenuClose();
+          it.run();
+        });
+        document.body.appendChild(fmtDrop);
+        var a = anchor.getBoundingClientRect(), d = fmtDrop.getBoundingClientRect();
+        var top = a.bottom + 6;
+        if (top + d.height > window.innerHeight - 6) top = Math.max(6, a.top - d.height - 6);
+        fmtDrop.style.left = Math.max(6, Math.min(window.innerWidth - d.width - 6, a.left)) + 'px';
+        fmtDrop.style.top = top + 'px';
+      }
+
+      // A field in the toolbar (a link, a question for Sage), the selection kept while you type there.
+      function fmtField(placeholder, icon, done) {
+        if (!open) return;
+        var ed = open.area, keep = ed.range();
+        if (!fmt) { fmtBuild(); }
+        fmtMenuClose();
+        fmt.innerHTML = '<div class="sage-fmt-field">' + svg(icon) + '<input type="text" placeholder="' + hx(placeholder) + '" spellcheck="false"><kbd>Enter</kbd></div>';
+        var input = fmt.querySelector('input');
+        var box = getSelection().rangeCount ? getSelection().getRangeAt(0).getBoundingClientRect() : null;
+        if (!box || (!box.width && !box.height)) box = ed.content.getBoundingClientRect();
+        fmt.style.width = '360px';
+        fmtPlace(box);
+        fmtSaved = keep;
+        function back() { fmt && (fmt.style.width = ''); fmtHide(); if (open) { open.area.focus(keep.to); open.area.select(keep.from, keep.to); } }
+        input.addEventListener('keydown', function (e) {
+          e.stopPropagation();
+          if (e.key === 'Escape') { e.preventDefault(); back(); }
+          else if (e.key === 'Enter') { e.preventDefault(); var v = input.value.trim(); fmt.style.width = ''; fmtHide(); if (open) { open.area.focus(keep.to); open.area.select(keep.from, keep.to); } if (v) done(v, keep); }
+        });
+        input.addEventListener('blur', function (e) {
+          if (e.relatedTarget && open && open.area.content.contains(e.relatedTarget)) return;
+          setTimeout(function () { if (fmt && !fmt.contains(document.activeElement)) { fmtHide(); if (open && !open.area.content.contains(document.activeElement)) finish(false); } }, 0);
+        });
+        input.focus();
+      }
+      // A link: an address makes [words](address), anything else [[a note|words]].
+      function linkInput() {
+        fmtField('Paste a link, or type a note’s name', 'lucide-link', function (v, keep) {
+          var ed = open.area, t = ed.value, words = t.slice(keep.from, keep.to);
+          var web = /^(https?:\/\/|www\.|mailto:)/i.test(v), to = /^www\./i.test(v) ? 'https://' + v : v;
+          var link = web ? '[' + (words || v) + '](' + to.replace(/ /g, '%20') + ')' : '[[' + v.replace(/^\[\[|\]\]$/g, '') + (words && words !== v ? '|' + words : '') + ']]';
+          ed.replace(keep.from, keep.to, link);
+        });
+      }
+      function askInput(kind) {
+        fmtField(kind === 'write' ? 'What should Sage write here?' : 'Ask Sage about this passage…', 'lucide-sparkles', function (v) { askSage(kind, v); });
+      }
+      // Sage gets the passage (the selection, else the block): what you typed is saved first.
+      function askSage(kind, prompt) {
+        if (!open) return;
+        var ed = open.area, t = ed.value, r = ed.range(), passage = r.from === r.to ? t : t.slice(r.from, r.to);
+        if (kind === 'write' || kind === 'continue') passage = t.slice(0, linesOf(t, r).to);
+        fmtHide();
+        ed.blur();
+        post({ type: 'ai-edit', kind: kind, prompt: prompt || '', passage: passage });
+      }
+      function fmtKey(e, letter) {
+        if (!open || !e.metaKey || e.altKey) return false;
+        var f = !e.shiftKey && letter === 'b' ? 'b' : !e.shiftKey && letter === 'i' ? 'i' : !e.shiftKey && letter === 'u' ? 'u'
+          : e.shiftKey && letter === 'x' ? 's' : e.shiftKey && letter === 'c' ? 'code' : e.shiftKey && letter === 'h' ? 'hl' : e.shiftKey && letter === 'm' ? 'math' : null;
+        if (f) { e.preventDefault(); toggleMark(f); return true; }
+        if (!e.shiftKey && letter === 'k') { e.preventDefault(); linkInput(); return true; }
+        if (e.key === '/') { e.preventDefault(); toggleMarks(); return true; }
+        return false;
+      }
+
+      // The "/" menu.
+      var slashToday = function () { var d = new Date(), z = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); };
+      var slashNow = function () { var d = new Date(), z = function (n) { return (n < 10 ? '0' : '') + n; }; return z(d.getHours()) + ':' + z(d.getMinutes()); };
+      var SLASH = [
+        { g: 'Basic blocks', t: 'Text', i: 'lucide-type', k: 'text', w: 'paragraph plain' },
+        { g: 'Basic blocks', t: 'Heading 1', i: 'lucide-heading-1', k: 'h1', hint: '#', w: 'title h1 big' },
+        { g: 'Basic blocks', t: 'Heading 2', i: 'lucide-heading-2', k: 'h2', hint: '##', w: 'h2 subtitle' },
+        { g: 'Basic blocks', t: 'Heading 3', i: 'lucide-heading-3', k: 'h3', hint: '###', w: 'h3' },
+        { g: 'Basic blocks', t: 'Bulleted list', i: 'lucide-list', k: 'ul', hint: '-', w: 'bullet unordered' },
+        { g: 'Basic blocks', t: 'Numbered list', i: 'lucide-list-ordered', k: 'ol', hint: '1.', w: 'ordered number' },
+        { g: 'Basic blocks', t: 'To-do list', i: 'lucide-check-square', k: 'todo', hint: '[ ]', w: 'task checkbox check' },
+        { g: 'Basic blocks', t: 'Quote', i: 'lucide-quote', k: 'quote', hint: '>', w: 'blockquote' },
+        { g: 'Basic blocks', t: 'Divider', i: 'lucide-minus', ins: '---\n', hint: '---', w: 'hr line separator rule' },
+        { g: 'Basic blocks', t: 'Code block', i: 'lucide-code', ins: '```\n\n```', at: 4, hint: '```', w: 'snippet program' },
+        { g: 'Basic blocks', t: 'Table', i: 'lucide-table', ins: '| Column 1 | Column 2 |\n| --- | --- |\n|  |  |', at: 40, w: 'grid rows columns' },
+        { g: 'Basic blocks', t: 'Math block', i: 'lucide-sigma', ins: '$$\n\n$$', at: 3, hint: '$$', w: 'equation latex formula' },
+        { g: 'Callouts', t: 'Note', i: 'lucide-info', ins: '> [!note]\n> ', w: 'callout info' },
+        { g: 'Callouts', t: 'Tip', i: 'lucide-lightbulb', ins: '> [!tip]\n> ', w: 'callout hint idea' },
+        { g: 'Callouts', t: 'Warning', i: 'lucide-alert-triangle', ins: '> [!warning]\n> ', w: 'callout caution attention' },
+        { g: 'Callouts', t: 'Question', i: 'lucide-help-circle', ins: '> [!question]\n> ', w: 'callout faq help' },
+        { g: 'Callouts', t: 'Danger', i: 'lucide-flame', ins: '> [!danger]\n> ', w: 'callout error' },
+        { g: 'Callouts', t: 'Example', i: 'lucide-list', ins: '> [!example]\n> ', w: 'callout' },
+        { g: 'Callouts', t: 'Quote callout', i: 'lucide-quote', ins: '> [!quote]\n> ', w: 'callout cite' },
+        { g: 'Insert', t: 'Link to a note', i: 'lucide-link', inl: '[[]]', at: 2, hint: '[[', w: 'wikilink page mention' },
+        { g: 'Insert', t: 'Embed a note or picture', i: 'lucide-image', inl: '![[]]', at: 3, hint: '![[', w: 'image picture file embed transclude' },
+        { g: 'Insert', t: 'Tag', i: 'lucide-hash', inl: '#', w: 'label' },
+        { g: 'Insert', t: 'Today’s date', i: 'lucide-calendar', inl: function () { return slashToday(); }, w: 'date today day' },
+        { g: 'Insert', t: 'The time', i: 'lucide-clock', inl: function () { return slashNow(); }, w: 'time now clock' },
+        { g: 'Sage', t: 'Ask Sage to write…', i: 'lucide-sparkles', ask: 'write', w: 'ai write generate draft' },
+        { g: 'Sage', t: 'Continue writing', i: 'lucide-wand-2', ask: 'continue', w: 'ai continue more' },
+      ];
+      function slashClose() { if (slash) { slash.el.remove(); slash = null; } }
+      function slashOpen(ed, at) {
+        slashClose(); fmtHide();
+        var el = document.createElement('div');
+        el.className = 'sage-slash';
+        el.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        el.addEventListener('click', function (e) { var it = e.target.closest('[data-n]'); if (it) slashApply(+it.getAttribute('data-n')); });
+        el.addEventListener('mousemove', function (e) { var it = e.target.closest('[data-n]'); if (it && slash && slash.pick !== +it.getAttribute('data-n')) { slash.pick = +it.getAttribute('data-n'); slashDraw(false); } });
+        document.body.appendChild(el);
+        var sel = getSelection(), box = sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
+        if (!box || (!box.width && !box.height && !box.top)) box = ed.content.getBoundingClientRect();
+        slash = { ed: ed, at: at, el: el, q: '', shown: [], pick: 0, box: { left: box.left, top: box.top, bottom: box.bottom } };
+        slashDraw(true);
+      }
+      function slashMatches(q) {
+        if (!q) return SLASH.map(function (_, n) { return n; });
+        q = q.toLowerCase();
+        var hits = [];
+        SLASH.forEach(function (it, n) {
+          var words = (it.t + ' ' + (it.w || '') + ' ' + it.g).toLowerCase(), score = it.t.toLowerCase().indexOf(q) === 0 ? 0 : (' ' + words).indexOf(' ' + q) >= 0 ? 1 : words.indexOf(q) >= 0 ? 2 : -1;
+          if (score >= 0) hits.push([score, n]);
+        });
+        return hits.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (h) { return h[1]; });
+      }
+      function slashDraw(place) {
+        var shown = slashMatches(slash.q);
+        slash.shown = shown;
+        if (slash.pick >= shown.length) slash.pick = Math.max(0, shown.length - 1);
+        var html = '', group = '';
+        shown.forEach(function (n, i) {
+          var it = SLASH[n];
+          if (!slash.q && it.g !== group) { group = it.g; html += '<div class="sage-slash-label">' + hx(group) + '</div>'; }
+          html += '<div class="sage-slash-item' + (i === slash.pick ? ' is-selected' : '') + '" data-n="' + i + '"><span class="sage-slash-icon">' + svg(it.i) + '</span><span class="sage-slash-title">'
+            + hx(it.t) + '</span>' + (it.hint ? '<span class="sage-slash-hint">' + hx(it.hint) + '</span>' : '') + '</div>';
+        });
+        if (!shown.length) html = '<div class="sage-slash-none">No blocks match “' + hx(slash.q) + '”</div>';
+        slash.el.innerHTML = '<div class="sage-slash-list">' + html + '</div><div class="sage-slash-foot"><span>Close menu</span><kbd>Esc</kbd></div>';
+        var picked = slash.el.querySelector('.is-selected');
+        if (picked) { var list = slash.el.querySelector('.sage-slash-list'), pt = picked.offsetTop, pb = pt + picked.offsetHeight; if (pt < list.scrollTop + 24) list.scrollTop = Math.max(0, pt - 28); else if (pb > list.scrollTop + list.clientHeight) list.scrollTop = pb - list.clientHeight + 4; }
+        // Under the line, or over it when there's no room below (then kept just over it as the list shortens).
+        var h = slash.el.offsetHeight;
+        if (place) slash.above = slash.box.bottom + 6 + h > window.innerHeight - 6 && slash.box.top - h - 6 > 6;
+        slash.el.classList.toggle('is-above', !!slash.above);
+        slash.el.style.left = Math.max(6, Math.min(window.innerWidth - slash.el.offsetWidth - 6, slash.box.left - 8)) + 'px';
+        slash.el.style.top = Math.max(6, slash.above ? slash.box.top - h - 6 : slash.box.bottom + 6) + 'px';
+      }
+      // After each change: the words after the "/" pick the blocks; it closes when the "/" goes or you move away.
+      function slashSync() {
+        if (!slash) return;
+        if (!open || open.area !== slash.ed) { slashClose(); return; }
+        var t = slash.ed.value, r = slash.ed.range();
+        if (t.charAt(slash.at) !== '/' || r.from !== r.to || r.from <= slash.at) { slashClose(); return; }
+        var q = t.slice(slash.at + 1, r.from);
+        if (/\n/.test(q) || q.length > 30 || /\s\s$/.test(q) || (/\s$/.test(q) && !slashMatches(q).length)) { slashClose(); return; }
+        if (q !== slash.q) { slash.q = q; slash.pick = 0; slashDraw(false); }
+      }
+      function slashKey(e) {
+        if (!slash) return false;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          var n = slash.shown.length;
+          if (n) { slash.pick = (slash.pick + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; slashDraw(false); }
+          return true;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') { if (!slash.shown.length) { slashClose(); return false; } e.preventDefault(); slashApply(slash.pick); return true; }
+        if (e.key === 'Escape') { e.preventDefault(); slashClose(); return true; }
+        return false;
+      }
+      function slashApply(i) {
+        if (!slash) return;
+        var it = SLASH[slash.shown[i]], ed = slash.ed, at = slash.at, r = ed.range();
+        slashClose();
+        if (!it) return;
+        ed.replace(at, Math.max(r.from, at + 1), '');
+        var t = ed.value, b = linesOf(t, { from: at, to: at });
+        if (it.k) { turnInto(it.k); return; }
+        if (it.ask) { askInput(it.ask); return; }
+        if (it.inl != null) {
+          var inl = typeof it.inl === 'function' ? it.inl() : it.inl;
+          ed.replace(at, at, inl, at + (it.at == null ? inl.length : it.at));
+          return;
+        }
+        // A block: in place of the empty line it was typed on, else on a new line under it.
+        var lineText = t.slice(b.from, b.to), alone = !lineText.trim();
+        var where = alone ? b.from : b.to, add = alone ? it.ins : '\n' + it.ins;
+        ed.replace(alone ? b.from : b.to, alone ? b.to : b.to, add, where + (alone ? 0 : 1) + (it.at == null ? it.ins.length : it.at));
+      }
+
+      // (2026-11-15, you asked: as Obsidian does) "#" and a letter lists the vault's tags, "[[" its notes, filtered as you
+      // type: arrows choose, Enter or Tab puts it in ([[Name]] or #tag), Esc closes. Sage answers each asking ("suggest").
+      var sugg = null, suggAsked = 0;
+      function suggClose() { if (sugg) { sugg.el.remove(); sugg = null; } }
+      function suggSync(ed) {
+        if (!open || open.area !== ed) { suggClose(); return; }
+        var t = ed.value, r = ed.range();
+        if (r.from !== r.to) { suggClose(); return; }
+        var before = t.slice(Math.max(0, r.from - 160), r.from), m, kind = null, from = 0, q = '';
+        if ((m = /\[\[([^\]\n|#^]*)$/.exec(before))) { kind = 'link'; q = m[1]; from = r.from - m[0].length; }
+        else if ((m = /(^|[\s(,])#([\p{L}\p{N}_\/-]+)$/u.exec(before)) && /[\p{L}_\/-]/u.test(m[2])) { kind = 'tag'; q = m[2]; from = r.from - q.length - 1; }
+        if (!kind) { suggClose(); return; }
+        if (!sugg || sugg.kind !== kind || sugg.from !== from || sugg.ed !== ed) {
+          suggClose();
+          var el = document.createElement('div');
+          el.className = 'sage-slash sage-sugg';
+          el.addEventListener('mousedown', function (e) { e.preventDefault(); });
+          el.addEventListener('click', function (e) { var it = e.target.closest('[data-n]'); if (it) suggPick(+it.getAttribute('data-n')); });
+          document.body.appendChild(el);
+          var sel = getSelection(), box = sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
+          if (!box || (!box.width && !box.height && !box.top)) box = ed.content.getBoundingClientRect();
+          sugg = { ed: ed, kind: kind, from: from, q: null, items: [], pick: 0, el: el, box: { left: box.left, top: box.top, bottom: box.bottom } };
+          el.hidden = true;
+        }
+        if (sugg.q !== q) { sugg.q = q; sugg.id = ++suggAsked; post({ type: 'suggest', id: sugg.id, kind: kind, q: q }); }
+      }
+      function suggDraw() {
+        if (!sugg) return;
+        if (!sugg.items.length) { sugg.el.hidden = true; return; }
+        sugg.el.hidden = false;
+        sugg.el.innerHTML = '<div class="sage-slash-list">' + sugg.items.map(function (it, i) {
+          return '<div class="sage-slash-item' + (i === sugg.pick ? ' is-selected' : '') + '" data-n="' + i + '"><span class="sage-slash-icon">'
+            + svg(sugg.kind === 'tag' ? 'lucide-hash' : it.kind === 'new' ? 'lucide-file-plus' : 'lucide-file-text') + '</span><span class="sage-slash-title">' + hx(it.text)
+            + '</span>' + (it.hint ? '<span class="sage-slash-hint sage-sugg-hint">' + hx(it.hint) + '</span>' : '') + '</div>';
+        }).join('') + '</div><div class="sage-slash-foot"><span>' + (sugg.kind === 'tag' ? 'Tags in your vault' : 'Notes in your vault') + '</span><kbd>Enter</kbd></div>';
+        var h = sugg.el.offsetHeight, below = sugg.box.bottom + 6 + h <= window.innerHeight - 6;
+        sugg.el.style.left = Math.max(6, Math.min(window.innerWidth - sugg.el.offsetWidth - 6, sugg.box.left - 8)) + 'px';
+        sugg.el.style.top = Math.max(6, below ? sugg.box.bottom + 6 : sugg.box.top - h - 6) + 'px';
+        var picked = sugg.el.querySelector('.is-selected'), list = sugg.el.querySelector('.sage-slash-list');
+        if (picked && list) { if (picked.offsetTop < list.scrollTop) list.scrollTop = picked.offsetTop - 6; else if (picked.offsetTop + picked.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = picked.offsetTop + picked.offsetHeight - list.clientHeight + 6; }
+      }
+      function suggPick(i) {
+        if (!sugg) return;
+        var it = sugg.items[i], ed = sugg.ed, from = sugg.from, kind = sugg.kind;
+        suggClose();
+        if (!it) return;
+        var t = ed.value, r = ed.range();
+        if (kind === 'link') {
+          var end = t.slice(r.from, r.from + 2) === ']]' ? r.from + 2 : r.from, put = '[[' + it.link + ']]';
+          ed.replace(from, end, put, from + put.length);
+        } else {
+          var tag = '#' + it.text.replace(/^#/, '') + (t.charAt(r.from) === ' ' ? '' : ' ');
+          ed.replace(from, r.from, tag, from + tag.length);
+        }
+      }
+      function suggKey(e) {
+        if (!sugg || sugg.el.hidden) return false;
+        var n = sugg.items.length;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sugg.pick = (sugg.pick + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; suggDraw(); return true; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); suggPick(sugg.pick); return true; }
+        if (e.key === 'Escape') { e.preventDefault(); suggClose(); return true; }
+        return false;
+      }
+      // Hooked in once the page's scripts have all run (the page's own receiver, set further down, replaces what's before it).
+      setTimeout(function () {
+        var before = window.sageReceive;
+        window.sageReceive = function (message) {
+          if (message && message.type === 'suggest') { if (sugg && message.id === sugg.id) { sugg.items = message.items || []; sugg.pick = 0; suggDraw(); } return; }
+          if (before) before(message);
+        };
+      }, 0);
+
       // (2026-11-08): a link held with Cmd shows its note beside it (the app draws the preview).
       var previewing = null, overLink = null;
       function linkOf(el) { var a = el && el.closest && el.closest('a.internal-link, [data-sage-link]'); return a; }

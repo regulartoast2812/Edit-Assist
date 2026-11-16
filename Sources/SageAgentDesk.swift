@@ -173,6 +173,26 @@ extension SageDesk {
         }
     }
 
+    /// (2026-11-16, from Creative Assist) A passage you're writing, sent from the note's toolbar or "/" menu: Sage improves,
+    /// proofreads, shortens, lengthens or simplifies it in place, explains or answers about it, or writes after it.
+    func askAboutPassage(path: String, kind: String, passage: String, prompt: String) {
+        guard Study.isPassageKind(kind), passage.count <= 40_000 else { return }
+        let id = current ?? UUID()
+        if current == nil { conversations.append(Study.Conversation(id: id)); current = id }
+        let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        let trimmed = passage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = trimmed.count > 220 ? String(trimmed.prefix(220)).trimmingCharacters(in: .whitespaces) + "…" : trimmed
+        append(Study.Message(fromSage: false, text: Study.passageSaid(kind, prompt: prompt, name: name) + (excerpt.isEmpty ? "" : "\n\n> " + excerpt.replacingOccurrences(of: "\n", with: "\n> "))), to: id)
+        guard !thinking else {
+            refuse(L("I'm still working on something else. When I'm done, ask me again from the toolbar, or here in the chat."), in: id); return
+        }
+        thinkingIn = id; failure = nil
+        Task {
+            defer { thinkingIn = nil }
+            await runAgent(Study.passageRequest(path: path, kind: kind, passage: passage, prompt: prompt), in: id)
+        }
+    }
+
     // MARK: The agent
 
     func stopAgent() { agentRun?.stop() }

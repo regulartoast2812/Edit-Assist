@@ -105,6 +105,9 @@ import WebKit
     var preview: (String, CGPoint?) -> Void = { _, _ in }
     /// The note's title edited in place (2026-11-11, you asked): the vault path and the new name; false when refused.
     var renameNote: (String, String) -> Bool = { _, _ in false }
+    /// (2026-11-16, from Creative Assist) Ask Sage about the passage you're writing: the note's vault path, the kind, the
+    /// passage and your words (the toolbar's Ask Sage, the "/" menu).
+    var askPassage: (String, String, String, String) -> Void = { _, _, _, _ in }
     let keep: URL
 
     private var shownKey = "", lookKey = "", expected: URL?, page: String?
@@ -255,6 +258,29 @@ import WebKit
         let key = file.standardizedFileURL.path
         if places.count > 400, places[key] == nil, let first = places.keys.first { places[first] = nil }
         places[key] = String(decoding: data, as: UTF8.self)
+    }
+
+    /// The vault's tags for the tag menu, read again two minutes on (2026-11-16, from Creative Assist).
+    private static var tags: (vault: URL, at: Date, tags: [(tag: String, count: Int)])?
+
+    /// The tag menu's tags or the link menu's notes, for what's typed after "#" or "[[" (the page's "suggest").
+    private func suggest(_ body: [String: Any]) {
+        guard let vault else { return }
+        let id = (body["id"] as? NSNumber)?.intValue ?? 0, typed = body["q"] as? String ?? "", items = items
+        let tag = body["kind"] as? String == "tag"
+        Task {
+            if tag {
+                if Self.tags == nil || Self.tags!.vault != vault || Date().timeIntervalSince(Self.tags!.at) > 120 {
+                    let read = await Task.detached { Study.vaultTags(vault, items: items) }.value
+                    Self.tags = (vault, Date(), read)
+                }
+                let found = Study.suggestTags(typed, tags: Self.tags?.tags ?? [])
+                post(["type": "suggest", "id": id, "items": found.map { ["text": $0.tag, "hint": $0.count == 1 ? L("1 note") : L("%d notes", $0.count)] }])
+            } else {
+                let found = await Task.detached { Study.suggestLinks(typed, items: items) }.value
+                post(["type": "suggest", "id": id, "items": found.map { ["text": $0.text, "link": $0.link, "hint": $0.folder] }])
+            }
+        }
     }
 
     /// The page told where you were in its file and how wide you last dragged a note's page (2026-11-16, from Creative Assist).
@@ -509,6 +535,9 @@ import WebKit
         case "render": render(body)
         case "task": tick((body["line"] as? NSNumber)?.intValue ?? -1)
         case "redraw": sendBody()
+        case "ai-edit":
+            if let path, let kind = body["kind"] as? String { askPassage(path, kind, body["passage"] as? String ?? "", body["prompt"] as? String ?? "") }
+        case "suggest": suggest(body)
         case "place": if let file { Self.keepPlace(body["place"], for: file) }
         // (2026-11-16, from Creative Assist) A note's page as wide as you dragged its edge, for every note (0: the theme's).
         case "page-width":
@@ -1052,6 +1081,7 @@ struct SageViewerPage: View {
             SageViewerPage.run(command, vault: vault)
         }
         page.renameNote = { path, name in vault.rename(path, to: name) }
+        page.askPassage = { path, kind, passage, prompt in desk.askAboutPassage(path: path, kind: kind, passage: passage, prompt: prompt) }
         page.preview = { href, at in
             guard let at, href.hasPrefix("sage-note:"), vault.vault != nil else { vault.preview = nil; return }
             let name = String(href.dropFirst("sage-note:".count)).removingPercentEncoding ?? ""

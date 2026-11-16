@@ -50,6 +50,18 @@ extension Checks {
         check(!bare.contains("class=\"metadata-container\"") && !bare.contains("class=\"inline-title\"")
               && Study.notePage("Body", look: Study.Look(), dark: true, title: "Pho").contains("<div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"false\" tabindex=\"-1\">Pho</div>"),
               "The note view follows the vault's reading settings: properties hidden, no inline title")
+        // (2026-11-16, from Creative Assist) The tag and link menus, and Ask Sage about a passage.
+        check(Study.tagsOf("---\ntags: [study, \"#vn\"]\n---\n# Heading\nA #idea and #1 and `#code`\n```\n#fenced\n```\n(#todo/next)") == ["study", "vn", "idea", "todo/next"],
+              "A note's tags as Obsidian counts them: frontmatter and text, not headings, numbers or code")
+        check(Study.suggestTags("st", tags: [("history", 9), ("study", 2), ("best", 5), ("Stats", 1)]).map(\.tag) == ["study", "Stats", "history", "best"],
+              "Tags fit first by their start, then most used")
+        let picks = Study.suggestLinks("lit", items: [Study.VaultItem(path: "A/Literature review.md", folder: false, modified: Date(timeIntervalSince1970: 1)),
+                                                     Study.VaultItem(path: "B/Literature review.md", folder: false, modified: Date(timeIntervalSince1970: 2)),
+                                                     Study.VaultItem(path: "Splitting.md", folder: false), Study.VaultItem(path: "Lit", folder: true)])
+        check(picks.map(\.link) == ["B/Literature review", "A/Literature review", "Splitting"] && picks.first?.folder == "B",
+              "Notes for [[: best fit, then the last changed; a shared name written as its path")
+        check(Study.passageRequest(path: "N.md", kind: "proofread", passage: "teh cat", prompt: "").contains("Proofread it") && !Study.isPassageKind("rm"),
+              "Ask Sage about a passage asks his agent for that kind only")
         // (2026-11-16, from Creative Assist) The banner property drawn across the top of the page.
         check(Study.banner("banner: \"[[Sea.jpg]]\"").contains("href=\"sage-note:Sea.jpg\"") && Study.banner("cover: https://x.org/a.png").contains("<img src=\"https://x.org/a.png\"")
               && Study.banner("status: read").isEmpty && Study.notePage("---\nbanner: pics/a.png\n---\nBody", look: Study.Look(), dark: true).contains("sage-banner"),

@@ -1983,6 +1983,20 @@ enum Vietnamese {
         "Type **@** to tag a note or file of your vault (\"summarise @Note\", \"compare @A with @B\"). Attach pictures, videos, PDFs or any file with **+**, by dropping them here or pasting: he looks at them.": "Gõ **@** để gắn một ghi chú hay tệp trong vault (\"tóm tắt @Ghi chú\", \"so sánh @A với @B\"). Đính kèm ảnh, video, PDF hay bất kỳ tệp nào bằng **+**, thả vào đây hoặc dán: anh ấy sẽ xem chúng.",
         "I'll use %@ from now on. Change it any time from the model menu under the message box.": "Từ giờ tôi sẽ dùng %@. Đổi lúc nào cũng được ở menu model dưới ô nhập tin nhắn.",
         "I'll use %@ (%@ effort) from now on. Change it any time from the model menu under the message box.": "Từ giờ tôi sẽ dùng %@ (mức %@). Đổi lúc nào cũng được ở menu model dưới ô nhập tin nhắn.",
+        // (2026-11-16) Ask Sage about a passage, and the tag menu, ported from Creative Assist.
+        "%@ in “%@”": "%@ trong “%@”",
+        "Improve the writing": "Viết hay hơn",
+        "Proofread": "Soát lỗi",
+        "Make it shorter": "Viết ngắn lại",
+        "Make it longer": "Viết dài hơn",
+        "Simplify the language": "Viết đơn giản hơn",
+        "Explain this": "Giải thích đoạn này",
+        "Ask about this": "Hỏi về đoạn này",
+        "Write here": "Viết tại đây",
+        "Continue writing": "Viết tiếp",
+        "I'm still working on something else. When I'm done, ask me again from the toolbar, or here in the chat.": "Tôi đang làm việc khác. Xong rồi thì hỏi lại tôi từ thanh công cụ, hoặc ở đây trong khung chat.",
+        "1 note": "1 ghi chú",
+        "%d notes": "%d ghi chú",
         "Before I work in your vault: which model should I use, and with how much effort? I'll remember it; change it any time from the model menu under the message box.": "Trước khi tôi làm việc trong vault: tôi nên dùng model nào, với mức nỗ lực bao nhiêu? Tôi sẽ nhớ; đổi lúc nào cũng được ở menu model dưới ô nhập tin nhắn.",
     ]
 }
