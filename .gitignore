@@ -19,3 +19,6 @@ Tests/MakeFixtures.swift
 !Tests/Fixtures/21-panelState.png
 !Tests/Fixtures/27-listTop.json
 !Tests/Fixtures/27-listTop.png
+
+# The Creative Assist code (app branch worktree), linked here so it can be worked on from this folder.
+/Creative Assist
